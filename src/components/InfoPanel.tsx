@@ -1,17 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { Session } from '../model/types'
 import { si } from '../util/format'
 
 export function InfoPanel({ session, storage }: { session: Session; storage?: React.ReactNode }) {
   const [filter, setFilter] = useState('')
   const [zoomShot, setZoomShot] = useState(false)
-  const shotUrl = useMemo(() => (session.screenshot ? URL.createObjectURL(session.screenshot) : undefined), [session.screenshot])
-  useEffect(
-    () => () => {
-      if (shotUrl) URL.revokeObjectURL(shotUrl)
-    },
-    [shotUrl],
-  )
+  const shotUrl = session.screenshot ? screenshotUrl(session.screenshot) : undefined
 
   const first = session.channels[0]?.wave
   const setupRows = useMemo(() => {
@@ -19,7 +13,6 @@ export function InfoPanel({ session, storage }: { session: Session; storage?: Re
     const f = filter.trim().toUpperCase()
     return Object.entries(session.setup)
       .filter(([k, v]) => !f || k.includes(f) || v.toUpperCase().includes(f))
-      .slice(0, 400)
   }, [session.setup, filter])
 
   return (
@@ -77,7 +70,10 @@ export function InfoPanel({ session, storage }: { session: Session; storage?: Re
 
       {session.setup && (
         <>
-          <h4>Instrument setup ({Object.keys(session.setup).length} settings)</h4>
+          <h4>
+            Instrument setup (
+            {filter.trim() ? `${setupRows.length} of ${Object.keys(session.setup).length}` : Object.keys(session.setup).length} settings)
+          </h4>
           <input className="search" placeholder="Filter, e.g. CH2 or TRIGGER" value={filter} onChange={(e) => setFilter(e.target.value)} />
           <div className="setup-list mono">
             {setupRows.map(([k, v]) => (
@@ -90,4 +86,16 @@ export function InfoPanel({ session, storage }: { session: Session; storage?: Re
       )}
     </div>
   )
+}
+
+// One object URL per screenshot for the lifetime of the page: the panel mounts and unmounts
+// often, and revoking on unmount would break the image when it remounts (e.g. StrictMode).
+const urls = new WeakMap<Blob, string>()
+function screenshotUrl(blob: Blob): string {
+  let url = urls.get(blob)
+  if (!url) {
+    url = URL.createObjectURL(blob)
+    urls.set(blob, url)
+  }
+  return url
 }

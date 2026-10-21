@@ -222,7 +222,7 @@ export async function runExport(ctx: ExportContext, kind: ExportKind, prefs: Exp
       meta,
       image: image ? await blobToDataUrl(image) : undefined,
       tables: reportTables(ctx, prefs).map((t) => ({ ...t, rows: t.rows.map((r) => (r.color ? { ...r, color: ink(r.color) } : r)) })),
-      generatedBy: `Created with Scope Viewer from ${session.fileName}`,
+      generatedBy: `Created with Scope Viewer ${__APP_VERSION__} from ${session.fileName}`,
     })
     downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), `${fileStem}-report.html`)
     return

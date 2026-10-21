@@ -12,10 +12,14 @@ export const MAX_MATH = 8
 
 export const MATH_COLORS = ['#ff6ec7', '#b388ff', '#5ce1e6', '#ffd166', '#f4845f', '#9ef01a', '#e0aaff', '#48cae4']
 
-export function nextMathId(defs: MathDef[]): string {
+/**
+ * First free id MATH1, MATH2, … that is neither used by another math channel nor by a channel
+ * of the session (a scope session can contain its own math waveforms, e.g. math1.wfm → MATH1).
+ */
+export function nextMathId(defs: MathDef[], taken: string[] = []): string {
   for (let n = 1; ; n++) {
     const id = `MATH${n}`
-    if (!defs.some((d) => d.id === id)) return id
+    if (!defs.some((d) => d.id === id) && !taken.includes(id)) return id
   }
 }
 
@@ -55,15 +59,5 @@ export function loadMath(fingerprint: string | undefined): StoredMath[] {
     )
   } catch {
     return []
-  }
-}
-
-export function saveMath(fingerprint: string | undefined, list: StoredMath[]): void {
-  if (!fingerprint) return
-  try {
-    if (list.length) localStorage.setItem(PREFIX + fingerprint, JSON.stringify(list))
-    else localStorage.removeItem(PREFIX + fingerprint)
-  } catch {
-    // storage unavailable
   }
 }

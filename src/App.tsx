@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Session } from './model/types'
-import { parseAnalysisJson } from './model/workspace'
+import { deleteStoredSession, parseAnalysisJson } from './model/workspace'
 import { loadSession } from './parsers/load'
 import { Scope, type InitialState, type ScopeHandle, type SourceFile } from './components/Scope'
+import { Logo } from './components/ui/Logo'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 const ACCEPT = '.tss,.wfm,.set,.scopeview,.json'
 const isJson = (f: File) => /\.json$/i.test(f.name)
@@ -114,21 +116,30 @@ export default function App() {
     <>
       {picker}
       {current ? (
-        <Scope
-          ref={scopeRef}
+        <ErrorBoundary
           key={current.generation}
-          session={current.session}
-          sources={current.sources}
-          initial={current.initial}
-          onOpen={() => inputRef.current?.click()}
           onClose={() => setCurrent(null)}
-          onReplaceWorkspace={replaceWorkspace}
-        />
+          onReset={() => {
+            // A broken saved state must not make the file unusable: forget it and show the file defaults
+            if (current.session.fingerprint) deleteStoredSession(current.session.fingerprint)
+            replaceWorkspace({ kind: 'defaults' })
+          }}
+        >
+          <Scope
+            ref={scopeRef}
+            session={current.session}
+            sources={current.sources}
+            initial={current.initial}
+            onOpen={() => inputRef.current?.click()}
+            onClose={() => setCurrent(null)}
+            onReplaceWorkspace={replaceWorkspace}
+          />
+        </ErrorBoundary>
       ) : (
         <div className="landing">
           <div className="landing-card">
             <div className="brand big">
-              <span className="logo">◢</span> Scope Viewer
+              <Logo size={30} /> Scope Viewer
             </div>
             <p>View and analyse oscilloscope session files in your browser. Files are processed locally and never uploaded.</p>
             <button className="drop-target" onClick={() => inputRef.current?.click()} disabled={busy}>

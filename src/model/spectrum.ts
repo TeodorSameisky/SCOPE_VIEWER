@@ -85,13 +85,3 @@ export function loadSpectra(fingerprint: string | undefined): StoredSpectra {
     return parseStoredSpectra(null)
   }
 }
-
-export function saveSpectra(fingerprint: string | undefined, stored: StoredSpectra): void {
-  if (!fingerprint) return
-  try {
-    if (stored.defs.length) localStorage.setItem(PREFIX + fingerprint, JSON.stringify(stored))
-    else localStorage.removeItem(PREFIX + fingerprint)
-  } catch {
-    // storage unavailable
-  }
-}

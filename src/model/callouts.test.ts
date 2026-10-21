@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { calloutsToJson, nextCalloutNumber, parseCalloutJson, type Callout } from './callouts'
+import { nextCalloutNumber, sanitizeCallouts, type Callout } from './callouts'
 import { zoomAround } from '../components/state'
 
 const sample: Callout[] = [
@@ -8,24 +8,18 @@ const sample: Callout[] = [
   { id: 'c', n: 3, type: 'region', t: -5e-3, t2: -1e-4, text: 'fault window', color: '#3fb6ff' },
 ]
 
-describe('callout files', () => {
-  it('round-trips through JSON', () => {
-    const json = calloutsToJson('Tek000.tss', 'abc', sample)
-    const { callouts, otherFile } = parseCalloutJson(json, 'abc')
-    expect(otherFile).toBe(false)
+describe('callout validation', () => {
+  it('keeps valid callouts through JSON', () => {
+    const callouts = sanitizeCallouts(JSON.parse(JSON.stringify(sample)))
     expect(callouts).toEqual(sample.map((c) => ({ view: undefined, div: undefined, t2: undefined, channel: undefined, dx: undefined, dy: undefined, ...c })))
   })
 
-  it('flags callouts made for another file', () => {
-    expect(parseCalloutJson(calloutsToJson('x.tss', 'abc', sample), 'def').otherFile).toBe(true)
-  })
-
-  it('drops invalid entries and rejects non-callout files', () => {
-    const { callouts } = parseCalloutJson(JSON.stringify({ callouts: [{ type: 'region', t: 1 }, { type: 'bogus', t: 0 }, { type: 'marker', t: 2, color: 'red;x' }] }), undefined)
+  it('drops invalid entries', () => {
+    const callouts = sanitizeCallouts([{ type: 'region', t: 1 }, { type: 'bogus', t: 0 }, { type: 'marker', t: 2, color: 'red;x' }])
     expect(callouts).toHaveLength(1)
     expect(callouts[0].type).toBe('marker')
     expect(callouts[0].color).toBe('#e6e9ee')
-    expect(() => parseCalloutJson('{"foo":1}', undefined)).toThrow()
+    expect(sanitizeCallouts({ foo: 1 })).toEqual([])
   })
 
   it('numbers new callouts after the highest existing one', () => {

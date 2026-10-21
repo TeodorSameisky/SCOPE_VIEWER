@@ -1,4 +1,3 @@
-import { useRef } from 'react'
 import { CALLOUT_COLORS, CALLOUT_ICON, calloutTitle, type Callout } from '../model/callouts'
 import { si } from '../util/format'
 import type { LiveChannel, Tool } from './state'
@@ -13,13 +12,10 @@ interface Props {
   onUpdate: (id: string, patch: Partial<Callout>) => void
   onDelete: (id: string) => void
   onJump: (c: Callout) => void
-  onExport: () => void
-  onImport: (file: File) => void
   onClear: () => void
 }
 
 export function CalloutPanel(p: Props) {
-  const fileRef = useRef<HTMLInputElement>(null)
   const sorted = [...p.callouts].sort((a, b) => a.t - b.t)
   return (
     <div className="panel-body">
@@ -89,27 +85,12 @@ export function CalloutPanel(p: Props) {
       })}
 
       <div className="row wrap">
-        <button onClick={p.onExport} disabled={!p.callouts.length}>
-          Export…
-        </button>
-        <button onClick={() => fileRef.current?.click()}>Import…</button>
         <span className="spacer" />
-        <button className="text-btn danger" disabled={!p.callouts.length} onClick={() => confirm(`Delete all ${p.callouts.length} callouts?`) && p.onClear()}>
+        <button className="text-btn danger" disabled={!p.callouts.length} onClick={p.onClear}>
           Delete all
         </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".json,application/json"
-          hidden
-          onChange={(e) => {
-            const f = e.target.files?.[0]
-            if (f) p.onImport(f)
-            e.target.value = ''
-          }}
-        />
       </div>
-      <p className="hint">Callouts are saved in this browser for this session file and included in the PNG export. Use Export to share them.</p>
+      <p className="hint">Callouts are saved with the session and included in image and report exports. To share them, use File → Save analysis file.</p>
     </div>
   )
 }

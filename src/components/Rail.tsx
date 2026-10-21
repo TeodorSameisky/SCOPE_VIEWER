@@ -51,6 +51,7 @@ const SHORTCUTS: [string, string][] = [
   ['+  −  ←  →', 'Zoom / pan'],
   ['Backspace', 'Back to previous view'],
   ['Enter / Delete', 'Edit / delete selected callout'],
+  ['Ctrl + Z', 'Undo deleting a callout or math channel'],
   ['O  T  \\', 'Overview / measurements / focus mode'],
   ['Spectrum: wheel, drag', 'Zoom / pan frequency (Ctrl + wheel: level)'],
   ['Esc', 'Cancel, back to Pan'],
@@ -77,6 +78,9 @@ function HelpButton() {
               </div>
             ))}
           </dl>
+          <p className="version mono">
+            Scope Viewer {__APP_VERSION__} · built {new Date(__BUILD_TIME__).toLocaleString()}
+          </p>
         </div>
       )}
     </div>

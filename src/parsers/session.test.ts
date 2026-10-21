@@ -54,6 +54,18 @@ describe.skipIf(!hasSample)('Tektronix .tss session (SessionSample/Tek000.tss)',
     expect(findPeaks(spec, 5).length).toBeGreaterThan(0)
   })
 
+  it('keeps channel ids unique when file names map to the same channel', async () => {
+    const { unzipSync } = await import('fflate')
+    const ch1 = unzipSync(new Uint8Array(buf))['ch1.wfm']
+    const data = () => ch1.slice().buffer
+    const loaded = loadFiles([
+      { name: 'Tek000_CH1.wfm', data: data() },
+      { name: 'ch1_d0.wfm', data: data() },
+      { name: 'CH1.wfm', data: data() },
+    ])
+    expect(loaded.channels.map((c) => c.wave.id).sort()).toEqual(['CH1', 'CH1_2', 'CH1_D0'])
+  })
+
   it('applies the setup', () => {
     expect(s.views).toEqual([['CH1', 'CH6', 'CH2'], ['CH4', 'CH5', 'CH3']])
     const ch5 = s.channels.find((c) => c.wave.id === 'CH5')!.display

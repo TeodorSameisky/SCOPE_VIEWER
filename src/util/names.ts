@@ -10,7 +10,3 @@ export function channelName(id: string): string {
 export function channelTag(id: string): string {
   return id.replace(/^CH/i, 'C').replace(/^MATH/i, 'M').replace(/^REF/i, 'R')
 }
-
-export function isMath(id: string): boolean {
-  return /^MATH\d+$/i.test(id)
-}

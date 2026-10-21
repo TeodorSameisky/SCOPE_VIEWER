@@ -15,10 +15,12 @@ interface Props {
 
 /** Session panel section: where the work is kept, saving it to files, managing stored sessions */
 export function StorageSection(p: Props) {
-  // Re-read the list after deleting; it lives in localStorage, not in React state
-  const [version, setVersion] = useState(0)
-  const stored = listStoredSessions()
-  void version
+  // Read when the panel opens and after forgetting sessions (the list lives in localStorage)
+  const [stored, setStored] = useState(listStoredSessions)
+  const forget = (fingerprints: string[]) => {
+    fingerprints.forEach(deleteStoredSession)
+    setStored(listStoredSessions())
+  }
   const totalBytes = stored.reduce((n, s) => n + s.bytes, 0)
   const others = stored.filter((s) => s.fingerprint !== p.fingerprint)
 
@@ -67,10 +69,7 @@ export function StorageSection(p: Props) {
                   className="icon-btn"
                   title="Forget this session"
                   aria-label={`Forget ${s.fileName}`}
-                  onClick={() => {
-                    deleteStoredSession(s.fingerprint)
-                    setVersion((v) => v + 1)
-                  }}
+                  onClick={() => forget([s.fingerprint])}
                 >
                   <Trash2 size={14} />
                 </button>
@@ -85,8 +84,7 @@ export function StorageSection(p: Props) {
           className="text-btn danger"
           onClick={() => {
             if (!confirm(`Forget the saved state of ${others.length} other session files?`)) return
-            others.forEach((s) => deleteStoredSession(s.fingerprint))
-            setVersion((v) => v + 1)
+            forget(others.map((s) => s.fingerprint))
           }}
         >
           Forget all other sessions
