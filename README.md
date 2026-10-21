@@ -11,11 +11,12 @@ All parsing happens **in the browser** (in a Web Worker). Session files are neve
 | --- | --- |
 | Tektronix session `.tss` (4/5/6-Series MSO) | Zip with `chN.wfm`, a zipped SCPI setup (`.set`), a screenshot and `manifest.json`. Channel labels, V/div, offset/position, stacked view layout, trigger, cursors and measurements are restored from the setup. |
 | Tektronix waveform `.wfm` (WFM#001–#003) | One or more files; drop a matching `.set` file together with them to restore the setup. FastFrame: only the first frame is shown. |
+| Scope Viewer bundle `.scopeview` | A session file together with its analysis (see *Saving*). An analysis file `.scopeview.json` can also be opened together with its session file, or dropped onto an open session. |
 | Rigol | Planned. |
 
 ## Layout
 
-- **Top bar** – open file, mouse tools (Pan, Zoom, Note, Marker, Region), view navigation, cursors, Export menu
+- **Top bar** – File menu, save status, mouse tools (Pan, Zoom, Note, Marker, Region), view navigation, cursors, Export
 - **Plot** – with the optional overview strip above and the measurements table below
 - **Right rail** – opens the side panels (Cursor readouts, Callouts, Session info & setup) and shows/hides
   the overview strip and measurements; *Focus* (`\`) hides everything except the plot
@@ -36,7 +37,7 @@ Which panels are open is remembered in the browser.
   rail) documents every measurement and the reference levels used
 - **Math channels** and **Spectrum (FFT)** (see below)
 - Instrument screenshot and searchable instrument setup
-- Export the visible range as CSV and the plot (including callouts) as PNG
+- Saving in the browser, analysis files and bundles; exports to image, report and CSV (see below)
 
 ### Zooming
 
@@ -60,8 +61,8 @@ Mark events directly on the waveforms:
 
 Pick a type in the toolbar (or press N / M / R), click (or drag for a region) in the plot and type
 the text. Drag callouts to move them, double-click to edit. The **Callouts** tab lists all of them
-with *Go to*. Callouts are stored in the browser per session file (identified by a SHA-256 hash of
-its contents) and can be exported/imported as JSON to share them.
+with *Go to*. Callouts are saved with the session (see *Saving*); the Callouts panel can also export/import
+just the callouts as JSON.
 
 ### Math channels
 
@@ -101,6 +102,37 @@ of a channel or math channel in a view below the time views, like the FFT math f
 
 Spectra are saved per session file like math channels.
 
+### Saving
+
+Everything you change – channel settings and view layout, math channels, spectra, callouts, cursors,
+the time window, the measurement selection and the session **notes** – is saved automatically in the
+browser and restored when the same file is opened again. Files are recognised by a SHA-256 hash of
+their contents, not by their name. The status next to the file name shows whether changes are saved;
+the Session panel lists stored sessions (the 50 most recent are kept) and can reset a session to the
+file defaults.
+
+To keep or share the work, use the **File** menu:
+
+| File | Contents |
+| --- | --- |
+| Analysis `.scopeview.json` | Your work only (a few kB). Open it together with the session file, or drop it onto the open session. |
+| Session with analysis `.scopeview` | The original session file(s) plus the analysis in one zip – one file to send to a colleague. |
+
+### Export
+
+The **Export** menu opens one dialog for all outputs:
+
+| Output | Options |
+| --- | --- |
+| Image (PNG) | header (file, time base, trigger, cursors), channel legend, spectrum, measurement table, 1–3× resolution; copy to clipboard (HTTPS only) |
+| Report (HTML) | title, notes, image, channel and math settings, measurements, cursors, callouts, spectrum peaks – one file, printable to PDF |
+| Waveform data (CSV) | on screen / between cursors / whole record, visible or all channels, every n-th sample |
+| Measurements (CSV) | the measurement table, values in base units |
+| Spectra (CSV) | the visible spectra, dB or linear as shown |
+
+CSV files can be written comma separated, **semicolon separated with decimal comma (Excel in DE/EU)**
+or tab separated.
+
 ### Keyboard
 
 `P` pan · `Z` zoom tool · `N` note · `M` marker · `R` region · `Esc` back to pan ·
@@ -125,7 +157,8 @@ Code layout:
 src/parsers/   file formats (tekWfm, tekSetup, session = .tss/.wfm loader, worker)
 src/dsp/       min/max pyramid, measurements and their documentation
 src/math/      expression language and signal processing for math channels, FFT and windows
-src/model/     data types and callouts (storage, import/export)
+src/model/     data types, callouts, math, spectra and the workspace (autosave, analysis files)
+src/export/    CSV, image composition, HTML report, bundles
 src/render/    canvas drawing of views, time axis and spectrum
 src/components React UI (Scope workspace, plot, panels)
 ```

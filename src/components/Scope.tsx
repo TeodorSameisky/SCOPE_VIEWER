@@ -444,8 +444,11 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
   )
 
   const [saveStatus, setSaveStatus] = useState<SaveStatus>(() => (boot.source === 'saved' ? { state: 'saved', at: new Date().toISOString() } : { state: 'clean' }))
-  // A file that is only opened is not stored; the first change (or an imported / migrated workspace) is
-  const firstRun = useRef(boot.source === 'saved' || boot.source === 'default')
+  // A file that is only opened is not stored: saving starts with the first change. An imported or
+  // migrated workspace is not in storage yet, so it is saved right away. Comparing with the initial
+  // state (instead of skipping the first effect run) also holds when effects run twice in development.
+  const [initialJson] = useState(() => (boot.source === 'saved' || boot.source === 'default' ? JSON.stringify(boot.workspace) : null))
+  const changed = useRef(initialJson === null)
   const latest = useRef(workspace)
   const timer = useRef<number | undefined>(undefined)
   const flush = useCallback(() => {
@@ -456,13 +459,12 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
   }, [session])
   useEffect(() => {
     latest.current = workspace
-    if (firstRun.current) {
-      firstRun.current = false
-      return
-    }
+    // Once something changed, every state is saved (also a change back to the initial one)
+    if (!changed.current && JSON.stringify(workspace) === initialJson) return
+    changed.current = true
     window.clearTimeout(timer.current)
     timer.current = window.setTimeout(flush, 400)
-  }, [workspace, flush])
+  }, [workspace, flush, initialJson])
   // Save pending changes when the page is closed or the session is left
   useEffect(() => {
     const onHide = () => timer.current !== undefined && flush()

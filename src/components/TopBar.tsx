@@ -66,6 +66,7 @@ export function TopBar(p: Props) {
       <Menu
         icon={FolderOpen}
         label="File"
+        align="left"
         items={[
           { label: 'Open session file…', hint: '.tss .wfm .scopeview', icon: FolderOpen, onClick: p.onOpen },
           { label: 'Open analysis file…', hint: '.scopeview.json', icon: Upload, onClick: p.onOpenAnalysis },

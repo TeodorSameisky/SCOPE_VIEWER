@@ -13,7 +13,7 @@ export interface MenuItem {
 }
 
 /** Button that opens a small drop-down list of actions. */
-export function Menu({ icon: Icon, label, items }: { icon: LucideIcon; label: string; items: MenuItem[] }) {
+export function Menu({ icon: Icon, label, items, align = 'right' }: { icon: LucideIcon; label: string; items: MenuItem[]; align?: 'left' | 'right' }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const close = useCallback(() => setOpen(false), [])
@@ -26,7 +26,7 @@ export function Menu({ icon: Icon, label, items }: { icon: LucideIcon; label: st
         <ChevronDown size={14} aria-hidden />
       </button>
       {open && (
-        <div className="menu-list" role="menu">
+        <div className={`menu-list ${align}`} role="menu">
           {items.map((it) => (
             <div key={it.label} className="menu-entry">
               {it.divider && <div className="menu-divider" role="separator" />}

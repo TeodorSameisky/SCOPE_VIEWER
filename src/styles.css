@@ -324,6 +324,10 @@ code {
 .menu-list button:hover:not(:disabled) {
   background: #1e2430;
 }
+.menu-list.left {
+  right: auto;
+  left: 0;
+}
 .menu-list small {
   margin-left: auto;
   color: var(--muted);
