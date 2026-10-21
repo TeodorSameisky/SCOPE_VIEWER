@@ -36,25 +36,26 @@ export function Rail(p: Props) {
   )
 }
 
-const SHORTCUTS: [string, string][] = [
-  ['Wheel', 'Zoom time around the pointer'],
-  ['Shift + wheel', 'Pan'],
-  ['Drag', 'Pan (Pan tool) / zoom rectangle (Zoom tool)'],
-  ['Shift + drag, drag on time axis', 'Zoom to a time range'],
-  ['Double-click', 'Full record'],
-  ['Click a trace', 'Select channel'],
-  ['Ctrl / Alt + wheel', 'V/div / position of selected channel'],
-  ['P  Z', 'Pan / Zoom tool'],
-  ['N  M  R', 'Note / Marker / Region'],
-  ['C', 'Cursors on/off'],
-  ['F', 'Full record'],
-  ['+  −  ←  →', 'Zoom / pan'],
-  ['Backspace', 'Back to previous view'],
-  ['Enter / Delete', 'Edit / delete selected callout'],
-  ['Ctrl + Z', 'Undo deleting a callout or math channel'],
-  ['O  T  \\', 'Overview / measurements / focus mode'],
-  ['Spectrum: wheel, drag', 'Zoom / pan frequency (Ctrl + wheel: level)'],
-  ['Esc', 'Cancel, back to Pan'],
+/** Keys or gestures (alternatives as separate chips) and what they do */
+const SHORTCUTS: [string[], string][] = [
+  [['Wheel'], 'Zoom time around the pointer'],
+  [['Shift + wheel'], 'Pan'],
+  [['Drag'], 'Pan (Pan tool) / zoom rectangle (Zoom tool)'],
+  [['Shift + drag', 'Drag on time axis'], 'Zoom to a time range'],
+  [['Double-click'], 'Full record'],
+  [['Click a trace'], 'Select channel'],
+  [['Ctrl / Alt + wheel'], 'V/div / position of selected channel'],
+  [['P  Z'], 'Pan / Zoom tool'],
+  [['N  M  R'], 'Note / Marker / Region'],
+  [['C'], 'Cursors on/off'],
+  [['F'], 'Full record'],
+  [['+  −  ←  →'], 'Zoom / pan'],
+  [['Backspace'], 'Back to previous view'],
+  [['Enter / Delete'], 'Edit / delete selected callout'],
+  [['Ctrl + Z'], 'Undo deleting a callout or math channel'],
+  [['O  T  \\'], 'Overview / measurements / focus mode'],
+  [['Wheel', 'Drag'], 'In the spectrum: zoom / pan frequency (Ctrl + wheel: level)'],
+  [['Esc'], 'Cancel, back to Pan'],
 ]
 
 function HelpButton() {
@@ -69,10 +70,12 @@ function HelpButton() {
         <div className="popover help-popover">
           <h4>Mouse &amp; keyboard</h4>
           <dl>
-            {SHORTCUTS.map(([k, v]) => (
-              <div key={k}>
+            {SHORTCUTS.map(([keys, v]) => (
+              <div key={keys.join('|')}>
                 <dt>
-                  <kbd>{k}</kbd>
+                  {keys.map((k) => (
+                    <kbd key={k}>{k}</kbd>
+                  ))}
                 </dt>
                 <dd>{v}</dd>
               </div>

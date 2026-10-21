@@ -547,9 +547,20 @@ code {
 }
 .help-popover dl > div {
   display: grid;
-  grid-template-columns: 150px 1fr;
+  grid-template-columns: 150px minmax(0, 1fr);
   gap: 10px;
   align-items: baseline;
+}
+/* Alternatives wrap onto separate lines; a chip longer than the column wraps inside it */
+.help-popover dt {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+.help-popover dt kbd {
+  max-width: 100%;
+  white-space: normal;
 }
 .help-popover .version {
   margin: 10px 0 0;
