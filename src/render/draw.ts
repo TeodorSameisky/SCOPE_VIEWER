@@ -1,6 +1,7 @@
 import type { ChannelDisplay, Waveform } from '../model/types'
 import type { MinMaxPyramid } from '../dsp/minmax'
 import { siTick } from '../util/format'
+import { channelTag } from '../util/names'
 
 export const DIVS_Y = 10
 /** Gutter on the right of each plot for the vertical scale labels */
@@ -132,7 +133,7 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
     badges[i].y = Math.min(badges[i].y, limit)
   }
   for (const { d, y } of badges) {
-    const tag = d.id.replace(/^CH/, 'C')
+    const tag = channelTag(d.id)
     const w = ctx.measureText(tag).width + 8
     ctx.fillStyle = d.color
     ctx.beginPath()

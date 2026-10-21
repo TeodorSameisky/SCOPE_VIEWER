@@ -24,27 +24,18 @@ export interface Measurements {
   posWidth: number
   /** Positive duty cycle in % */
   duty: number
+  /** Samples in the range */
   count: number
+  /** False when the signal has no clear two levels; timing values are then NaN */
+  levelsOk: boolean
 }
 
-export type MeasurementKey = Exclude<keyof Measurements, 'count'>
+export type MeasurementKey = Exclude<keyof Measurements, 'count' | 'levelsOk'>
 
-export const MEASUREMENT_DEFS: { key: MeasurementKey; label: string; unit: 'y' | 's' | 'Hz' | '%' }[] = [
-  { key: 'max', label: 'Maximum', unit: 'y' },
-  { key: 'min', label: 'Minimum', unit: 'y' },
-  { key: 'pkpk', label: 'Peak-to-peak', unit: 'y' },
-  { key: 'mean', label: 'Mean', unit: 'y' },
-  { key: 'rms', label: 'RMS', unit: 'y' },
-  { key: 'top', label: 'Top', unit: 'y' },
-  { key: 'base', label: 'Base', unit: 'y' },
-  { key: 'amplitude', label: 'Amplitude', unit: 'y' },
-  { key: 'frequency', label: 'Frequency', unit: 'Hz' },
-  { key: 'period', label: 'Period', unit: 's' },
-  { key: 'riseTime', label: 'Rise time', unit: 's' },
-  { key: 'fallTime', label: 'Fall time', unit: 's' },
-  { key: 'posWidth', label: 'Positive width', unit: 's' },
-  { key: 'duty', label: 'Duty cycle', unit: '%' },
-]
+/** Minimum Amplitude, relative to Peak-to-peak, for timing measurements to be trusted */
+export const MIN_LEVEL_RATIO = 0.2
+/** Minimum share of samples within 10 % of Top or Base (a sine has ~40 %, a ramp 20 %, noise < 2 %) */
+const MIN_LEVEL_OCCUPANCY = 0.05
 
 /** Time of the crossing of `level` between samples i-1 and i, linearly interpolated. */
 function crossTime(data: Float32Array, i: number, level: number, t0: number, dt: number): number {
@@ -60,7 +51,7 @@ export function measure(data: Float32Array, i0: number, i1: number, t0: number, 
   const n = i1 - i0
   const nan = NaN
   if (n <= 0) {
-    return { min: nan, max: nan, pkpk: nan, mean: nan, rms: nan, top: nan, base: nan, amplitude: nan, frequency: nan, period: nan, riseTime: nan, fallTime: nan, posWidth: nan, duty: nan, count: 0 }
+    return { min: nan, max: nan, pkpk: nan, mean: nan, rms: nan, top: nan, base: nan, amplitude: nan, frequency: nan, period: nan, riseTime: nan, fallTime: nan, posWidth: nan, duty: nan, count: 0, levelsOk: false }
   }
 
   let min = Infinity
@@ -104,7 +95,17 @@ export function measure(data: Float32Array, i0: number, i1: number, t0: number, 
   let posWidth = nan
   let duty = nan
 
-  if (amplitude > 0) {
+  // Usable levels for edge detection? Noise either has its histogram modes close together
+  // (small amplitude) or, with min/max as levels, hardly any samples near those levels.
+  let levelsOk = amplitude > 0 && amplitude >= MIN_LEVEL_RATIO * pkpk
+  if (levelsOk) {
+    const lo = base + 0.1 * amplitude
+    const hi = top - 0.1 * amplitude
+    let near = 0
+    for (let i = i0; i < i1; i++) if (data[i] <= lo || data[i] >= hi) near++
+    levelsOk = near >= n * MIN_LEVEL_OCCUPANCY
+  }
+  if (levelsOk) {
     const l10 = base + 0.1 * amplitude
     const l50 = base + 0.5 * amplitude
     const l90 = base + 0.9 * amplitude
@@ -158,5 +159,5 @@ export function measure(data: Float32Array, i0: number, i1: number, t0: number, 
     }
   }
 
-  return { min, max, pkpk, mean, rms, top, base, amplitude, frequency, period, riseTime, fallTime, posWidth, duty, count: n }
+  return { min, max, pkpk, mean, rms, top, base, amplitude, frequency, period, riseTime, fallTime, posWidth, duty, count: n, levelsOk }
 }

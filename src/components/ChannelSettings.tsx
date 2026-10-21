@@ -1,38 +1,45 @@
 import { Eye, EyeOff } from 'lucide-react'
+import type { ChannelDisplay } from '../model/types'
 import { si } from '../util/format'
-import { stepScale, type DisplayPatch, type LiveChannel } from './state'
+import { channelName } from '../util/names'
+import { stepScale, type DisplayPatch } from './state'
 
 interface Props {
-  channel: LiveChannel
+  display: ChannelDisplay
+  /** Vertical unit of the channel */
+  unit: string
   views: string[][]
   onAdjust: (id: string, patch: DisplayPatch) => void
   onMoveToView: (id: string, view: number) => void
   onAutoscale: (id: string) => void
+  /** Extra content between the header and the vertical settings (math expression) */
+  children?: React.ReactNode
 }
 
 const round = (v: number) => Math.round(v * 100) / 100
 
 /** Vertical settings of one channel (shown in the channel badge popover). */
-export function ChannelSettings({ channel: { wave, display: d }, views, onAdjust, onMoveToView, onAutoscale }: Props) {
-  const id = wave.id
+export function ChannelSettings({ display: d, unit, views, onAdjust, onMoveToView, onAutoscale, children }: Props) {
+  const id = d.id
   const view = views.findIndex((v) => v.includes(id))
   return (
     <div className="channel-settings" style={{ ['--ch' as string]: d.color }}>
       <div className="channel-head">
-        <span className="chip">{id.replace(/^CH/, 'Ch ')}</span>
+        <span className="chip">{channelName(id)}</span>
         <input className="label-input" value={d.label} placeholder="Label" aria-label="Label" onChange={(e) => onAdjust(id, { label: e.target.value })} />
         <input type="color" value={d.color} title="Trace colour" aria-label="Trace colour" onChange={(e) => onAdjust(id, { color: e.target.value })} />
         <button type="button" className="icon-btn" title={d.visible ? 'Hide' : 'Show'} aria-label={d.visible ? 'Hide' : 'Show'} onClick={() => onAdjust(id, { visible: !d.visible })}>
           {d.visible ? <Eye size={16} /> : <EyeOff size={16} />}
         </button>
       </div>
+      {children}
       <div className="channel-grid">
         <span>Scale</span>
         <div className="stepper">
           <button type="button" onClick={() => onAdjust(id, { scale: stepScale(d.scale, -1) })} title="Decrease V/div">
             −
           </button>
-          <span className="mono">{si(d.scale, `${wave.yUnit}/div`, 3)}</span>
+          <span className="mono">{si(d.scale, `${unit || 'U'}/div`, 3)}</span>
           <button type="button" onClick={() => onAdjust(id, { scale: stepScale(d.scale, 1) })} title="Increase V/div">
             +
           </button>
@@ -58,7 +65,7 @@ export function ChannelSettings({ channel: { wave, display: d }, views, onAdjust
             aria-label="Offset"
             onChange={(e) => onAdjust(id, { offset: Number(e.target.value) || 0 })}
           />
-          <span className="unit">{wave.yUnit}</span>
+          <span className="unit">{unit}</span>
         </div>
         <span>View</span>
         <div className="stepper">

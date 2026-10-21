@@ -1,9 +1,9 @@
 import { useCallback, useRef, useState } from 'react'
-import { CircleHelp, Focus, GalleryHorizontal, Info, Ruler, StickyNote, Table2 } from 'lucide-react'
+import { BookOpen, CircleHelp, Focus, GalleryHorizontal, Info, Ruler, StickyNote, Table2 } from 'lucide-react'
 import { IconButton } from './ui/IconButton'
 import { useDismiss } from './ui/useDismiss'
 
-export type PanelId = 'cursors' | 'callouts' | 'info'
+export type PanelId = 'cursors' | 'callouts' | 'info' | 'reference'
 
 interface Props {
   panel: PanelId | null
@@ -25,6 +25,7 @@ export function Rail(p: Props) {
       <IconButton icon={Ruler} label="Cursor readouts" active={p.panel === 'cursors'} onClick={() => toggle('cursors')} />
       <IconButton icon={StickyNote} label="Callouts" badge={p.calloutCount} active={p.panel === 'callouts'} onClick={() => toggle('callouts')} />
       <IconButton icon={Info} label="Session info & setup" active={p.panel === 'info'} onClick={() => toggle('info')} />
+      <IconButton icon={BookOpen} label="Reference: measurements & math" active={p.panel === 'reference'} onClick={() => toggle('reference')} />
       <div className="rail-sep" />
       <IconButton icon={GalleryHorizontal} label="Overview strip" shortcut="O" active={p.overview} onClick={p.toggleOverview} />
       <IconButton icon={Table2} label="Measurements" shortcut="T" active={p.measurements} onClick={p.toggleMeasurements} />

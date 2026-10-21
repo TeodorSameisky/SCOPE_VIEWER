@@ -31,7 +31,10 @@ Which panels are open is remembered in the browser.
 - Click a trace to select it; Ctrl+wheel changes its V/div, Alt+wheel its position
 - Time cursors A/B with Δt, 1/Δt, Δv and per-channel values
 - Measurements on screen, between cursors or over the whole record: max, min, pk-pk, mean, RMS,
-  top, base, amplitude, frequency, period, rise/fall time (10–90 %), positive width, duty cycle
+  top, base, amplitude, frequency, period, rise/fall time (10–90 %), positive width, duty cycle.
+  Click a column header for an explanation with a diagram; the **Reference** panel (book icon in the
+  rail) documents every measurement and the reference levels used
+- **Math channels** (see below)
 - Instrument screenshot and searchable instrument setup
 - Export the visible range as CSV and the plot (including callouts) as PNG
 
@@ -60,6 +63,24 @@ the text. Drag callouts to move them, double-click to edit. The **Callouts** tab
 with *Go to*. Callouts are stored in the browser per session file (identified by a SHA-256 hash of
 its contents) and can be exported/imported as JSON to share them.
 
+### Math channels
+
+Click **+ Math** in the channel bar to compute a new waveform from an expression, e.g.
+
+| Expression | Use |
+| --- | --- |
+| `CH1 - CH2` | differential voltage |
+| `CH1 * CH3` | power (V × A = W) |
+| `integ(CH1 * CH3)` | energy |
+| `deriv(lowpass(CH2, 1M))` | slew rate without switching noise |
+| `rms(CH1, 20m)` | moving RMS over one 50 Hz period |
+
+Operators `+ − * / ^`, constants `pi e`, time `t`, SI suffixes (`10k`, `2.5m`, `100u`) and the
+functions `abs sqrt exp ln log10 sin cos min max deriv integ avg rms lowpass highpass delay`.
+Quick-operation buttons fill in common expressions. Units are derived (and can be overridden).
+Math channels can reference each other, are plotted, measured, exported and saved per session file.
+The Reference panel lists all functions.
+
 ### Keyboard
 
 `P` pan · `Z` zoom tool · `N` note · `M` marker · `R` region · `Esc` back to pan ·
@@ -82,7 +103,8 @@ Code layout:
 
 ```
 src/parsers/   file formats (tekWfm, tekSetup, session = .tss/.wfm loader, worker)
-src/dsp/       min/max pyramid and measurements
+src/dsp/       min/max pyramid, measurements and their documentation
+src/math/      expression language and signal processing for math channels
 src/model/     data types and callouts (storage, import/export)
 src/render/    canvas drawing of views and time axis
 src/components React UI (Scope workspace, plot, panels)

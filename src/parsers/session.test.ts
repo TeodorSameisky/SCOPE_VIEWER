@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { loadFiles } from './session'
+import { measure } from '../dsp/measure'
 
 // The example session is kept out of git; these tests only run where it exists locally.
 const samplePath = new URL('../../SessionSample/Tek000.tss', import.meta.url)
@@ -24,6 +25,20 @@ describe.skipIf(!hasSample)('Tektronix .tss session (SessionSample/Tek000.tss)',
     const max = (id: string) => s.channels.find((c) => c.wave.id === id)!.wave.data.reduce((m, v) => Math.max(m, v), -Infinity)
     expect(max('CH1')).toBeCloseTo(12.77, 2)
     expect(max('CH4')).toBeCloseTo(5.238, 3)
+  })
+
+  it('measures edges but not noise on the real signals', () => {
+    const ch = (id: string) => s.channels.find((c) => c.wave.id === id)!.wave
+    const whole = (id: string) => measure(ch(id).data, 0, ch(id).data.length, ch(id).t0, ch(id).dt)
+    expect(whole('CH6').riseTime).toBeGreaterThan(1e-6)
+    expect(whole('CH4').riseTime).toBeGreaterThan(1e-6)
+    // CH1 before the event (-7.9 ms .. -5.5 ms) is a flat line with noise
+    const w = ch('CH1')
+    const i0 = (-7.9e-3 - w.t0) / w.dt
+    const i1 = (-5.5e-3 - w.t0) / w.dt
+    const flat = measure(w.data, i0, i1, w.t0, w.dt)
+    expect(flat.levelsOk).toBe(false)
+    expect(flat.frequency).toBeNaN()
   })
 
   it('applies the setup', () => {

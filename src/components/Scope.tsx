@@ -13,16 +13,19 @@ import {
   type Callout,
 } from '../model/callouts'
 import { MinMaxPyramid } from '../dsp/minmax'
+import { evaluateMath } from '../math/expr'
+import { MATH_COLORS, MAX_MATH, loadMath, nextMathId, saveMath, type MathDef } from '../model/math'
 import { buildCsv } from '../export/csv'
 import { downloadBlob, stem } from '../util/download'
 import { usePersistentState } from '../util/usePersistentState'
 import { CalloutPanel } from './CalloutPanel'
-import { ChannelBar } from './ChannelBar'
+import { ChannelBar, type MathItem } from './ChannelBar'
 import { CursorPanel } from './CursorPanel'
 import { InfoPanel } from './InfoPanel'
 import { MeasurementTable } from './MeasurementTable'
 import { Overview } from './Overview'
 import { PlotArea, type NewCallout, type PlotAreaHandle } from './PlotArea'
+import { ReferencePanel, type ReferenceSection } from './ReferencePanel'
 import { Rail, type PanelId } from './Rail'
 import { TopBar } from './TopBar'
 import {
@@ -70,7 +73,7 @@ const TOOL_HINT: Partial<Record<Tool, string>> = {
   region: 'Drag to mark a time region · Esc: cancel',
 }
 
-const PANEL_TITLE: Record<PanelId, string> = { cursors: 'Cursors', callouts: 'Callouts', info: 'Session' }
+const PANEL_TITLE: Record<PanelId, string> = { cursors: 'Cursors', callouts: 'Callouts', info: 'Session', reference: 'Reference' }
 
 interface Layout {
   panel: PanelId | null
@@ -88,8 +91,21 @@ interface Props {
 
 export function Scope({ session, onOpen, onClose }: Props) {
   const pyramids = useMemo(() => new Map(session.channels.map((c) => [c.wave.id, new MinMaxPyramid(c.wave.data)])), [session])
-  const [displays, setDisplays] = useState<ChannelDisplay[]>(() => session.channels.map((c) => ({ ...c.display })))
-  const [views, setViews] = useState<string[][]>(() => session.views.map((v) => [...v]))
+  // Math channels saved for this session file (only read once, when the session opens)
+  const [storedMath] = useState(() => loadMath(session.fingerprint))
+  const [mathDefs, setMathDefs] = useState<MathDef[]>(() => storedMath.map((m) => m.def))
+  const [displays, setDisplays] = useState<ChannelDisplay[]>(() => [
+    ...session.channels.map((c) => ({ ...c.display })),
+    ...storedMath.map((m) => ({ ...m.display, id: m.def.id })),
+  ])
+  const [views, setViews] = useState<string[][]>(() => {
+    const vs = session.views.map((v) => [...v])
+    for (const m of storedMath) {
+      if (m.view >= 0 && m.view < vs.length) vs[m.view].push(m.def.id)
+      else vs.push([m.def.id])
+    }
+    return vs
+  })
 
   const record = useMemo<TimeWindow>(() => {
     let start = Infinity
@@ -151,9 +167,30 @@ export function Scope({ session, onOpen, onClose }: Props) {
   })
   const plotRef = useRef<PlotAreaHandle>(null)
 
+  // ---------- math channels ----------
+  const mathResults = useMemo(() => evaluateMath(mathDefs, session.channels.map((c) => c.wave)), [mathDefs, session])
+  const mathPyramids = useMemo(() => {
+    const m = new Map<string, MinMaxPyramid>()
+    for (const [id, r] of mathResults) if (r.wave) m.set(id, new MinMaxPyramid(r.wave.data))
+    return m
+  }, [mathResults])
+
+  const displayById = useMemo(() => new Map(displays.map((d) => [d.id, d])), [displays])
+  const inputChannels: LiveChannel[] = useMemo(
+    () => session.channels.map((c) => ({ wave: c.wave, display: displayById.get(c.wave.id)!, pyramid: pyramids.get(c.wave.id)! })),
+    [session, displayById, pyramids],
+  )
+  const mathItems: MathItem[] = useMemo(
+    () => mathDefs.flatMap((def) => (displayById.has(def.id) ? [{ def, display: displayById.get(def.id)!, result: mathResults.get(def.id) }] : [])),
+    [mathDefs, displayById, mathResults],
+  )
+  /** Everything that has a waveform: inputs plus successfully computed math channels */
   const channels: LiveChannel[] = useMemo(
-    () => session.channels.map((c, i) => ({ wave: c.wave, display: displays[i], pyramid: pyramids.get(c.wave.id)! })),
-    [session, displays, pyramids],
+    () => [
+      ...inputChannels,
+      ...mathItems.flatMap((m) => (m.result?.wave ? [{ wave: m.result.wave, display: m.display, pyramid: mathPyramids.get(m.def.id)! }] : [])),
+    ],
+    [inputChannels, mathItems, mathPyramids],
   )
 
   const onAdjust = useCallback((id: string, patch: DisplayPatch) => {
@@ -317,16 +354,65 @@ export function Scope({ session, onOpen, onClose }: Props) {
 
   const onAutoscale = (id: string) => {
     const c = channels.find((ch) => ch.wave.id === id)
-    if (!c) return
-    const mm: [number, number] = [0, 0]
-    c.pyramid.range(0, c.wave.data.length, mm)
-    const spanV = Math.max(mm[1] - mm[0], 1e-9)
-    const raw = spanV / 8
-    const exp = Math.pow(10, Math.floor(Math.log10(raw)))
-    const scale = [1, 2, 5, 10].map((m) => m * exp).find((s) => s >= raw) ?? 10 * exp
-    // Round the offset to a tenth of a division so it reads nicely
-    const offset = Math.round((mm[0] + mm[1]) / 2 / (scale / 10)) * (scale / 10)
-    onAdjust(id, { scale, offset: parseFloat(offset.toPrecision(6)), position: 0 })
+    if (c) onAdjust(id, autoscalePatch(c.pyramid, c.wave.data.length))
+  }
+
+  // New or changed math channels are scaled to fit once their result is available
+  const pendingAutoscale = useRef(new Set<string>())
+  useEffect(() => {
+    for (const id of [...pendingAutoscale.current]) {
+      const r = mathResults.get(id)
+      const pyr = mathPyramids.get(id)
+      if (r?.wave && pyr) onAdjust(id, autoscalePatch(pyr, r.wave.data.length))
+      if (r) pendingAutoscale.current.delete(id)
+    }
+  }, [mathResults, mathPyramids, onAdjust])
+
+  const addMath = (): string | undefined => {
+    if (mathDefs.length >= MAX_MATH) return
+    const id = nextMathId(mathDefs)
+    const vis = session.channels.filter((c) => displayById.get(c.wave.id)?.visible).map((c) => c.wave.id)
+    const a = vis[0] ?? session.channels[0].wave.id
+    const b = vis.find((x) => x !== a)
+    setMathDefs([...mathDefs, { id, expr: b ? `${a} - ${b}` : `-${a}` }])
+    const color = MATH_COLORS[(parseInt(id.slice(4), 10) - 1) % MATH_COLORS.length]
+    setDisplays((ds) => [...ds, { id, label: '', color, visible: true, scale: 1, position: 0, offset: 0 }])
+    setViews((vs) => [...vs, [id]])
+    setSelected(id)
+    pendingAutoscale.current.add(id)
+    return id
+  }
+  const changeMath = (id: string, patch: Partial<MathDef>) => {
+    setMathDefs((ms) => ms.map((m) => (m.id === id ? { ...m, ...patch } : m)))
+    if (patch.expr !== undefined) pendingAutoscale.current.add(id)
+  }
+  const removeMath = (id: string) => {
+    setMathDefs((ms) => ms.filter((m) => m.id !== id))
+    setDisplays((ds) => ds.filter((d) => d.id !== id))
+    setViews((vs) => vs.map((v) => v.filter((x) => x !== id)).filter((v) => v.length > 0))
+    if (selected === id) setSelected(session.channels[0].wave.id)
+    if (cursors.source === id) setCursors({ ...cursors, source: session.channels[0].wave.id })
+  }
+  useEffect(() => {
+    saveMath(
+      session.fingerprint,
+      mathDefs.flatMap((def) => {
+        const d = displayById.get(def.id)
+        if (!d) return []
+        const { id: _id, ...display } = d
+        void _id
+        return [{ def, display, view: views.findIndex((v) => v.includes(def.id)) }]
+      }),
+    )
+  }, [mathDefs, displayById, views, session.fingerprint])
+
+  // ---------- reference panel ----------
+  const [refSection, setRefSection] = useState<ReferenceSection>('measurements')
+  const [refFocus, setRefFocus] = useState<MeasurementKey | undefined>()
+  const openReference = (section: ReferenceSection, focus?: MeasurementKey) => {
+    setRefSection(section)
+    setRefFocus(focus)
+    setPanel('reference')
   }
 
   const exportCsv = () => {
@@ -409,6 +495,7 @@ export function Scope({ session, onOpen, onClose }: Props) {
               height={layout.measHeight}
               setHeight={(measHeight) => setLayout((l) => ({ ...l, measHeight }))}
               onClose={toggleMeasurements}
+              onOpenReference={(key) => openReference('measurements', key)}
             />
           )}
         </main>
@@ -443,6 +530,7 @@ export function Scope({ session, onOpen, onClose }: Props) {
               />
             )}
             {layout.panel === 'info' && <InfoPanel session={session} />}
+            {layout.panel === 'reference' && <ReferencePanel section={refSection} setSection={setRefSection} focus={refFocus} />}
           </aside>
         )}
 
@@ -460,7 +548,12 @@ export function Scope({ session, onOpen, onClose }: Props) {
       </div>
 
       <ChannelBar
-        channels={channels}
+        channels={inputChannels}
+        math={mathItems}
+        onAddMath={addMath}
+        onChangeMath={changeMath}
+        onRemoveMath={removeMath}
+        onOpenMathReference={() => openReference('math')}
         views={views}
         selected={selected}
         setSelected={setSelected}
@@ -475,4 +568,18 @@ export function Scope({ session, onOpen, onClose }: Props) {
       />
     </div>
   )
+}
+
+/** V/div and offset that fit the whole waveform into ~8 divisions */
+function autoscalePatch(pyramid: MinMaxPyramid, n: number): DisplayPatch {
+  const mm: [number, number] = [0, 0]
+  pyramid.range(0, n, mm)
+  if (!Number.isFinite(mm[0]) || !Number.isFinite(mm[1])) return {}
+  const spanV = Math.max(mm[1] - mm[0], Math.abs(mm[0]) * 1e-3, 1e-12)
+  const raw = spanV / 8
+  const exp = Math.pow(10, Math.floor(Math.log10(raw)))
+  const scale = [1, 2, 5, 10].map((m) => m * exp).find((s) => s >= raw) ?? 10 * exp
+  // Round the offset to a tenth of a division so it reads nicely
+  const offset = Math.round((mm[0] + mm[1]) / 2 / (scale / 10)) * (scale / 10)
+  return { scale: parseFloat(scale.toPrecision(6)), offset: parseFloat(offset.toPrecision(6)), position: 0 }
 }
