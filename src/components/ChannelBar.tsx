@@ -189,7 +189,8 @@ export function ChannelBar(p: Props) {
       {p.trigger && (
         <div className="info-box trigger">
           <span className="info-title">Trigger</span>
-          <span className="info-main mono">
+          {/* In the colour of the source channel; orange (CSS) for sources without a trace, e.g. AUX */}
+          <span className="info-main mono" style={{ color: p.channels.find((c) => c.wave.id === p.trigger?.source)?.display.color }}>
             {p.trigger.source} {p.trigger.slope === 'FALL' ? '↘' : '↗'}
           </span>
           <span className="info-sub mono">{p.trigger.level !== undefined ? si(p.trigger.level, 'V', 3) : ''}</span>
