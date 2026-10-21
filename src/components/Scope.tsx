@@ -1,36 +1,46 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import type { ChannelDisplay, Session } from '../model/types'
 import type { MeasurementKey } from '../dsp/measure'
-import {
-  DEFAULT_CALLOUT_COLOR,
-  calloutsToJson,
-  loadCallouts,
-  newCalloutId,
-  nextCalloutNumber,
-  parseCalloutJson,
-  saveCallouts,
-  type Callout,
-} from '../model/callouts'
+import { DEFAULT_CALLOUT_COLOR, calloutsToJson, newCalloutId, nextCalloutNumber, parseCalloutJson, type Callout } from '../model/callouts'
 import { MinMaxPyramid } from '../dsp/minmax'
 import { evaluateMath } from '../math/expr'
-import { MATH_COLORS, MAX_MATH, loadMath, nextMathId, saveMath, type MathDef } from '../model/math'
-import { MAX_SPECTRA, loadSpectra, newSpectrum, saveSpectra, type SpectrumDef, type SpectrumOptions } from '../model/spectrum'
-import { buildCsv } from '../export/csv'
+import { MATH_COLORS, MAX_MATH, nextMathId, type MathDef } from '../model/math'
+import { MAX_SPECTRA, newSpectrum, type SpectrumDef, type SpectrumOptions } from '../model/spectrum'
+import {
+  ANALYSIS_EXT,
+  BUNDLE_EXT,
+  analysisToJson,
+  defaultWorkspace,
+  deleteStoredSession,
+  loadWorkspace,
+  parseAnalysisJson,
+  recordWindow,
+  sanitizeWorkspace,
+  saveWorkspace,
+  scopeWindow,
+  type LoadSource,
+  type Workspace,
+} from '../model/workspace'
+import { buildBundle } from '../export/bundle'
+import { runExport, waveformRows, type ExportContext } from '../export/sessionExport'
 import { downloadBlob, stem } from '../util/download'
 import { usePersistentState } from '../util/usePersistentState'
 import { CalloutPanel } from './CalloutPanel'
 import { ChannelBar, type MathItem } from './ChannelBar'
 import { CursorPanel } from './CursorPanel'
+import { ExportDialog, type ExportKind } from './ExportDialog'
 import { InfoPanel } from './InfoPanel'
 import { MeasurementTable } from './MeasurementTable'
 import { Overview } from './Overview'
 import { PlotArea, type NewCallout, type PlotAreaHandle } from './PlotArea'
 import { ReferencePanel, type ReferenceSection } from './ReferencePanel'
 import { Rail, type PanelId } from './Rail'
-import { SpectrumView } from './SpectrumView'
-import { TopBar } from './TopBar'
+import { SpectrumView, type SpectrumViewHandle } from './SpectrumView'
+import { StorageSection } from './StorageSection'
+import { TopBar, type SaveStatus } from './TopBar'
 import {
+  sampleRange,
   timeTicks,
   zoomAround,
   type CursorState,
@@ -41,25 +51,6 @@ import {
   type TimeWindow,
   type Tool,
 } from './state'
-
-/** Map Tektronix measurement types from the setup to our measurement keys */
-const TEK_MEAS: Record<string, MeasurementKey> = {
-  MAXIMUM: 'max',
-  MINIMUM: 'min',
-  PK2PK: 'pkpk',
-  MEAN: 'mean',
-  RMS: 'rms',
-  TOP: 'top',
-  BASE: 'base',
-  AMPLITUDE: 'amplitude',
-  FREQUENCY: 'frequency',
-  PERIOD: 'period',
-  RISETIME: 'riseTime',
-  FALLTIME: 'fallTime',
-  PWIDTH: 'posWidth',
-  PDUTY: 'duty',
-}
-const DEFAULT_MEAS: MeasurementKey[] = ['max', 'min', 'pkpk', 'mean', 'rms', 'frequency', 'riseTime', 'fallTime']
 
 /** Window + vertical settings, restored by "zoom back" */
 interface ViewState {
@@ -86,67 +77,70 @@ interface Layout {
 }
 const DEFAULT_LAYOUT: Layout = { panel: null, overview: true, measurements: true, measHeight: 170, specHeight: 220 }
 
-interface Props {
-  session: Session
-  onOpen: () => void
-  onClose: () => void
+/** The session file(s) as opened, kept for saving a bundle */
+export interface SourceFile {
+  name: string
+  blob: Blob
 }
 
-export function Scope({ session, onOpen, onClose }: Props) {
+/** Which workspace a session starts with */
+export type InitialState =
+  /** saved state from this browser (or the file defaults), optionally with callouts to add */
+  | { kind: 'stored'; addCallouts?: Callout[] }
+  /** the file defaults, discarding saved state */
+  | { kind: 'defaults' }
+  /** an analysis from a file */
+  | { kind: 'analysis'; workspace: unknown }
+
+export interface ScopeHandle {
+  /** Apply an analysis file (or merge a callout file) into the open session */
+  importAnalysisFile: (file: File) => Promise<void>
+}
+
+interface Props {
+  session: Session
+  sources: SourceFile[]
+  initial: InitialState
+  onOpen: () => void
+  onClose: () => void
+  /** Restart the session with another workspace */
+  onReplaceWorkspace: (initial: InitialState) => void
+}
+
+function initWorkspace(session: Session, initial: InitialState): { workspace: Workspace; source: LoadSource | 'file' } {
+  if (initial.kind === 'defaults') return { workspace: defaultWorkspace(session), source: 'default' }
+  if (initial.kind === 'analysis') return { workspace: sanitizeWorkspace(initial.workspace, session), source: 'file' }
+  const loaded = loadWorkspace(session)
+  if (!initial.addCallouts?.length) return loaded
+  const ids = new Set(initial.addCallouts.map((c) => c.id))
+  return {
+    workspace: { ...loaded.workspace, callouts: [...loaded.workspace.callouts.filter((c) => !ids.has(c.id)), ...initial.addCallouts] },
+    source: 'file',
+  }
+}
+
+export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, sources, initial, onOpen, onClose, onReplaceWorkspace }, ref) {
+  // Everything the user can change starts from the workspace (saved state, analysis file or file defaults)
+  const [boot] = useState(() => initWorkspace(session, initial))
+  const ws0 = boot.workspace
+
   const pyramids = useMemo(() => new Map(session.channels.map((c) => [c.wave.id, new MinMaxPyramid(c.wave.data)])), [session])
-  // Math channels saved for this session file (only read once, when the session opens)
-  const [storedMath] = useState(() => loadMath(session.fingerprint))
-  const [mathDefs, setMathDefs] = useState<MathDef[]>(() => storedMath.map((m) => m.def))
-  const [displays, setDisplays] = useState<ChannelDisplay[]>(() => [
-    ...session.channels.map((c) => ({ ...c.display })),
-    ...storedMath.map((m) => ({ ...m.display, id: m.def.id })),
-  ])
-  const [views, setViews] = useState<string[][]>(() => {
-    const vs = session.views.map((v) => [...v])
-    for (const m of storedMath) {
-      if (m.view >= 0 && m.view < vs.length) vs[m.view].push(m.def.id)
-      else vs.push([m.def.id])
-    }
-    return vs
-  })
+  const [mathDefs, setMathDefs] = useState<MathDef[]>(ws0.math)
+  const [displays, setDisplays] = useState<ChannelDisplay[]>(ws0.channels)
+  const [views, setViews] = useState<string[][]>(ws0.views)
 
-  const record = useMemo<TimeWindow>(() => {
-    let start = Infinity
-    let end = -Infinity
-    for (const { wave } of session.channels) {
-      start = Math.min(start, wave.t0)
-      end = Math.max(end, wave.t0 + (wave.data.length - 1) * wave.dt)
-    }
-    return { start, end }
-  }, [session])
+  const record = useMemo<TimeWindow>(() => recordWindow(session), [session])
   const minDt = Math.min(...session.channels.map((c) => c.wave.dt))
-
-  const initialWin = useMemo<TimeWindow>(() => {
-    const h = session.horizontal
-    if (h) {
-      const span = h.scale * 10
-      const start = (-h.position / 100) * span
-      // Only trust the saved view if it overlaps the record
-      if (start < record.end && start + span > record.start) return { start, end: start + span }
-    }
-    return record
-  }, [session, record])
-  const [win, setWin] = useState<TimeWindow>(initialWin)
+  /** The view the scope showed when the session was saved */
+  const initialWin = useMemo<TimeWindow>(() => scopeWindow(session), [session])
+  const [win, setWin] = useState<TimeWindow>(ws0.window)
   const [tool, setTool] = useState<Tool>('pan')
   const [history, setHistory] = useState<ViewState[]>([])
   const lastNav = useRef<{ kind: NavKind | null; time: number }>({ kind: null, time: 0 })
 
-  const [cursors, setCursors] = useState<CursorState>(() => {
-    const c = session.cursors
-    const s = initialWin.end - initialWin.start
-    return {
-      on: !!c,
-      a: c?.a ?? initialWin.start + s * 0.3,
-      b: c?.b ?? initialWin.start + s * 0.7,
-      source: c?.source && session.channels.some((ch) => ch.wave.id === c.source) ? c.source : session.channels[0].wave.id,
-    }
-  })
-  const [selected, setSelected] = useState<string | undefined>(session.trigger?.source ?? session.channels[0]?.wave.id)
+  const [cursors, setCursors] = useState<CursorState>(ws0.cursors)
+  const [selected, setSelected] = useState<string | undefined>(ws0.selected)
+  const [notes, setNotes] = useState(ws0.notes)
   const [layout, setLayout] = usePersistentState<Layout>('scope-viewer:layout', DEFAULT_LAYOUT)
   const setPanel = (panel: PanelId | null) => setLayout((l) => ({ ...l, panel }))
   const toggleOverview = () => setLayout((l) => ({ ...l, overview: !l.overview }))
@@ -163,12 +157,10 @@ export function Scope({ session, onOpen, onClose }: Props) {
       setLayout((l) => ({ ...l, panel: null, overview: false, measurements: false }))
     }
   }
-  const [measRange, setMeasRange] = useState<MeasureRange>('screen')
-  const [measKeys, setMeasKeys] = useState<MeasurementKey[]>(() => {
-    const fromSetup = (session.measurements ?? []).map((m) => TEK_MEAS[m.type]).filter(Boolean)
-    return [...new Set([...fromSetup, ...DEFAULT_MEAS])]
-  })
+  const [measRange, setMeasRange] = useState<MeasureRange>(ws0.measurements.range)
+  const [measKeys, setMeasKeys] = useState<MeasurementKey[]>(ws0.measurements.keys)
   const plotRef = useRef<PlotAreaHandle>(null)
+  const spectrumRef = useRef<SpectrumViewHandle>(null)
 
   // ---------- math channels ----------
   const mathResults = useMemo(() => evaluateMath(mathDefs, session.channels.map((c) => c.wave)), [mathDefs, session])
@@ -232,10 +224,9 @@ export function Scope({ session, onOpen, onClose }: Props) {
   }
 
   // ---------- callouts ----------
-  const [callouts, setCallouts] = useState<Callout[]>(() => loadCallouts(session.fingerprint))
+  const [callouts, setCallouts] = useState<Callout[]>(ws0.callouts)
   const [selectedCallout, setSelectedCallout] = useState<string | undefined>()
   const [editing, setEditing] = useState<{ id: string; isNew: boolean } | null>(null)
-  useEffect(() => saveCallouts(session.fingerprint, callouts), [callouts, session.fingerprint])
 
   const addCallout = (nc: NewCallout) => {
     const ch = nc.channel ? displays.find((d) => d.id === nc.channel) : undefined
@@ -254,7 +245,7 @@ export function Scope({ session, onOpen, onClose }: Props) {
   }
   const updateCallout = useCallback((id: string, patch: Partial<Callout>) => {
     setCallouts((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)))
-  }, [])
+  }, [setCallouts])
   const deleteCallout = (id: string) => {
     setCallouts((cs) => cs.filter((c) => c.id !== id))
     if (editing?.id === id) setEditing(null)
@@ -299,9 +290,18 @@ export function Scope({ session, onOpen, onClose }: Props) {
     }
   }
 
+  // ---------- export dialog (declared early: shortcuts are off while it is open) ----------
+  const [exportKind, setExportKind] = useState<ExportKind | null>(null)
+  const [exportPlotSize, setExportPlotSize] = useState({ w: 0, h: 0 })
+  const openExport = (kind: ExportKind) => {
+    setExportPlotSize(plotRef.current?.size() ?? { w: 0, h: 0 })
+    setExportKind(kind)
+  }
+
   // ---------- keyboard shortcuts ----------
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (exportKind) return
       const target = e.target as HTMLElement
       if (target.closest?.('input, textarea, select, [contenteditable="true"]')) return
       if (e.ctrlKey || e.metaKey) return
@@ -397,24 +397,10 @@ export function Scope({ session, onOpen, onClose }: Props) {
     if (selected === id) setSelected(session.channels[0].wave.id)
     if (cursors.source === id) setCursors({ ...cursors, source: session.channels[0].wave.id })
   }
-  useEffect(() => {
-    saveMath(
-      session.fingerprint,
-      mathDefs.flatMap((def) => {
-        const d = displayById.get(def.id)
-        if (!d) return []
-        const { id: _id, ...display } = d
-        void _id
-        return [{ def, display, view: views.findIndex((v) => v.includes(def.id)) }]
-      }),
-    )
-  }, [mathDefs, displayById, views, session.fingerprint])
 
   // ---------- spectra ----------
-  const [storedSpectra] = useState(() => loadSpectra(session.fingerprint))
-  const [spectra, setSpectra] = useState<SpectrumDef[]>(() => storedSpectra.defs.filter((d) => displays.some((x) => x.id === d.source)))
-  const [specOptions, setSpecOptions] = useState<SpectrumOptions>(storedSpectra.options)
-  useEffect(() => saveSpectra(session.fingerprint, { defs: spectra, options: specOptions }), [spectra, specOptions, session.fingerprint])
+  const [spectra, setSpectra] = useState<SpectrumDef[]>(ws0.spectra)
+  const [specOptions, setSpecOptions] = useState<SpectrumOptions>(ws0.spectrumOptions)
   const spectrumSources = useMemo(() => new Set(spectra.map((s) => s.source)), [spectra])
 
   const addSpectrum = (source?: string) => {
@@ -438,29 +424,139 @@ export function Scope({ session, onOpen, onClose }: Props) {
     setPanel('reference')
   }
 
-  const exportCsv = () => {
-    const vis = channels.filter((c) => c.display.visible)
-    if (!vis.length) return
-    const ref = vis[0].wave
-    const n = Math.round((Math.min(win.end, record.end) - Math.max(win.start, record.start)) / ref.dt)
-    if (n > 5_000_000 && !confirm(`The visible range has ${n.toLocaleString()} samples per channel. Export anyway?`)) return
-    downloadBlob(buildCsv(vis, win.start, win.end), `${stem(session.fileName)}.csv`)
-  }
+  // ---------- workspace: autosave, analysis files, reset ----------
+  const workspace: Workspace = useMemo(
+    () => ({
+      version: 1,
+      channels: displays,
+      views,
+      math: mathDefs,
+      spectra,
+      spectrumOptions: specOptions,
+      callouts,
+      cursors,
+      window: win,
+      measurements: { keys: measKeys, range: measRange },
+      selected,
+      notes,
+    }),
+    [displays, views, mathDefs, spectra, specOptions, callouts, cursors, win, measKeys, measRange, selected, notes],
+  )
 
-  const exportPng = async () => {
-    const blob = await plotRef.current?.toPng()
-    if (blob) downloadBlob(blob, `${stem(session.fileName)}.png`)
-  }
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>(() => (boot.source === 'saved' ? { state: 'saved', at: new Date().toISOString() } : { state: 'clean' }))
+  // A file that is only opened is not stored; the first change (or an imported / migrated workspace) is
+  const firstRun = useRef(boot.source === 'saved' || boot.source === 'default')
+  const latest = useRef(workspace)
+  const timer = useRef<number | undefined>(undefined)
+  const flush = useCallback(() => {
+    window.clearTimeout(timer.current)
+    timer.current = undefined
+    const res = saveWorkspace(session, latest.current)
+    setSaveStatus(res.ok ? { state: 'saved', at: res.savedAt } : { state: 'error', error: res.error })
+  }, [session])
+  useEffect(() => {
+    latest.current = workspace
+    if (firstRun.current) {
+      firstRun.current = false
+      return
+    }
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(flush, 400)
+  }, [workspace, flush])
+  // Save pending changes when the page is closed or the session is left
+  useEffect(() => {
+    const onHide = () => timer.current !== undefined && flush()
+    window.addEventListener('pagehide', onHide)
+    return () => {
+      window.removeEventListener('pagehide', onHide)
+      onHide()
+    }
+  }, [flush])
 
+  const saveAnalysis = () => {
+    downloadBlob(new Blob([analysisToJson(session, workspace)], { type: 'application/json' }), `${stem(session.fileName)}${ANALYSIS_EXT}`)
+  }
+  const saveBundle = async () => {
+    try {
+      const files = await Promise.all(sources.map(async (s) => ({ name: s.name, data: await s.blob.arrayBuffer() })))
+      downloadBlob(buildBundle(files, analysisToJson(session, workspace)), `${stem(session.fileName)}${BUNDLE_EXT}`)
+    } catch (e) {
+      alert(`Could not save the bundle: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+  const resetToDefaults = () => {
+    if (!confirm('Discard all your changes to this session (channel settings, math channels, spectra, callouts, notes) and show it as saved on the scope?')) return
+    window.clearTimeout(timer.current)
+    timer.current = undefined
+    if (session.fingerprint) deleteStoredSession(session.fingerprint)
+    onReplaceWorkspace({ kind: 'defaults' })
+  }
+  const importAnalysisFile = async (file: File) => {
+    try {
+      const parsed = parseAnalysisJson(await file.text())
+      const foreign = parsed.fingerprint && session.fingerprint && parsed.fingerprint !== session.fingerprint
+      if (parsed.kind === 'callouts') {
+        if (foreign && !confirm('These callouts were saved for a different session file. Add them anyway?')) return
+        const ids = new Set(parsed.callouts.map((c) => c.id))
+        setCallouts((cs) => [...cs.filter((c) => !ids.has(c.id)), ...parsed.callouts])
+        setPanel('callouts')
+        return
+      }
+      const msg = foreign
+        ? `This analysis was saved for ${parsed.sessionFile ?? 'a different file'}. Apply it to ${session.fileName} anyway? It replaces your current changes.`
+        : 'Replace your current changes with the analysis from the file?'
+      if (!confirm(msg)) return
+      window.clearTimeout(timer.current)
+      timer.current = undefined
+      onReplaceWorkspace({ kind: 'analysis', workspace: parsed.workspace })
+    } catch (e) {
+      alert(`Could not open the analysis file: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+  useImperativeHandle(ref, () => ({ importAnalysisFile }))
+  const analysisInput = useRef<HTMLInputElement>(null)
+
+  // ---------- exports ----------
   const ticks = timeTicks(win)
   const tPerDiv = ticks.length > 1 ? ticks[1] - ticks[0] : (win.end - win.start) / 10
   const zoomed = win.start > record.start + minDt || win.end < record.end - minDt
+  const visibleChannels = channels.filter((c) => c.display.visible)
+  const fileStem = stem(session.fileName)
+
+  const exportContext = (): ExportContext => ({
+    session,
+    channels,
+    math: mathItems,
+    callouts,
+    cursors,
+    win,
+    record,
+    minDt,
+    timePerDiv: tPerDiv,
+    measKeys,
+    measRange,
+    spectra,
+    specOptions,
+    notes,
+    plot: plotRef.current,
+    spectrum: spectrumRef.current,
+  })
+  const measuredCount = visibleChannels.filter((c) => {
+    const [i0, i1] = sampleRange(c.wave, measRange, win, cursors)
+    return Math.min(c.wave.data.length, i1) > Math.max(0, i0)
+  }).length
 
   return (
     <div className="scope">
       <TopBar
         fileName={session.fileName}
+        saveStatus={saveStatus}
         onOpen={onOpen}
+        onOpenAnalysis={() => analysisInput.current?.click()}
+        onSaveAnalysis={saveAnalysis}
+        onSaveBundle={saveBundle}
+        onReset={resetToDefaults}
+        onShowStorage={() => setPanel('info')}
         onClose={onClose}
         tool={tool}
         setTool={setTool}
@@ -471,10 +567,19 @@ export function Scope({ session, onOpen, onClose }: Props) {
         zoomed={zoomed}
         cursorsOn={cursors.on}
         onToggleCursors={() => setCursors({ ...cursors, on: !cursors.on })}
-        onExportCsv={exportCsv}
-        onExportPng={exportPng}
-        onExportCallouts={exportCallouts}
-        calloutCount={callouts.length}
+        onExport={openExport}
+        hasSpectra={spectra.some((s) => s.visible)}
+      />
+      <input
+        ref={analysisInput}
+        type="file"
+        accept=".json,application/json"
+        hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          if (f) importAnalysisFile(f)
+          e.target.value = ''
+        }}
       />
 
       <div className={`workspace ${layout.panel ? 'with-panel' : ''}`}>
@@ -508,6 +613,7 @@ export function Scope({ session, onOpen, onClose }: Props) {
           />
           {spectra.length > 0 && (
             <SpectrumView
+              ref={spectrumRef}
               defs={spectra}
               options={specOptions}
               setOptions={(patch) => setSpecOptions((o) => ({ ...o, ...patch }))}
@@ -569,7 +675,22 @@ export function Scope({ session, onOpen, onClose }: Props) {
                 }}
               />
             )}
-            {layout.panel === 'info' && <InfoPanel session={session} />}
+            {layout.panel === 'info' && (
+              <InfoPanel
+                session={session}
+                storage={
+                  <StorageSection
+                    fingerprint={session.fingerprint}
+                    status={saveStatus}
+                    notes={notes}
+                    setNotes={setNotes}
+                    onSaveAnalysis={saveAnalysis}
+                    onSaveBundle={saveBundle}
+                    onReset={resetToDefaults}
+                  />
+                }
+              />
+            )}
             {layout.panel === 'reference' && <ReferencePanel section={refSection} setSection={setRefSection} focus={refFocus} />}
           </aside>
         )}
@@ -610,9 +731,26 @@ export function Scope({ session, onOpen, onClose }: Props) {
         recordLength={session.channels[0].wave.data.length}
         trigger={session.trigger}
       />
+
+      {exportKind && (
+        <ExportDialog
+          initial={exportKind}
+          onClose={() => setExportKind(null)}
+          hasSpectra={spectra.some((s) => s.visible)}
+          cursorsOn={cursors.on}
+          waveformRows={(o) => waveformRows(exportContext(), o)}
+          plotSize={exportPlotSize}
+          measurementInfo={{ range: measRange, count: measKeys.length, channels: measuredCount }}
+          notes={notes}
+          setNotes={setNotes}
+          defaultTitle={fileStem}
+          canCopyImage={typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write && window.isSecureContext}
+          onExport={(kind, prefs, extra) => runExport(exportContext(), kind, prefs, extra)}
+        />
+      )}
     </div>
   )
-}
+})
 
 /** V/div and offset that fit the whole waveform into ~8 divisions */
 function autoscalePatch(pyramid: MinMaxPyramid, n: number): DisplayPatch {

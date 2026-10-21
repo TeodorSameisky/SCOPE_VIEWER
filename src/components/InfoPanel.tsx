@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { Session } from '../model/types'
 import { si } from '../util/format'
 
-export function InfoPanel({ session }: { session: Session }) {
+export function InfoPanel({ session, storage }: { session: Session; storage?: React.ReactNode }) {
   const [filter, setFilter] = useState('')
   const [zoomShot, setZoomShot] = useState(false)
   const shotUrl = useMemo(() => (session.screenshot ? URL.createObjectURL(session.screenshot) : undefined), [session.screenshot])
@@ -24,6 +24,8 @@ export function InfoPanel({ session }: { session: Session }) {
 
   return (
     <div className="panel-body">
+      {storage}
+      <h4>File</h4>
       <dl className="info-list">
         <dt>File</dt>
         <dd>{session.fileName}</dd>

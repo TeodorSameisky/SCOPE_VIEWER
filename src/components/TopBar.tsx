@@ -1,27 +1,45 @@
 import {
+  AlertTriangle,
+  Archive,
+  Check,
   Download,
   FileJson,
   FileSpreadsheet,
+  FileText,
   Flag,
   FolderOpen,
   Hand,
+  HardDrive,
   Home,
   Image,
   Maximize2,
   MoveHorizontal,
+  RotateCcw,
   Ruler,
   StickyNote,
+  Table2,
   Undo2,
+  Upload,
+  Waves,
   X,
   ZoomIn,
 } from 'lucide-react'
+import type { ExportKind } from './ExportDialog'
 import { IconButton } from './ui/IconButton'
 import { Menu } from './ui/Menu'
 import type { Tool } from './state'
 
+export type SaveStatus = { state: 'clean' } | { state: 'saved'; at: string } | { state: 'error'; error: string }
+
 interface Props {
   fileName: string
+  saveStatus: SaveStatus
   onOpen: () => void
+  onOpenAnalysis: () => void
+  onSaveAnalysis: () => void
+  onSaveBundle: () => void
+  onReset: () => void
+  onShowStorage: () => void
   onClose: () => void
   tool: Tool
   setTool: (t: Tool) => void
@@ -32,10 +50,8 @@ interface Props {
   zoomed: boolean
   cursorsOn: boolean
   onToggleCursors: () => void
-  onExportCsv: () => void
-  onExportPng: () => void
-  onExportCallouts: () => void
-  calloutCount: number
+  onExport: (kind: ExportKind) => void
+  hasSpectra: boolean
 }
 
 export function TopBar(p: Props) {
@@ -47,10 +63,23 @@ export function TopBar(p: Props) {
           <path d="M3 20h6l3-10 4 14 3-9 2 5h8" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" />
         </svg>
       </div>
-      <IconButton icon={FolderOpen} label="Open" onClick={p.onOpen} />
+      <Menu
+        icon={FolderOpen}
+        label="File"
+        items={[
+          { label: 'Open session file…', hint: '.tss .wfm .scopeview', icon: FolderOpen, onClick: p.onOpen },
+          { label: 'Open analysis file…', hint: '.scopeview.json', icon: Upload, onClick: p.onOpenAnalysis },
+          { label: 'Save analysis file', hint: 'settings, math, callouts', icon: FileJson, divider: true, onClick: p.onSaveAnalysis },
+          { label: 'Save session with analysis', hint: '.scopeview', icon: Archive, onClick: p.onSaveBundle },
+          { label: 'Reset to file defaults…', icon: RotateCcw, divider: true, onClick: p.onReset },
+          { label: 'Saved in this browser…', icon: HardDrive, onClick: p.onShowStorage },
+          { label: 'Close session', icon: X, divider: true, onClick: p.onClose },
+        ]}
+      />
       <span className="file-name" title={p.fileName}>
         {p.fileName}
       </span>
+      <SaveIndicator status={p.saveStatus} onClick={p.onShowStorage} />
 
       <div className="spacer" />
 
@@ -77,12 +106,35 @@ export function TopBar(p: Props) {
         icon={Download}
         label="Export"
         items={[
-          { label: 'Waveforms as CSV', hint: 'visible range', icon: FileSpreadsheet, onClick: p.onExportCsv },
-          { label: 'Plot as PNG', hint: 'with callouts', icon: Image, onClick: p.onExportPng },
-          { label: 'Callouts as JSON', icon: FileJson, disabled: !p.calloutCount, onClick: p.onExportCallouts },
+          { label: 'Image…', hint: 'PNG', icon: Image, onClick: () => p.onExport('image') },
+          { label: 'Report…', hint: 'HTML / PDF', icon: FileText, onClick: () => p.onExport('report') },
+          { label: 'Waveform data…', hint: 'CSV', icon: Waves, divider: true, onClick: () => p.onExport('waveforms') },
+          { label: 'Measurements…', hint: 'CSV', icon: Table2, onClick: () => p.onExport('measurements') },
+          { label: 'Spectra…', hint: 'CSV', icon: FileSpreadsheet, disabled: !p.hasSpectra, onClick: () => p.onExport('spectra') },
         ]}
       />
       <IconButton icon={X} label="Close session" onClick={p.onClose} />
     </header>
+  )
+}
+
+/** Small status next to the file name: are the changes remembered? */
+function SaveIndicator({ status, onClick }: { status: SaveStatus; onClick: () => void }) {
+  if (status.state === 'error') {
+    return (
+      <button type="button" className="save-status error" title={`Changes are not saved: ${status.error}`} onClick={onClick}>
+        <AlertTriangle size={13} aria-hidden /> Not saved
+      </button>
+    )
+  }
+  const title =
+    status.state === 'saved'
+      ? `Your changes are saved in this browser (${new Date(status.at).toLocaleTimeString()})`
+      : 'Unchanged. Changes you make are saved automatically in this browser.'
+  return (
+    <button type="button" className="save-status" title={title} onClick={onClick}>
+      {status.state === 'saved' ? <Check size={13} aria-hidden /> : <HardDrive size={13} aria-hidden />}
+      <span className="btn-label">{status.state === 'saved' ? 'Saved' : 'Unchanged'}</span>
+    </button>
   )
 }

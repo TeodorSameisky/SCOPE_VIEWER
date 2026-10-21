@@ -58,7 +58,7 @@ export function loadCallouts(fingerprint: string | undefined): Callout[] {
   if (!fingerprint) return []
   try {
     const raw = localStorage.getItem(STORAGE_PREFIX + fingerprint)
-    return raw ? sanitize(JSON.parse(raw)) : []
+    return raw ? sanitizeCallouts(JSON.parse(raw)) : []
   } catch {
     return []
   }
@@ -96,10 +96,10 @@ export function parseCalloutJson(text: string, fingerprint: string | undefined):
   const list = Array.isArray(data) ? data : data?.callouts
   if (!Array.isArray(list)) throw new Error('Not a callout file')
   const otherFile = !!(fingerprint && data?.fingerprint && data.fingerprint !== fingerprint)
-  return { callouts: sanitize(list), otherFile }
+  return { callouts: sanitizeCallouts(list), otherFile }
 }
 
-function sanitize(list: unknown): Callout[] {
+export function sanitizeCallouts(list: unknown): Callout[] {
   if (!Array.isArray(list)) return []
   const out: Callout[] = []
   for (const item of list) {

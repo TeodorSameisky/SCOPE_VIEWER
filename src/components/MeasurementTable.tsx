@@ -6,7 +6,7 @@ import type { Waveform } from '../model/types'
 import { si } from '../util/format'
 import { channelName } from '../util/names'
 import { MeasureInfo } from './MeasureInfo'
-import type { CursorState, LiveChannel, MeasureRange, TimeWindow } from './state'
+import { sampleRange, type CursorState, type LiveChannel, type MeasureRange, type TimeWindow } from './state'
 import { useDismiss } from './ui/useDismiss'
 
 interface Props {
@@ -47,15 +47,7 @@ export function MeasurementTable(p: Props) {
     for (const c of p.channels) {
       if (!c.display.visible) continue
       const w = c.wave
-      let i0 = 0
-      let i1 = w.data.length
-      if (p.range === 'screen') {
-        i0 = (win.start - w.t0) / w.dt
-        i1 = (win.end - w.t0) / w.dt + 1
-      } else if (p.range === 'cursors') {
-        i0 = (Math.min(cursors.a, cursors.b) - w.t0) / w.dt
-        i1 = (Math.max(cursors.a, cursors.b) - w.t0) / w.dt + 1
-      }
+      const [i0, i1] = sampleRange(w, p.range, win, cursors)
       const key = `${Math.max(0, Math.floor(i0))}:${Math.min(w.data.length, Math.ceil(i1))}`
       const hit = cache.get(w)
       if (hit?.key === key) out.set(w.id, hit.m)

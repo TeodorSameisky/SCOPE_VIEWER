@@ -16,6 +16,15 @@ export interface CursorState {
 
 export type MeasureRange = 'screen' | 'cursors' | 'record'
 
+/** Sample index range [i0, i1) of a waveform for a measurement range (fractional, clamped by the caller) */
+export function sampleRange(w: { t0: number; dt: number; data: { length: number } }, range: MeasureRange, win: TimeWindow, cursors: CursorState): [number, number] {
+  if (range === 'screen') return [(win.start - w.t0) / w.dt, (win.end - w.t0) / w.dt + 1]
+  if (range === 'cursors') return [(Math.min(cursors.a, cursors.b) - w.t0) / w.dt, (Math.max(cursors.a, cursors.b) - w.t0) / w.dt + 1]
+  return [0, w.data.length]
+}
+
+export const RANGE_LABEL: Record<MeasureRange, string> = { screen: 'On screen', cursors: 'Between cursors', record: 'Whole record' }
+
 export interface LiveChannel extends Channel {
   pyramid: MinMaxPyramid
 }

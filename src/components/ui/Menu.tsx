@@ -7,6 +7,8 @@ export interface MenuItem {
   icon?: LucideIcon
   hint?: string
   disabled?: boolean
+  /** Draw a separator line above this item */
+  divider?: boolean
   onClick: () => void
 }
 
@@ -26,20 +28,22 @@ export function Menu({ icon: Icon, label, items }: { icon: LucideIcon; label: st
       {open && (
         <div className="menu-list" role="menu">
           {items.map((it) => (
-            <button
-              key={it.label}
-              type="button"
-              role="menuitem"
-              disabled={it.disabled}
-              onClick={() => {
-                setOpen(false)
-                it.onClick()
-              }}
-            >
-              {it.icon && <it.icon size={16} strokeWidth={1.8} aria-hidden />}
-              <span>{it.label}</span>
-              {it.hint && <small>{it.hint}</small>}
-            </button>
+            <div key={it.label} className="menu-entry">
+              {it.divider && <div className="menu-divider" role="separator" />}
+              <button
+                type="button"
+                role="menuitem"
+                disabled={it.disabled}
+                onClick={() => {
+                  setOpen(false)
+                  it.onClick()
+                }}
+              >
+                {it.icon && <it.icon size={16} strokeWidth={1.8} aria-hidden />}
+                <span>{it.label}</span>
+                {it.hint && <small>{it.hint}</small>}
+              </button>
+            </div>
           ))}
         </div>
       )}

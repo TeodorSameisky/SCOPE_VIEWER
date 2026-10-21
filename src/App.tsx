@@ -1,30 +1,74 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Session } from './model/types'
+import { parseAnalysisJson } from './model/workspace'
 import { loadSession } from './parsers/load'
-import { Scope } from './components/Scope'
+import { Scope, type InitialState, type ScopeHandle, type SourceFile } from './components/Scope'
 
-const ACCEPT = '.tss,.wfm,.set'
+const ACCEPT = '.tss,.wfm,.set,.scopeview,.json'
+const isJson = (f: File) => /\.json$/i.test(f.name)
+
+interface Current {
+  session: Session
+  sources: SourceFile[]
+  initial: InitialState
+  /** Bumped to remount the workspace (new file, imported analysis, reset) */
+  generation: number
+}
 
 export default function App() {
-  const [session, setSession] = useState<Session | null>(null)
-  const [generation, setGeneration] = useState(0)
+  const [current, setCurrent] = useState<Current | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const scopeRef = useRef<ScopeHandle>(null)
+  const hasSession = current !== null
 
-  const open = useCallback(async (files: File[]) => {
-    if (!files.length) return
-    setBusy(true)
-    setError(null)
-    try {
-      setSession(await loadSession(files))
-      setGeneration((g) => g + 1)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
+  /**
+   * Open session files. An analysis file (.scopeview.json) can be opened together with
+   * its session file, or on its own to apply it to the open session.
+   */
+  const open = useCallback(
+    async (files: File[]) => {
+      if (!files.length) return
+      const jsons = files.filter(isJson)
+      const data = files.filter((f) => !isJson(f))
+      setError(null)
+      if (!data.length) {
+        if (hasSession) await scopeRef.current?.importAnalysisFile(jsons[0])
+        else setError('Open the session file (.tss, .wfm or .scopeview) together with the analysis file.')
+        return
+      }
+      setBusy(true)
+      try {
+        const loaded = await loadSession(data)
+        let initial: InitialState = { kind: 'stored' }
+        const text = jsons.length ? await jsons[0].text() : loaded.analysis
+        if (text) {
+          const parsed = parseAnalysisJson(text)
+          const fp = loaded.session.fingerprint
+          const foreign = parsed.fingerprint && fp && parsed.fingerprint !== fp
+          if (!foreign || confirm('The analysis file was saved for a different session file. Apply it anyway?')) {
+            initial = parsed.kind === 'analysis' ? { kind: 'analysis', workspace: parsed.workspace } : { kind: 'stored', addCallouts: parsed.callouts }
+          }
+        }
+        // Keep the session files for "Save bundle": the dropped files, or the files inside a bundle
+        const sources: SourceFile[] = loaded.analysis !== undefined || /\.scopeview$/i.test(data[0].name)
+          ? loaded.sources.map((s) => ({ name: s.name, blob: new Blob([s.data]) }))
+          : data.map((f) => ({ name: f.name, blob: f }))
+        setCurrent((c) => ({ session: loaded.session, sources, initial, generation: (c?.generation ?? 0) + 1 }))
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    },
+    [hasSession],
+  )
+
+  /** Remount the open session with another workspace (imported analysis or reset) */
+  const replaceWorkspace = useCallback((initial: InitialState) => {
+    setCurrent((c) => (c ? { ...c, initial, generation: c.generation + 1 } : c))
   }, [])
 
   // Allow dropping a file anywhere, also while a session is open
@@ -69,8 +113,17 @@ export default function App() {
   return (
     <>
       {picker}
-      {session ? (
-        <Scope key={generation} session={session} onOpen={() => inputRef.current?.click()} onClose={() => setSession(null)} />
+      {current ? (
+        <Scope
+          ref={scopeRef}
+          key={current.generation}
+          session={current.session}
+          sources={current.sources}
+          initial={current.initial}
+          onOpen={() => inputRef.current?.click()}
+          onClose={() => setCurrent(null)}
+          onReplaceWorkspace={replaceWorkspace}
+        />
       ) : (
         <div className="landing">
           <div className="landing-card">
@@ -94,6 +147,10 @@ export default function App() {
               <li>
                 <b>Tektronix waveform</b> <code>.wfm</code>, optionally with a <code>.set</code> setup file
               </li>
+              <li>
+                <b>Scope Viewer bundle</b> <code>.scopeview</code>: a session with its analysis; or a session file together with its{' '}
+                <code>.scopeview.json</code> analysis
+              </li>
               <li className="muted">
                 <b>Rigol</b>: coming soon
               </li>
@@ -101,8 +158,8 @@ export default function App() {
           </div>
         </div>
       )}
-      {busy && session && <div className="busy-overlay">Reading file…</div>}
-      {error && session && (
+      {busy && current && <div className="busy-overlay">Reading file…</div>}
+      {error && current && (
         <div className="toast" onClick={() => setError(null)}>
           {error}
         </div>

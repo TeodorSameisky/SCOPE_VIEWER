@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useDeferredValue, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, Eye, EyeOff, Maximize2, Plus, X } from 'lucide-react'
 import { MIN_FFT_SAMPLES, WINDOW_DEFS, computeSpectrum, findPeaks, windowDef, type Peak, type Spectrum, type WindowKind } from '../math/fft'
 import { MAX_SPECTRA, PEAK_COUNTS, levelUnit, type FreqAxis, type SpectrumDef, type SpectrumOptions, type SpectrumScale } from '../model/spectrum'
@@ -36,6 +36,20 @@ interface Result {
 }
 type Shown = Result & { channel: LiveChannel; spec: Spectrum }
 
+export interface SpectrumExport {
+  scale: SpectrumScale
+  /** Unit of the level values, e.g. dBV or V RMS */
+  levelUnit: string
+  items: { name: string; color: string; window: string; spec: Spectrum; peaks: Peak[] }[]
+}
+
+export interface SpectrumViewHandle {
+  /** The spectrum plot with a caption line, at `scale` × the screen size */
+  renderImage: (scale: number) => HTMLCanvasElement | null
+  /** The visible spectra with their peaks (in the current frequency view) */
+  getData: () => SpectrumExport
+}
+
 type Drag = { kind: 'pan'; x0: number; y0: number; f: FreqRange; y: FreqRange } | { kind: 'band'; x0: number; x1: number }
 
 const MIN_BAND_PX = 5
@@ -44,7 +58,7 @@ const MIN_BAND_PX = 5
  * Frequency-domain view below the time views: the FFT of channels or math channels over the
  * visible time window, between the cursors or over the whole record, with a peak list.
  */
-export function SpectrumView(p: Props) {
+export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function SpectrumView(p, ref) {
   // Deferred so panning the time views stays smooth while the spectra follow
   const win = useDeferredValue(p.win)
   const cursors = useDeferredValue(p.cursors)
@@ -145,6 +159,63 @@ export function SpectrumView(p: Props) {
     })
     return () => cancelAnimationFrame(id)
   }, [shown, peaks, size, axis, fr.lo, fr.hi, plotW, scale, yr, unit, hoverF, drag])
+
+  useImperativeHandle(ref, () => ({
+    renderImage: (k: number) => {
+      if (!shown.length) return null
+      const CAPTION = 20
+      const out = document.createElement('canvas')
+      out.width = Math.round(size.w * k)
+      out.height = Math.round((size.h + CAPTION) * k)
+      const ctx = out.getContext('2d')!
+      ctx.setTransform(k, 0, 0, k, 0, 0)
+      ctx.fillStyle = '#0b0e13'
+      ctx.fillRect(0, 0, size.w, CAPTION)
+      ctx.font = '600 12px system-ui, sans-serif'
+      ctx.fillStyle = '#d7dce4'
+      ctx.textBaseline = 'middle'
+      let x = 8
+      ctx.fillText('Spectrum', x, CAPTION / 2)
+      x += ctx.measureText('Spectrum').width + 14
+      ctx.font = '12px system-ui, sans-serif'
+      for (const r of shown) {
+        const label = `${channelName(r.def.source)} · ${windowDef(r.def.window).label}`
+        ctx.fillStyle = r.channel.display.color
+        ctx.fillRect(x, CAPTION / 2 - 4, 8, 8)
+        ctx.fillStyle = '#b9c1cd'
+        ctx.fillText(label, x + 12, CAPTION / 2)
+        x += ctx.measureText(label).width + 26
+      }
+      const cv = document.createElement('canvas')
+      cv.width = out.width
+      cv.height = Math.round(size.h * k)
+      drawSpectrum(cv.getContext('2d')!, {
+        width: size.w,
+        height: size.h,
+        dpr: k,
+        map: { axis, lo: fr.lo, hi: fr.hi, width: plotW },
+        scale,
+        yLo: yr.lo,
+        yHi: yr.hi,
+        yUnit: scale === 'db' ? levelUnit('db', unit) : unit,
+        traces: shown.map((r) => ({ spec: r.spec, color: r.channel.display.color, peaks: peaks.get(r.def.id) ?? [] })),
+      })
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
+      ctx.drawImage(cv, 0, Math.round(CAPTION * k))
+      return out
+    },
+    getData: () => ({
+      scale,
+      levelUnit: levelUnit(scale, unit),
+      items: shown.map((r) => ({
+        name: channelName(r.def.source),
+        color: r.channel.display.color,
+        window: windowDef(r.def.window).label,
+        spec: r.spec,
+        peaks: peaks.get(r.def.id) ?? [],
+      })),
+    }),
+  }))
 
   // ---------- mouse ----------
   // Positions along the frequency axis are handled in axis units (log10 f on a log axis)
@@ -440,7 +511,7 @@ export function SpectrumView(p: Props) {
       </div>
     </section>
   )
-}
+})
 
 function metaTitle(s: Spectrum): string {
   const lines = [

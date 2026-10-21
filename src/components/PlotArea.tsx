@@ -59,8 +59,10 @@ interface Props {
 }
 
 export interface PlotAreaHandle {
-  /** Compose all views, callouts and the time axis into a single PNG */
-  toPng: () => Promise<Blob | null>
+  /** Draw all views, callouts and the time axis at `scale` × the screen size (CSS pixels) */
+  renderImage: (scale: number) => Promise<HTMLCanvasElement>
+  /** Current size of the plot (CSS pixels) */
+  size: () => { w: number; h: number }
 }
 
 type Drag =
@@ -175,19 +177,49 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   }
 
   useImperativeHandle(ref, () => ({
-    toPng: async () => {
-      const dpr = window.devicePixelRatio || 1
+    size: () => size,
+    renderImage: async (scale: number) => {
       const out = document.createElement('canvas')
-      out.width = Math.round(size.w * dpr)
-      out.height = Math.round((viewsH + AXIS_H) * dpr)
+      out.width = Math.round(size.w * scale)
+      out.height = Math.round((viewsH + AXIS_H) * scale)
       const ctx = out.getContext('2d')!
-      canvasRefs.current.slice(0, nViews).forEach((cv, i) => cv && ctx.drawImage(cv, 0, Math.round(i * viewH * dpr)))
-      if (axisRef.current) ctx.drawImage(axisRef.current, 0, Math.round(viewsH * dpr))
+      const ticks = timeTicks(p.win)
+      const byId = new Map(p.channels.map((c) => [c.wave.id, c]))
+      // Redraw each view at the export resolution (no hover line or rubber band)
+      p.views.forEach((ids, vi) => {
+        const cv = document.createElement('canvas')
+        cv.width = out.width
+        cv.height = Math.round(viewH * scale)
+        const traces = ids
+          .map((id) => byId.get(id))
+          .filter((c): c is LiveChannel => !!c && c.display.visible)
+          .map((c) => ({ display: c.display, wave: c.wave, pyramid: c.pyramid }))
+        drawView(cv.getContext('2d')!, {
+          width: size.w,
+          height: viewH,
+          dpr: scale,
+          tStart: p.win.start,
+          tEnd: p.win.end,
+          timeTicks: ticks,
+          traces,
+          axisChannel: traces.find((t) => t.display.id === p.selected)?.display ?? traces[0]?.display,
+          cursors: p.cursors.on ? { a: p.cursors.a, b: p.cursors.b, sourceId: p.cursors.source, showLabels: vi === 0 } : undefined,
+          trigger: { sourceId: p.trigger?.source, level: p.trigger?.level, showMarker: true },
+        })
+        ctx.drawImage(cv, 0, Math.round(vi * viewH * scale))
+      })
+      const ax = document.createElement('canvas')
+      ax.width = out.width
+      ax.height = Math.round(AXIS_H * scale)
+      drawTimeAxis(ax.getContext('2d')!, size.w, AXIS_H, scale, p.win.start, p.win.end, ticks)
+      ctx.drawImage(ax, 0, Math.round(viewsH * scale))
+      // Callouts are vector graphics: rasterised directly at the export resolution
       if (svgRef.current && p.callouts.length) {
         const img = await svgToImage(svgRef.current)
-        if (img) ctx.drawImage(img, 0, 0, plotW * dpr, viewsH * dpr)
+        if (img) ctx.drawImage(img, 0, 0, plotW * scale, viewsH * scale)
       }
-      return new Promise((resolve) => out.toBlob(resolve, 'image/png'))
+      if (p.cursors.on) drawCursorReadout(ctx, scale, p, tToX)
+      return out
     },
   }))
 
@@ -475,4 +507,25 @@ async function svgToImage(svg: SVGSVGElement): Promise<HTMLImageElement | null> 
   } finally {
     URL.revokeObjectURL(url)
   }
+}
+
+/** The Δt / Δv box of the cursors, drawn into exported images (on screen it is HTML) */
+function drawCursorReadout(ctx: CanvasRenderingContext2D, scale: number, p: Props, tToX: (t: number) => number) {
+  const dt = p.cursors.b - p.cursors.a
+  const src = p.channels.find((c) => c.wave.id === p.cursors.source)
+  const unit = src?.wave.yUnit ?? 'V'
+  const dv = src ? valueAt(src.wave, p.cursors.b) - valueAt(src.wave, p.cursors.a) : NaN
+  const lines = [`Δt: ${si(dt, 's')}   1/Δt: ${si(1 / Math.abs(dt), 'Hz')}`, `Δv: ${si(dv, unit)} (${src?.wave.id ?? '?'})   Δv/Δt: ${si(dv / dt, `${unit}/s`)}`]
+  ctx.save()
+  ctx.setTransform(scale, 0, 0, scale, 0, 0)
+  ctx.font = '11px "JetBrains Mono", ui-monospace, Consolas, monospace'
+  const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 20
+  const x = Math.max(8, (tToX(p.cursors.a) + tToX(p.cursors.b)) / 2 - w / 2)
+  ctx.fillStyle = 'rgba(30, 36, 46, 0.9)'
+  ctx.strokeStyle = '#3a4454'
+  ctx.fillRect(x, 22, w, 40)
+  ctx.strokeRect(x + 0.5, 22.5, w, 40)
+  ctx.fillStyle = '#d7dce4'
+  lines.forEach((l, i) => ctx.fillText(l, x + 10, 38 + i * 16))
+  ctx.restore()
 }

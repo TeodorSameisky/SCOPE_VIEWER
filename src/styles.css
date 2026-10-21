@@ -1215,6 +1215,243 @@ th:hover .x {
   font-size: 12.5px;
 }
 
+/* ---------- save / export ---------- */
+.menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 2px;
+}
+.menu-entry > button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 7px 9px;
+}
+.menu-entry > button:hover:not(:disabled) {
+  background: #1e2430;
+}
+.save-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  padding: 2px 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.save-status.error {
+  color: var(--danger);
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.6);
+}
+.dialog {
+  width: min(720px, 100%);
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 8px 8px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.dialog-head h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.dialog-body {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  min-height: 0;
+  overflow: auto;
+}
+.dialog-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  border-right: 1px solid var(--border);
+}
+.dialog-nav button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 7px 9px;
+}
+.dialog-nav button span {
+  display: flex;
+  flex-direction: column;
+}
+.dialog-nav small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.dialog-nav button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.dialog-options {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dialog-options fieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+}
+.dialog-options legend {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 4px;
+  padding: 0;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.check.disabled {
+  opacity: 0.45;
+}
+.check-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+  width: 100%;
+}
+.field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.field > span {
+  width: 70px;
+  color: var(--muted);
+  font-size: 12px;
+  flex: none;
+}
+.field input,
+.field select {
+  flex: 1;
+}
+.field.column {
+  align-items: flex-start;
+}
+.hint.warn {
+  color: #ffb44c;
+}
+.success {
+  color: #8fd43a;
+}
+.dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+}
+.dialog-foot button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+button.primary {
+  background: var(--accent-2);
+  border-color: var(--accent);
+  color: #fff;
+}
+.storage {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.button-row button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.stored-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stored-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 5px;
+}
+.stored-list li.current {
+  background: var(--accent-soft);
+}
+.stored-list li > div {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.stored-list strong {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stored-list .muted {
+  font-size: 11.5px;
+}
+@media (max-width: 700px) {
+  .dialog-body {
+    grid-template-columns: 1fr;
+  }
+  .dialog-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
+
 /* ---------- responsive ---------- */
 @media (max-width: 1250px) {
   .btn-label {
