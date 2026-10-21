@@ -1,10 +1,5 @@
+import { sha256Hex } from '../util/sha256'
 import { loadFiles, type InputFile } from './session'
-
-async function sha256Hex(data: ArrayBuffer | string): Promise<string> {
-  const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data
-  const digest = await crypto.subtle.digest('SHA-256', bytes)
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
-}
 
 /** Content hash identifying the opened file(s), used to remember callouts per session */
 async function fingerprint(files: InputFile[]): Promise<string> {
@@ -15,7 +10,8 @@ async function fingerprint(files: InputFile[]): Promise<string> {
 
 self.onmessage = async (e: MessageEvent<InputFile[]>) => {
   try {
-    const fp = await fingerprint(e.data)
+    // A failing hash must never prevent opening the file; callouts are then just not remembered
+    const fp = await fingerprint(e.data).catch(() => undefined)
     const session = loadFiles(e.data)
     session.fingerprint = fp
     const transfer = session.channels.map((c) => c.wave.data.buffer as ArrayBuffer)
