@@ -27,14 +27,16 @@ export class MinMaxPyramid {
       for (let j = 0; j < n; j++) {
         const s = j * FACTOR
         const e = Math.min(s + FACTOR, srcMin.length)
-        let lo = srcMin[s]
-        let hi = srcMax[s]
-        for (let i = s + 1; i < e; i++) {
+        // NaN never wins a comparison, so invalid samples (gaps of math channels) are skipped;
+        // a block without valid samples stores NaN and is left out when drawing
+        let lo = Infinity
+        let hi = -Infinity
+        for (let i = s; i < e; i++) {
           if (srcMin[i] < lo) lo = srcMin[i]
           if (srcMax[i] > hi) hi = srcMax[i]
         }
-        min[j] = lo
-        max[j] = hi
+        min[j] = lo === Infinity ? NaN : lo
+        max[j] = hi === -Infinity ? NaN : hi
       }
       block *= FACTOR
       this.levels.push({ block, min, max })
@@ -90,7 +92,8 @@ export class MinMaxPyramid {
         if (tmp[1] > hi) hi = tmp[1]
       }
     }
-    out[0] = lo
-    out[1] = hi
+    // No valid sample in the range
+    out[0] = lo === Infinity ? NaN : lo
+    out[1] = hi === -Infinity ? NaN : hi
   }
 }

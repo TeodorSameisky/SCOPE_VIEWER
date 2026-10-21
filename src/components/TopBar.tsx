@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 import type { ExportKind } from './ExportDialog'
 import { IconButton } from './ui/IconButton'
+import { Logo } from './ui/Logo'
 import { Menu } from './ui/Menu'
 import type { Tool } from './state'
 
@@ -59,9 +60,7 @@ export function TopBar(p: Props) {
   return (
     <header className="topbar">
       <div className="brand" title="Scope Viewer">
-        <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden>
-          <path d="M3 20h6l3-10 4 14 3-9 2 5h8" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" />
-        </svg>
+        <Logo size={22} />
       </div>
       <Menu
         icon={FolderOpen}

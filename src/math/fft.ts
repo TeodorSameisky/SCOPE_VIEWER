@@ -300,7 +300,8 @@ export function computeSpectrum(data: Float32Array, i0: number, i1: number, dt: 
       for (let k = 0; k < decimation; k++) v += data[s + k]
       v /= decimation
     }
-    x[j] = v * w[j]
+    // Invalid samples (gaps of math channels) count as 0 instead of turning every bin into NaN
+    x[j] = Number.isFinite(v) ? v * w[j] : 0
     wSum += w[j]
   }
   const mag = realFftMagnitude(x)

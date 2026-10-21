@@ -29,10 +29,19 @@ function baseName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path
 }
 
-function channelIdFromName(name: string): string {
+/**
+ * Channel id from a file name: "ch1.wfm" or "Tek000_CH1.wfm" → CH1 (also MATHn, REFn). Ids stay
+ * unique within a session: a second file mapping to the same id (e.g. a digital channel
+ * "ch1_d0.wfm") is named after the file instead.
+ */
+function channelIdFromName(name: string, taken: Set<string>): string {
   const stem = baseName(name).replace(/\.[^.]+$/, '')
   const m = stem.match(/(ch|math|ref)\s*_?(\d+)/i)
-  return m ? `${m[1].toUpperCase()}${m[2]}` : stem.toUpperCase()
+  let id = m ? `${m[1].toUpperCase()}${m[2]}` : stem.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+  if (taken.has(id)) id = stem.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+  for (let n = 2; taken.has(id); n++) id = `${id.replace(/_\d+$/, '')}_${n}`
+  taken.add(id)
+  return id
 }
 
 /** Pick a "nice" V/div that shows the whole waveform in ~8 divisions. */
@@ -131,6 +140,7 @@ function buildSession(fileName: string, format: string, waves: Waveform[], setup
 function parseTss(file: InputFile): Session {
   const entries = unzipSync(new Uint8Array(file.data))
   const waves: Waveform[] = []
+  const ids = new Set<string>()
   let setup: Record<string, string> | undefined
   let screenshot: Blob | undefined
 
@@ -138,7 +148,7 @@ function parseTss(file: InputFile): Session {
     const name = baseName(path)
     const lower = name.toLowerCase()
     if (lower.endsWith('.wfm')) {
-      waves.push(parseTekWfm(toBuffer(content), channelIdFromName(name)))
+      waves.push(parseTekWfm(toBuffer(content), channelIdFromName(name, ids)))
     } else if (lower.endsWith('.set')) {
       // Either a zip containing the learn file, or the learn text itself
       if (content[0] === 0x50 && content[1] === 0x4b) {
@@ -165,13 +175,14 @@ export function loadFiles(files: InputFile[]): Session {
   if (files.length === 1 && /\.tss$/i.test(files[0].name)) return parseTss(files[0])
 
   const waves: Waveform[] = []
+  const ids = new Set<string>()
   let setup: Record<string, string> | undefined
   for (const f of files) {
     if (/\.tss$/i.test(f.name)) return parseTss(f)
     if (/\.set$/i.test(f.name)) {
       setup = { ...setup, ...parseTekSetup(new TextDecoder('latin1').decode(f.data)) }
     } else if (isTekWfm(f.data)) {
-      waves.push(parseTekWfm(f.data, channelIdFromName(f.name)))
+      waves.push(parseTekWfm(f.data, channelIdFromName(f.name, ids)))
     } else {
       throw new Error(`${f.name}: unsupported file format`)
     }

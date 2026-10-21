@@ -2,7 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { X } from 'lucide-react'
 import type { ChannelDisplay, Session } from '../model/types'
 import type { MeasurementKey } from '../dsp/measure'
-import { DEFAULT_CALLOUT_COLOR, calloutsToJson, newCalloutId, nextCalloutNumber, parseCalloutJson, type Callout } from '../model/callouts'
+import { DEFAULT_CALLOUT_COLOR, calloutTitle, newCalloutId, nextCalloutNumber, type Callout } from '../model/callouts'
 import { MinMaxPyramid } from '../dsp/minmax'
 import { evaluateMath } from '../math/expr'
 import { MATH_COLORS, MAX_MATH, nextMathId, type MathDef } from '../model/math'
@@ -25,6 +25,7 @@ import {
 import { buildBundle } from '../export/bundle'
 import { runExport, waveformRows, type ExportContext } from '../export/sessionExport'
 import { downloadBlob, stem } from '../util/download'
+import { channelName } from '../util/names'
 import { usePersistentState } from '../util/usePersistentState'
 import { CalloutPanel } from './CalloutPanel'
 import { ChannelBar, type MathItem } from './ChannelBar'
@@ -246,10 +247,13 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
   const updateCallout = useCallback((id: string, patch: Partial<Callout>) => {
     setCallouts((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)))
   }, [setCallouts])
-  const deleteCallout = (id: string) => {
-    setCallouts((cs) => cs.filter((c) => c.id !== id))
+  /** Delete a callout; offers undo unless `silent` (an empty new note that is discarded) */
+  const deleteCallout = (id: string, silent = false) => {
+    const c = callouts.find((x) => x.id === id)
+    setCallouts((cs) => cs.filter((x) => x.id !== id))
     if (editing?.id === id) setEditing(null)
     if (selectedCallout === id) setSelectedCallout(undefined)
+    if (c && !silent) offerUndo(`${calloutTitle(c)} deleted`, () => setCallouts((cs) => [...cs, c]))
   }
   const editCallout = (id: string | null) => {
     if (id) {
@@ -259,7 +263,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     }
     // Finishing the editor: a new note without text is discarded
     const c = editing && callouts.find((x) => x.id === editing.id)
-    if (editing?.isNew && c?.type === 'note' && !c.text.trim()) deleteCallout(c.id)
+    if (editing?.isNew && c?.type === 'note' && !c.text.trim()) deleteCallout(c.id, true)
     setEditing(null)
   }
   const jumpToCallout = (c: Callout) => {
@@ -274,22 +278,6 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     }
     setSelectedCallout(c.id)
   }
-  const exportCallouts = () => {
-    const json = calloutsToJson(session.fileName, session.fingerprint, callouts)
-    downloadBlob(new Blob([json], { type: 'application/json' }), `${stem(session.fileName)}.callouts.json`)
-  }
-  const importCallouts = async (file: File) => {
-    try {
-      const { callouts: imported, otherFile } = parseCalloutJson(await file.text(), session.fingerprint)
-      if (otherFile && !confirm('These callouts were saved for a different session file. Import them anyway?')) return
-      const ids = new Set(imported.map((c) => c.id))
-      setCallouts((cs) => [...cs.filter((c) => !ids.has(c.id)), ...imported])
-      setPanel('callouts')
-    } catch (e) {
-      alert(`Could not import callouts: ${e instanceof Error ? e.message : String(e)}`)
-    }
-  }
-
   // ---------- export dialog (declared early: shortcuts are off while it is open) ----------
   const [exportKind, setExportKind] = useState<ExportKind | null>(null)
   const [exportPlotSize, setExportPlotSize] = useState({ w: 0, h: 0 })
@@ -298,12 +286,38 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     setExportKind(kind)
   }
 
+  /** "Between cursors" needs visible cursors: turn them on, in the current view if they are off-screen */
+  const showCursors = () => {
+    if (cursors.on) return
+    const span = win.end - win.start
+    const inView = (t: number) => t >= win.start && t <= win.end
+    setCursors(inView(cursors.a) && inView(cursors.b) ? { ...cursors, on: true } : { ...cursors, on: true, a: win.start + span * 0.3, b: win.start + span * 0.7 })
+  }
+
+  // ---------- undo of deletions ----------
+  const [undo, setUndo] = useState<{ message: string; restore: () => void; id: number } | null>(null)
+  const offerUndo = (message: string, restore: () => void) => setUndo({ message, restore, id: Date.now() })
+  const runUndo = () => {
+    undo?.restore()
+    setUndo(null)
+  }
+  useEffect(() => {
+    if (!undo) return
+    const t = window.setTimeout(() => setUndo((u) => (u?.id === undo.id ? null : u)), 8000)
+    return () => window.clearTimeout(t)
+  }, [undo])
+
   // ---------- keyboard shortcuts ----------
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (exportKind) return
       const target = e.target as HTMLElement
       if (target.closest?.('input, textarea, select, [contenteditable="true"]')) return
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && undo) {
+        e.preventDefault()
+        runUndo()
+        return
+      }
       if (e.ctrlKey || e.metaKey) return
       const span = win.end - win.start
       const mid = (win.start + win.end) / 2
@@ -373,7 +387,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
 
   const addMath = (): string | undefined => {
     if (mathDefs.length >= MAX_MATH) return
-    const id = nextMathId(mathDefs)
+    const id = nextMathId(mathDefs, session.channels.map((c) => c.wave.id))
     const vis = session.channels.filter((c) => displayById.get(c.wave.id)?.visible).map((c) => c.wave.id)
     const a = vis[0] ?? session.channels[0].wave.id
     const b = vis.find((x) => x !== a)
@@ -390,6 +404,25 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     if (patch.expr !== undefined) pendingAutoscale.current.add(id)
   }
   const removeMath = (id: string) => {
+    // Everything needed to put the channel back exactly as it was
+    const def = mathDefs.find((m) => m.id === id)
+    const display = displays.find((d) => d.id === id)
+    const viewIndex = views.findIndex((v) => v.includes(id))
+    const ownView = viewIndex >= 0 && views[viewIndex].length === 1
+    const specs = spectra.filter((s) => s.source === id)
+    if (def && display) {
+      offerUndo(`${channelName(id)} deleted`, () => {
+        setMathDefs((ms) => [...ms, def])
+        setDisplays((ds) => [...ds, display])
+        setViews((vs) => {
+          const next = vs.map((v) => [...v])
+          if (ownView || viewIndex < 0 || viewIndex >= next.length) next.splice(Math.max(0, Math.min(viewIndex, next.length)), 0, [id])
+          else next[viewIndex].push(id)
+          return next
+        })
+        setSpectra((ss) => [...ss, ...specs])
+      })
+    }
     setMathDefs((ms) => ms.filter((m) => m.id !== id))
     setDisplays((ds) => ds.filter((d) => d.id !== id))
     setViews((vs) => vs.map((v) => v.filter((x) => x !== id)).filter((v) => v.length > 0))
@@ -618,7 +651,10 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
               ref={spectrumRef}
               defs={spectra}
               options={specOptions}
-              setOptions={(patch) => setSpecOptions((o) => ({ ...o, ...patch }))}
+              setOptions={(patch) => {
+                setSpecOptions((o) => ({ ...o, ...patch }))
+                if (patch.range === 'cursors') showCursors()
+              }}
               channels={channels}
               win={win}
               cursors={cursors}
@@ -637,7 +673,10 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
               win={win}
               cursors={cursors}
               range={measRange}
-              setRange={setMeasRange}
+              setRange={(r) => {
+                setMeasRange(r)
+                if (r === 'cursors') showCursors()
+              }}
               keys={measKeys}
               setKeys={setMeasKeys}
               height={layout.measHeight}
@@ -668,12 +707,12 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
                 onUpdate={updateCallout}
                 onDelete={deleteCallout}
                 onJump={jumpToCallout}
-                onExport={exportCallouts}
-                onImport={importCallouts}
                 onClear={() => {
+                  const all = callouts
                   setCallouts([])
                   setEditing(null)
                   setSelectedCallout(undefined)
+                  offerUndo(`${all.length} callouts deleted`, () => setCallouts(all))
                 }}
               />
             )}
@@ -733,6 +772,18 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
         recordLength={session.channels[0].wave.data.length}
         trigger={session.trigger}
       />
+
+      {undo && (
+        <div className="undo-toast" role="status">
+          <span>{undo.message}</span>
+          <button type="button" className="text-btn" onClick={runUndo}>
+            Undo <kbd>Ctrl+Z</kbd>
+          </button>
+          <button type="button" className="icon-btn" aria-label="Dismiss" onClick={() => setUndo(null)}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {exportKind && (
         <ExportDialog

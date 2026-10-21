@@ -54,19 +54,27 @@ export function measure(data: Float32Array, i0: number, i1: number, t0: number, 
     return { min: nan, max: nan, pkpk: nan, mean: nan, rms: nan, top: nan, base: nan, amplitude: nan, frequency: nan, period: nan, riseTime: nan, fallTime: nan, posWidth: nan, duty: nan, count: 0, levelsOk: false }
   }
 
+  // Invalid samples (NaN / ±Infinity, e.g. from math channels: gaps of delay(), ln of negative
+  // values) are left out; statistics use the valid samples only.
   let min = Infinity
   let max = -Infinity
   let sum = 0
   let sum2 = 0
+  let valid = 0
   for (let i = i0; i < i1; i++) {
     const v = data[i]
+    if (!Number.isFinite(v)) continue
     if (v < min) min = v
     if (v > max) max = v
     sum += v
     sum2 += v * v
+    valid++
   }
-  const mean = sum / n
-  const rms = Math.sqrt(sum2 / n)
+  if (!valid) {
+    return { min: nan, max: nan, pkpk: nan, mean: nan, rms: nan, top: nan, base: nan, amplitude: nan, frequency: nan, period: nan, riseTime: nan, fallTime: nan, posWidth: nan, duty: nan, count: n, levelsOk: false }
+  }
+  const mean = sum / valid
+  const rms = Math.sqrt(sum2 / valid)
   const pkpk = max - min
 
   // Top/base: modes of the upper and lower half of a histogram; fall back to max/min.
@@ -76,15 +84,15 @@ export function measure(data: Float32Array, i0: number, i1: number, t0: number, 
     const bins = 256
     const hist = new Uint32Array(bins)
     const k = (bins - 1) / pkpk
-    for (let i = i0; i < i1; i++) hist[Math.round((data[i] - min) * k)]++
+    for (let i = i0; i < i1; i++) if (Number.isFinite(data[i])) hist[Math.round((data[i] - min) * k)]++
     const half = bins / 2
     let lo = 0
     let hi = half
     for (let b = 1; b < half; b++) if (hist[b] > hist[lo]) lo = b
     for (let b = half + 1; b < bins; b++) if (hist[b] > hist[hi]) hi = b
     // Only trust the modes if they hold a meaningful share of samples (bi-level signal)
-    if (hist[lo] > n * 0.02) base = min + lo / k
-    if (hist[hi] > n * 0.02) top = min + hi / k
+    if (hist[lo] > valid * 0.02) base = min + lo / k
+    if (hist[hi] > valid * 0.02) top = min + hi / k
   }
   const amplitude = top - base
 
@@ -103,7 +111,7 @@ export function measure(data: Float32Array, i0: number, i1: number, t0: number, 
     const hi = top - 0.1 * amplitude
     let near = 0
     for (let i = i0; i < i1; i++) if (data[i] <= lo || data[i] >= hi) near++
-    levelsOk = near >= n * MIN_LEVEL_OCCUPANCY
+    levelsOk = near >= valid * MIN_LEVEL_OCCUPANCY
   }
   if (levelsOk) {
     const l10 = base + 0.1 * amplitude

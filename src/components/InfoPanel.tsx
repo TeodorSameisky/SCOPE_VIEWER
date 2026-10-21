@@ -1,17 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { Session } from '../model/types'
 import { si } from '../util/format'
 
 export function InfoPanel({ session, storage }: { session: Session; storage?: React.ReactNode }) {
   const [filter, setFilter] = useState('')
   const [zoomShot, setZoomShot] = useState(false)
-  const shotUrl = useMemo(() => (session.screenshot ? URL.createObjectURL(session.screenshot) : undefined), [session.screenshot])
-  useEffect(
-    () => () => {
-      if (shotUrl) URL.revokeObjectURL(shotUrl)
-    },
-    [shotUrl],
-  )
+  const shotUrl = session.screenshot ? screenshotUrl(session.screenshot) : undefined
 
   const first = session.channels[0]?.wave
   const setupRows = useMemo(() => {
@@ -90,4 +84,16 @@ export function InfoPanel({ session, storage }: { session: Session; storage?: Re
       )}
     </div>
   )
+}
+
+// One object URL per screenshot for the lifetime of the page: the panel mounts and unmounts
+// often, and revoking on unmount would break the image when it remounts (e.g. StrictMode).
+const urls = new WeakMap<Blob, string>()
+function screenshotUrl(blob: Blob): string {
+  let url = urls.get(blob)
+  if (!url) {
+    url = URL.createObjectURL(blob)
+    urls.set(blob, url)
+  }
+  return url
 }

@@ -50,7 +50,7 @@ export function nextCalloutNumber(list: Callout[]): number {
   return list.reduce((m, c) => Math.max(m, c.n), 0) + 1
 }
 
-// ---------- persistence (per browser, keyed by a hash of the session file) ----------
+// ---------- reading what earlier versions stored (migrated into the workspace) ----------
 
 const STORAGE_PREFIX = 'scope-viewer:callouts:'
 
@@ -62,41 +62,6 @@ export function loadCallouts(fingerprint: string | undefined): Callout[] {
   } catch {
     return []
   }
-}
-
-export function saveCallouts(fingerprint: string | undefined, list: Callout[]): void {
-  if (!fingerprint) return
-  try {
-    if (list.length) localStorage.setItem(STORAGE_PREFIX + fingerprint, JSON.stringify(list))
-    else localStorage.removeItem(STORAGE_PREFIX + fingerprint)
-  } catch {
-    // storage full or unavailable (private mode): callouts then live only for this page view
-  }
-}
-
-// ---------- file export / import ----------
-
-interface CalloutFile {
-  app: 'scope-viewer'
-  kind: 'callouts'
-  version: 1
-  sessionFile: string
-  fingerprint?: string
-  callouts: Callout[]
-}
-
-export function calloutsToJson(sessionFile: string, fingerprint: string | undefined, list: Callout[]): string {
-  const file: CalloutFile = { app: 'scope-viewer', kind: 'callouts', version: 1, sessionFile, fingerprint, callouts: list }
-  return JSON.stringify(file, null, 2)
-}
-
-/** Parse an exported callout file. Returns the callouts and whether they were made for another file. */
-export function parseCalloutJson(text: string, fingerprint: string | undefined): { callouts: Callout[]; otherFile: boolean } {
-  const data = JSON.parse(text)
-  const list = Array.isArray(data) ? data : data?.callouts
-  if (!Array.isArray(list)) throw new Error('Not a callout file')
-  const otherFile = !!(fingerprint && data?.fingerprint && data.fingerprint !== fingerprint)
-  return { callouts: sanitizeCallouts(list), otherFile }
 }
 
 export function sanitizeCallouts(list: unknown): Callout[] {

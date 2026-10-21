@@ -66,3 +66,35 @@ describe('measurement definitions', () => {
     for (const d of MEASUREMENT_DEFS) expect(d.short.length && d.method.length).toBeTruthy()
   })
 })
+
+describe('invalid samples', () => {
+  it('measures the valid part of a signal with gaps', async () => {
+    // 1 kHz square wave with NaN at both ends, like delay() or a different time base produces
+    const data = new Float32Array(10000)
+    for (let i = 0; i < data.length; i++) data[i] = i < 300 || i > 9700 ? NaN : i % 1000 < 500 ? 5 : 0
+    const m = measure(data, 0, data.length, 0, 1e-6)
+    expect(m.max).toBe(5)
+    expect(m.min).toBe(0)
+    expect(m.mean).toBeCloseTo(2.5, 1)
+    expect(m.frequency).toBeCloseTo(1000, 0)
+    const all = measure(new Float32Array([NaN, NaN, NaN]), 0, 3, 0, 1)
+    expect(all.mean).toBeNaN()
+    expect(all.count).toBe(3)
+  })
+
+  it('skips gaps in the min/max pyramid and the spectrum', async () => {
+    const { MinMaxPyramid } = await import('./minmax')
+    const { computeSpectrum } = await import('../math/fft')
+    const data = new Float32Array(100000)
+    for (let i = 0; i < data.length; i++) data[i] = i < 5000 ? NaN : Math.sin((2 * Math.PI * i) / 100)
+    const p = new MinMaxPyramid(data)
+    const mm: [number, number] = [0, 0]
+    p.range(0, data.length, mm)
+    expect(mm[0]).toBeCloseTo(-1, 3)
+    expect(mm[1]).toBeCloseTo(1, 3)
+    p.range(0, 4000, mm)
+    expect(mm[0]).toBeNaN()
+    const s = computeSpectrum(data, 0, data.length, 1e-6, 'hann')!
+    expect(Array.from(s.rms).every(Number.isFinite)).toBe(true)
+  })
+})

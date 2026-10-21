@@ -2,6 +2,7 @@ import type { ChannelDisplay, Waveform } from '../model/types'
 import type { MinMaxPyramid } from '../dsp/minmax'
 import { siTick } from '../util/format'
 import { channelTag } from '../util/names'
+import { sampleAt } from '../math/signal'
 
 export const DIVS_Y = 10
 /** Gutter on the right of each plot for the vertical scale labels */
@@ -49,11 +50,7 @@ export function divToValue(div: number, d: ChannelDisplay): number {
 
 /** Interpolated sample value at time t, NaN outside the record. */
 export function valueAt(w: Waveform, t: number): number {
-  const x = (t - w.t0) / w.dt
-  if (x < 0 || x > w.data.length - 1) return NaN
-  const i = Math.floor(x)
-  const f = x - i
-  return i + 1 < w.data.length ? w.data[i] * (1 - f) + w.data[i + 1] * f : w.data[i]
+  return sampleAt(w.data, w.t0, w.dt, t)
 }
 
 export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): void {

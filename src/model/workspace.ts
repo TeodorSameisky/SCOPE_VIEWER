@@ -121,6 +121,8 @@ export function sanitizeWorkspace(raw: unknown, session: Session): Workspace {
     .filter((m): m is MathDef => !!m && typeof m.id === 'string' && MATH_ID.test(m.id) && typeof m.expr === 'string')
     .map((m) => ({ id: m.id, expr: m.expr.slice(0, 2000), ...(typeof m.unit === 'string' && m.unit ? { unit: m.unit.slice(0, 20) } : {}) }))
     .filter((m, i, all) => all.findIndex((x) => x.id === m.id) === i)
+    // never shadow a channel of the file itself
+    .filter((m) => !session.channels.some((c) => c.wave.id === m.id))
   const ids = [...session.channels.map((c) => c.wave.id), ...math.map((m) => m.id)]
 
   // Channel settings: every channel gets one; stored values override the defaults field by field
@@ -328,6 +330,8 @@ export const BUNDLE_EXT = '.scopeview'
 
 export interface AnalysisFile {
   app: 'scope-viewer'
+  /** Version of Scope Viewer that wrote the file */
+  appVersion?: string
   kind: 'analysis'
   version: typeof WORKSPACE_VERSION
   savedAt: string
@@ -339,6 +343,7 @@ export interface AnalysisFile {
 export function analysisToJson(session: Session, ws: Workspace): string {
   const file: AnalysisFile = {
     app: 'scope-viewer',
+    appVersion: __APP_VERSION__,
     kind: 'analysis',
     version: WORKSPACE_VERSION,
     savedAt: new Date().toISOString(),

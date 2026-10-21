@@ -165,3 +165,16 @@ describe('analysis files', () => {
     expect(() => parseAnalysisJson(JSON.stringify({ kind: 'analysis', version: 99, workspace: {} }))).toThrow(/newer version/)
   })
 })
+
+describe('math ids', () => {
+  it('never reuse the id of a channel in the file', async () => {
+    const { nextMathId } = await import('./math')
+    expect(nextMathId([], ['CH1', 'MATH1'])).toBe('MATH2')
+    const s = session()
+    s.channels.push({ wave: wave('MATH1'), display: display('MATH1', '#ffffff') })
+    s.views.push(['MATH1'])
+    const ws = sanitizeWorkspace({ math: [{ id: 'MATH1', expr: 'CH1 * 2' }, { id: 'MATH2', expr: 'CH2' }] }, s)
+    expect(ws.math.map((m) => m.id)).toEqual(['MATH2'])
+    expect(ws.channels.filter((c) => c.id === 'MATH1')).toHaveLength(1)
+  })
+})

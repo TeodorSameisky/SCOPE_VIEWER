@@ -25,6 +25,33 @@
   box-sizing: border-box;
 }
 
+/* Scrollbars: thin and dark everywhere, instead of the light system ones with arrow buttons.
+   Standard properties (Firefox, Chromium 121+); the -webkit- rules cover Safari. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #3a4351 transparent;
+}
+*:hover {
+  scrollbar-color: #4b5666 transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #3a4351;
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: #566274;
+}
+
 html,
 body,
 #root {
@@ -511,6 +538,13 @@ code {
   grid-template-columns: 150px 1fr;
   gap: 10px;
   align-items: baseline;
+}
+.help-popover .version {
+  margin: 10px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
 }
 .help-popover dd {
   margin: 0;
@@ -1454,6 +1488,47 @@ button.primary {
     border-right: none;
     border-bottom: 1px solid var(--border);
   }
+}
+
+.undo-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%);
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 14px;
+  background: #1c222c;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.undo-toast .text-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.crash h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 18px;
+  color: var(--danger);
+}
+.crash pre {
+  margin: 0;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: #ffb3bc;
 }
 
 /* ---------- responsive ---------- */
