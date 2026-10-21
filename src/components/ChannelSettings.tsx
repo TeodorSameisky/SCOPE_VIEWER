@@ -1,4 +1,4 @@
-import { Eye, EyeOff } from 'lucide-react'
+import { AudioLines, Eye, EyeOff } from 'lucide-react'
 import type { ChannelDisplay } from '../model/types'
 import { si } from '../util/format'
 import { channelName } from '../util/names'
@@ -12,6 +12,9 @@ interface Props {
   onAdjust: (id: string, patch: DisplayPatch) => void
   onMoveToView: (id: string, view: number) => void
   onAutoscale: (id: string) => void
+  hasSpectrum: boolean
+  canAddSpectrum: boolean
+  onToggleSpectrum: () => void
   /** Extra content between the header and the vertical settings (math expression) */
   children?: React.ReactNode
 }
@@ -19,7 +22,7 @@ interface Props {
 const round = (v: number) => Math.round(v * 100) / 100
 
 /** Vertical settings of one channel (shown in the channel badge popover). */
-export function ChannelSettings({ display: d, unit, views, onAdjust, onMoveToView, onAutoscale, children }: Props) {
+export function ChannelSettings({ display: d, unit, views, onAdjust, onMoveToView, onAutoscale, hasSpectrum, canAddSpectrum, onToggleSpectrum, children }: Props) {
   const id = d.id
   const view = views.findIndex((v) => v.includes(id))
   return (
@@ -79,6 +82,19 @@ export function ChannelSettings({ display: d, unit, views, onAdjust, onMoveToVie
           </select>
           <button type="button" className="text-btn" onClick={() => onAutoscale(id)} title="Fit this channel into its view">
             Autoscale
+          </button>
+        </div>
+        <span>Spectrum</span>
+        <div className="stepper">
+          <button
+            type="button"
+            className={`toggle-btn ${hasSpectrum ? 'active' : ''}`}
+            aria-pressed={hasSpectrum}
+            disabled={!hasSpectrum && !canAddSpectrum}
+            title={hasSpectrum ? 'Remove the spectrum of this channel' : 'Show the frequency spectrum (FFT) of this channel below the time views'}
+            onClick={onToggleSpectrum}
+          >
+            <AudioLines size={14} aria-hidden /> {hasSpectrum ? 'Shown' : 'Show FFT'}
           </button>
         </div>
       </div>

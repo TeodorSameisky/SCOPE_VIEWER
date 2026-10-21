@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { loadFiles } from './session'
 import { measure } from '../dsp/measure'
+import { computeSpectrum, findPeaks } from '../math/fft'
 
 // The example session is kept out of git; these tests only run where it exists locally.
 const samplePath = new URL('../../SessionSample/Tek000.tss', import.meta.url)
@@ -39,6 +40,18 @@ describe.skipIf(!hasSample)('Tektronix .tss session (SessionSample/Tek000.tss)',
     const flat = measure(w.data, i0, i1, w.t0, w.dt)
     expect(flat.levelsOk).toBe(false)
     expect(flat.frequency).toBeNaN()
+  })
+
+  it('computes the spectrum of a channel over the whole record', () => {
+    const w = s.channels.find((c) => c.wave.id === 'CH4')!.wave
+    const spec = computeSpectrum(w.data, 0, w.data.length, w.dt, 'hann')!
+    expect(spec.n).toBe(262144)
+    expect(spec.sampleRate).toBeCloseTo(25e6, -3)
+    expect(spec.df).toBeCloseTo(25e6 / 262144, 3)
+    expect(spec.rms.every(Number.isFinite)).toBe(true)
+    // DC bin = mean of the windowed record, a few volts for this signal
+    expect(spec.rms[0]).toBeGreaterThan(1)
+    expect(findPeaks(spec, 5).length).toBeGreaterThan(0)
   })
 
   it('applies the setup', () => {

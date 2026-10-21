@@ -335,16 +335,18 @@ code {
   grid-template-columns: minmax(0, 1fr) auto auto;
   min-height: 0;
 }
+/* Column of overview / plot / spectrum / measurements: the plot takes the space the others leave,
+   and the resizable panels give way when the window gets too low */
 .main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
 }
 .plot-area {
   position: relative;
-  min-height: 0;
+  flex: 1 1 0;
+  min-height: 120px;
   overflow: hidden;
   background: #05070a;
   touch-action: none;
@@ -728,11 +730,12 @@ th:hover .x {
 /* measurements */
 .measure {
   position: relative;
+  flex: 0 1 auto;
   background: var(--panel);
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  min-height: 90px;
 }
 .resize-handle {
   position: absolute;
@@ -834,6 +837,7 @@ th:hover .x {
 
 /* overview navigator */
 .overview {
+  flex: none;
   background: #0a0d12;
   border-bottom: 1px solid var(--border);
   touch-action: none;
@@ -1239,4 +1243,203 @@ th:hover .x {
   .info-box .info-sub {
     display: none;
   }
+}
+
+/* ---------- spectrum ---------- */
+.spectrum {
+  position: relative;
+  flex: 0 1 auto;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.spectrum-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 4px 6px 4px 10px;
+  flex-wrap: wrap;
+}
+.spec-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+.spec-chip {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 1px 2px 1px 3px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--ch);
+  border-radius: 5px;
+  background: var(--panel-2);
+}
+.spec-chip.off {
+  opacity: 0.5;
+}
+.spec-chip select {
+  background: transparent;
+  border: none;
+  padding: 2px 2px;
+  font-size: 12px;
+}
+.spec-chip select:first-child {
+  color: var(--ch);
+  font-weight: 700;
+}
+.spec-chip select option {
+  background: var(--panel);
+  color: var(--text);
+}
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  padding: 3px 4px;
+  color: var(--muted);
+}
+.chip-btn:hover:not(:disabled) {
+  background: #1e2430;
+  color: var(--text);
+}
+.inline-field {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.inline-field select {
+  padding: 2px 4px;
+  font-size: 12px;
+}
+.spectrum-body {
+  flex: 0 1 auto;
+  display: flex;
+  min-height: 0;
+}
+.spectrum-plot {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  background: #05070a;
+  touch-action: none;
+  user-select: none;
+}
+.spec-readout {
+  position: absolute;
+  top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 9px;
+  background: rgba(30, 36, 46, 0.9);
+  border: 1px solid #3a4454;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.spec-readout .mono {
+  font-size: 11px;
+}
+.spec-readout .dot {
+  width: 7px;
+  height: 7px;
+}
+.spec-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  pointer-events: none;
+}
+.spec-side {
+  flex: none;
+  width: 232px;
+  overflow-y: auto;
+  padding: 6px 8px;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.spec-block.off {
+  opacity: 0.55;
+}
+.spec-block-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.spec-block-head .dot {
+  margin-right: 0;
+}
+.spec-meta {
+  color: var(--muted);
+  font-size: 11px;
+  margin: 2px 0 3px;
+}
+.data-table.peaks td {
+  padding: 2px 4px;
+  font-size: 11.5px;
+}
+.small {
+  font-size: 11.5px;
+}
+button.toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  font-size: 12px;
+}
+button.toggle-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.window-table {
+  margin-top: 4px;
+}
+
+.range-select {
+  padding: 2px 4px;
+  font-size: 12px;
+}
+.spectrum-body {
+  container-type: inline-size;
+}
+/* Phones: the column scrolls instead of squeezing the plot and the panels */
+@media (max-width: 700px) {
+  .main {
+    overflow-y: auto;
+  }
+  .plot-area {
+    flex-basis: auto;
+    min-height: 240px;
+  }
+  .spectrum,
+  .measure {
+    flex-shrink: 0;
+  }
+}
+/* A narrow spectrum (small window, side panel open) keeps the plot and drops the peak list */
+@container (max-width: 620px) {
+  .spec-side {
+    display: none;
+  }
+}
+.spec-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-left: auto;
 }

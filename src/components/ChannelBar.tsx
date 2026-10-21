@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { AlertTriangle, Eye, EyeOff, Plus } from 'lucide-react'
+import { AlertTriangle, AudioLines, Eye, EyeOff, Plus } from 'lucide-react'
 import type { MathResult } from '../math/expr'
 import { MAX_MATH, type MathDef } from '../model/math'
 import type { ChannelDisplay, Session } from '../model/types'
@@ -30,6 +30,11 @@ interface Props {
   onChangeMath: (id: string, patch: Partial<MathDef>) => void
   onRemoveMath: (id: string) => void
   onOpenMathReference: () => void
+  /** Channels that have a spectrum */
+  spectrumSources: Set<string>
+  canAddSpectrum: boolean
+  onAddSpectrum: () => void
+  onToggleSpectrum: (id: string) => void
   win: TimeWindow
   timePerDiv: number
   sampleRate: number
@@ -101,7 +106,17 @@ export function ChannelBar(p: Props) {
   }
 
   const settings = (d: ChannelDisplay, unit: string, children?: React.ReactNode) => (
-    <ChannelSettings display={d} unit={unit} views={p.views} onAdjust={p.onAdjust} onMoveToView={p.onMoveToView} onAutoscale={p.onAutoscale}>
+    <ChannelSettings
+      display={d}
+      unit={unit}
+      views={p.views}
+      onAdjust={p.onAdjust}
+      onMoveToView={p.onMoveToView}
+      onAutoscale={p.onAutoscale}
+      hasSpectrum={p.spectrumSources.has(d.id)}
+      canAddSpectrum={p.canAddSpectrum}
+      onToggleSpectrum={() => p.onToggleSpectrum(d.id)}
+    >
       {children}
     </ChannelSettings>
   )
@@ -152,6 +167,15 @@ export function ChannelBar(p: Props) {
           }}
         >
           <Plus size={14} aria-hidden /> Math
+        </button>
+        <button
+          type="button"
+          className="add-math"
+          disabled={!p.canAddSpectrum}
+          title={p.canAddSpectrum ? `Show the frequency spectrum (FFT) of ${p.selected ? channelName(p.selected) : 'a channel'}` : 'Too many spectra'}
+          onClick={p.onAddSpectrum}
+        >
+          <AudioLines size={14} aria-hidden /> FFT
         </button>
       </div>
       <div className="spacer" />

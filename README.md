@@ -34,7 +34,7 @@ Which panels are open is remembered in the browser.
   top, base, amplitude, frequency, period, rise/fall time (10–90 %), positive width, duty cycle.
   Click a column header for an explanation with a diagram; the **Reference** panel (book icon in the
   rail) documents every measurement and the reference levels used
-- **Math channels** (see below)
+- **Math channels** and **Spectrum (FFT)** (see below)
 - Instrument screenshot and searchable instrument setup
 - Export the visible range as CSV and the plot (including callouts) as PNG
 
@@ -81,6 +81,26 @@ Quick-operation buttons fill in common expressions. Units are derived (and can b
 Math channels can reference each other, are plotted, measured, exported and saved per session file.
 The Reference panel lists all functions.
 
+### Spectrum (FFT)
+
+Click **FFT** in the channel bar (or **Show FFT** in a channel's settings) to show the frequency spectrum
+of a channel or math channel in a view below the time views, like the FFT math function of the scope.
+
+- Computed over the samples **on screen**, **between the cursors** or of the **whole record**; it
+  follows zooming and panning. Each spectrum picks its own window: Rectangular, Hann (default),
+  Hamming, Blackman-Harris or Flat-top
+- Levels in **dBV** (dB relative to 1 V RMS; dB(A) etc. for other units) or linear **V RMS**;
+  a sine of amplitude A reads A/√2 with every window (Flat-top keeps that between bins too)
+- **Log** or **linear** frequency axis; wheel zooms the frequency, Ctrl+wheel the level axis, drag pans,
+  Shift+drag zooms to a range, double-click shows the full span. Point at the plot to read frequency and level
+- **Peak list**: the highest 3/5/10 peaks in view per spectrum, with interpolated frequency and level,
+  ignoring noise and the window's own side lobes
+- Radix-2 FFT in the browser; ranges are zero-padded to a power of two, up to 2²⁰ points (longer ranges
+  are averaged in blocks first). The Reference panel explains the windows (ENBW, scalloping loss, side
+  lobes), the dB scale and the resolution bandwidth
+
+Spectra are saved per session file like math channels.
+
 ### Keyboard
 
 `P` pan · `Z` zoom tool · `N` note · `M` marker · `R` region · `Esc` back to pan ·
@@ -104,9 +124,9 @@ Code layout:
 ```
 src/parsers/   file formats (tekWfm, tekSetup, session = .tss/.wfm loader, worker)
 src/dsp/       min/max pyramid, measurements and their documentation
-src/math/      expression language and signal processing for math channels
+src/math/      expression language and signal processing for math channels, FFT and windows
 src/model/     data types and callouts (storage, import/export)
-src/render/    canvas drawing of views and time axis
+src/render/    canvas drawing of views, time axis and spectrum
 src/components React UI (Scope workspace, plot, panels)
 ```
 

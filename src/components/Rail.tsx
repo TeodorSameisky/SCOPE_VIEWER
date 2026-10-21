@@ -25,7 +25,7 @@ export function Rail(p: Props) {
       <IconButton icon={Ruler} label="Cursor readouts" active={p.panel === 'cursors'} onClick={() => toggle('cursors')} />
       <IconButton icon={StickyNote} label="Callouts" badge={p.calloutCount} active={p.panel === 'callouts'} onClick={() => toggle('callouts')} />
       <IconButton icon={Info} label="Session info & setup" active={p.panel === 'info'} onClick={() => toggle('info')} />
-      <IconButton icon={BookOpen} label="Reference: measurements & math" active={p.panel === 'reference'} onClick={() => toggle('reference')} />
+      <IconButton icon={BookOpen} label="Reference: measurements, math & spectrum" active={p.panel === 'reference'} onClick={() => toggle('reference')} />
       <div className="rail-sep" />
       <IconButton icon={GalleryHorizontal} label="Overview strip" shortcut="O" active={p.overview} onClick={p.toggleOverview} />
       <IconButton icon={Table2} label="Measurements" shortcut="T" active={p.measurements} onClick={p.toggleMeasurements} />
@@ -52,6 +52,7 @@ const SHORTCUTS: [string, string][] = [
   ['Backspace', 'Back to previous view'],
   ['Enter / Delete', 'Edit / delete selected callout'],
   ['O  T  \\', 'Overview / measurements / focus mode'],
+  ['Spectrum: wheel, drag', 'Zoom / pan frequency (Ctrl + wheel: level)'],
   ['Esc', 'Cancel, back to Pan'],
 ]
 

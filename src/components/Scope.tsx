@@ -15,6 +15,7 @@ import {
 import { MinMaxPyramid } from '../dsp/minmax'
 import { evaluateMath } from '../math/expr'
 import { MATH_COLORS, MAX_MATH, loadMath, nextMathId, saveMath, type MathDef } from '../model/math'
+import { MAX_SPECTRA, loadSpectra, newSpectrum, saveSpectra, type SpectrumDef, type SpectrumOptions } from '../model/spectrum'
 import { buildCsv } from '../export/csv'
 import { downloadBlob, stem } from '../util/download'
 import { usePersistentState } from '../util/usePersistentState'
@@ -27,6 +28,7 @@ import { Overview } from './Overview'
 import { PlotArea, type NewCallout, type PlotAreaHandle } from './PlotArea'
 import { ReferencePanel, type ReferenceSection } from './ReferencePanel'
 import { Rail, type PanelId } from './Rail'
+import { SpectrumView } from './SpectrumView'
 import { TopBar } from './TopBar'
 import {
   timeTicks,
@@ -80,8 +82,9 @@ interface Layout {
   overview: boolean
   measurements: boolean
   measHeight: number
+  specHeight: number
 }
-const DEFAULT_LAYOUT: Layout = { panel: null, overview: true, measurements: true, measHeight: 170 }
+const DEFAULT_LAYOUT: Layout = { panel: null, overview: true, measurements: true, measHeight: 170, specHeight: 220 }
 
 interface Props {
   session: Session
@@ -390,6 +393,7 @@ export function Scope({ session, onOpen, onClose }: Props) {
     setMathDefs((ms) => ms.filter((m) => m.id !== id))
     setDisplays((ds) => ds.filter((d) => d.id !== id))
     setViews((vs) => vs.map((v) => v.filter((x) => x !== id)).filter((v) => v.length > 0))
+    setSpectra((ss) => ss.filter((s) => s.source !== id))
     if (selected === id) setSelected(session.channels[0].wave.id)
     if (cursors.source === id) setCursors({ ...cursors, source: session.channels[0].wave.id })
   }
@@ -405,6 +409,25 @@ export function Scope({ session, onOpen, onClose }: Props) {
       }),
     )
   }, [mathDefs, displayById, views, session.fingerprint])
+
+  // ---------- spectra ----------
+  const [storedSpectra] = useState(() => loadSpectra(session.fingerprint))
+  const [spectra, setSpectra] = useState<SpectrumDef[]>(() => storedSpectra.defs.filter((d) => displays.some((x) => x.id === d.source)))
+  const [specOptions, setSpecOptions] = useState<SpectrumOptions>(storedSpectra.options)
+  useEffect(() => saveSpectra(session.fingerprint, { defs: spectra, options: specOptions }), [spectra, specOptions, session.fingerprint])
+  const spectrumSources = useMemo(() => new Set(spectra.map((s) => s.source)), [spectra])
+
+  const addSpectrum = (source?: string) => {
+    if (spectra.length >= MAX_SPECTRA) return
+    const src = source ?? (selected && channels.some((c) => c.wave.id === selected) ? selected : session.channels[0].wave.id)
+    setSpectra([...spectra, newSpectrum(spectra, src)])
+  }
+  /** Channel popover: show the spectrum of a channel, or remove it again */
+  const toggleSpectrum = (source: string) => {
+    if (spectrumSources.has(source)) setSpectra(spectra.filter((s) => s.source !== source))
+    else addSpectrum(source)
+  }
+  const changeSpectrum = (id: string, patch: Partial<SpectrumDef>) => setSpectra((ss) => ss.map((s) => (s.id === id ? { ...s, ...patch } : s)))
 
   // ---------- reference panel ----------
   const [refSection, setRefSection] = useState<ReferenceSection>('measurements')
@@ -483,6 +506,23 @@ export function Scope({ session, onOpen, onClose }: Props) {
             onEditCallout={editCallout}
             onDeleteCallout={deleteCallout}
           />
+          {spectra.length > 0 && (
+            <SpectrumView
+              defs={spectra}
+              options={specOptions}
+              setOptions={(patch) => setSpecOptions((o) => ({ ...o, ...patch }))}
+              channels={channels}
+              win={win}
+              cursors={cursors}
+              height={layout.specHeight}
+              setHeight={(specHeight) => setLayout((l) => ({ ...l, specHeight }))}
+              onAdd={() => addSpectrum()}
+              onChange={changeSpectrum}
+              onRemove={(id) => setSpectra((ss) => ss.filter((s) => s.id !== id))}
+              onClose={() => setSpectra([])}
+              onOpenReference={() => openReference('spectrum')}
+            />
+          )}
           {layout.measurements && (
             <MeasurementTable
               channels={channels}
@@ -554,6 +594,10 @@ export function Scope({ session, onOpen, onClose }: Props) {
         onChangeMath={changeMath}
         onRemoveMath={removeMath}
         onOpenMathReference={() => openReference('math')}
+        spectrumSources={spectrumSources}
+        canAddSpectrum={spectra.length < MAX_SPECTRA}
+        onAddSpectrum={() => addSpectrum()}
+        onToggleSpectrum={toggleSpectrum}
         views={views}
         selected={selected}
         setSelected={setSelected}
