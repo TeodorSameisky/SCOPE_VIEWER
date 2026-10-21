@@ -222,6 +222,13 @@ kbd {
   font-size: 14px;
   line-height: 1.5;
 }
+.landing-card p.legal {
+  font-size: 12px;
+}
+.landing-card p.legal a,
+.help-popover .version a {
+  color: inherit;
+}
 .brand {
   font-weight: 600;
   letter-spacing: 0.02em;

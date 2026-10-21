@@ -166,6 +166,12 @@ export default function App() {
                 <b>Rigol</b>: coming soon
               </li>
             </ul>
+            <p className="legal">
+              MIT License ·{' '}
+              <a href={`${import.meta.env.BASE_URL}third-party-licenses.txt`} target="_blank" rel="noreferrer">
+                Licenses of the software used
+              </a>
+            </p>
           </div>
         </div>
       )}

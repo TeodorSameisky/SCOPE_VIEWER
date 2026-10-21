@@ -179,3 +179,12 @@ To add a new format (e.g. Rigol), write a parser that returns `Waveform` objects
 The repository contains a multi-stage `Dockerfile` (Node build, then static files served by nginx
 on port 80). In Coolify, create an application from this repository with the **Dockerfile** build
 pack and set the exposed port to `80`.
+
+## License
+
+Scope Viewer is released under the [MIT License](LICENSE), © 2026 Teodor Sameisky.
+
+It uses React, react-dom and scheduler (MIT), fflate (MIT), Lucide icons (ISC, partly MIT via Feather) and
+MathJax with its New Computer Modern based font (Apache-2.0; the glyphs derive from New Computer Modern by
+Antonis Tsolomitis, GUST Font License / GPL with font exception). `npm run build` writes their license texts
+to `third-party-licenses.txt` next to `index.html`; the app links to it on the start page and in the help popover.

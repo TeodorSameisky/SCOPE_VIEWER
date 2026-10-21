@@ -80,6 +80,11 @@ function HelpButton() {
           </dl>
           <p className="version mono">
             Scope Viewer {__APP_VERSION__} · built {new Date(__BUILD_TIME__).toLocaleString()}
+            <br />
+            MIT License ·{' '}
+            <a href={`${import.meta.env.BASE_URL}third-party-licenses.txt`} target="_blank" rel="noreferrer">
+              licenses
+            </a>
           </p>
         </div>
       )}
