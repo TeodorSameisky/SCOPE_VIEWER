@@ -7,7 +7,8 @@
 export interface ReportTable {
   title: string
   columns: string[]
-  rows: { color?: string; cells: string[] }[]
+  /** Cells are text, or HTML that is already escaped */
+  rows: { color?: string; cells: (string | { html: string })[] }[]
   note?: string
 }
 
@@ -35,11 +36,10 @@ export function buildReport(r: ReportContent): string {
           .map(
             (row) =>
               `<tr>${row.cells
-                .map((c, i) =>
-                  i === 0
-                    ? `<td>${row.color ? `<span class="dot" style="background:${esc(row.color)}"></span>` : ''}${esc(c)}</td>`
-                    : `<td class="num">${esc(c)}</td>`,
-                )
+                .map((c, i) => {
+                  const html = typeof c === 'string' ? esc(c) : c.html
+                  return i === 0 ? `<td>${row.color ? `<span class="dot" style="background:${esc(row.color)}"></span>` : ''}${html}</td>` : `<td class="num">${html}</td>`
+                })
                 .join('')}</tr>`,
           )
           .join('\n        ')}

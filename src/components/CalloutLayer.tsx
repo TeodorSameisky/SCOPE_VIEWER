@@ -1,7 +1,8 @@
 import { forwardRef, useEffect, useState } from 'react'
 import { CALLOUT_COLORS, type Callout } from '../model/callouts'
-import { FLAG_H, FLAG_Y, calloutShapes, markerGeometry, noteGeometry, regionGeometry, type CalloutLayout, type CalloutPart } from '../render/callouts'
+import { FLAG_Y, calloutShapes, markerGeometry, noteGeometry, regionGeometry, type CalloutLayout, type CalloutPart } from '../render/callouts'
 import { DIVS_Y } from '../render/draw'
+import { useTexVersion } from '../render/tex'
 import { DARK_THEME } from '../render/theme'
 
 interface Props extends CalloutLayout {
@@ -30,7 +31,7 @@ function editorPosition(c: Callout, p: Props): { left: number; top: number } | n
   }
   if (c.type === 'marker') {
     const g = markerGeometry(c, p)
-    return g && { left: g.fx, top: FLAG_Y + FLAG_H + 6 }
+    return g && { left: g.fx, top: FLAG_Y + g.h + 6 }
   }
   const g = regionGeometry(c, p)
   return g && { left: g.lx, top: g.ly - 112 }
@@ -42,6 +43,8 @@ function editorPosition(c: Callout, p: Props): { left: number; top: number } | n
  */
 export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLayer(p, ref) {
   const [drag, setDrag] = useState<Drag | null>(null)
+  // Formulas render asynchronously: draw again when one is ready
+  useTexVersion()
   const span = p.win.end - p.win.start
   const totalH = p.viewH * Math.max(1, p.views.length)
 
@@ -168,7 +171,7 @@ export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLay
               Delete
             </button>
           </div>
-          <div className="callout-editor-hint">Enter to finish · Shift+Enter for a new line</div>
+          <div className="callout-editor-hint">Enter to finish · Shift+Enter for a new line · $…$ for math</div>
         </div>
       )}
     </>

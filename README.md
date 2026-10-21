@@ -64,6 +64,10 @@ the text. Drag callouts to move them, double-click to edit. The **Callouts** tab
 with *Go to*. Callouts are saved with the session (see *Saving*); the Callouts panel can also export/import
 just the callouts as JSON.
 
+Callout text can contain **TeX math**: `$V(t) = V_0\,e^{-t/\tau}$` inline, `$$\frac{1}{2\pi f_c}$$` in display
+style, `\$` for a dollar sign. Formulas are rendered with MathJax (loaded the first time a callout contains
+one) and appear the same in image and report exports; a formula with an error is shown as typed.
+
 ### Math channels
 
 Click **+ Math** in the channel bar to compute a new waveform from an expression, e.g.

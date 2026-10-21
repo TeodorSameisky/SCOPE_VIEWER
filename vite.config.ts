@@ -12,6 +12,10 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(pkg.version),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
+  build: {
+    // MathJax (TeX in callouts, ~1.4 MB) is its own chunk, loaded only when a callout has a formula
+    chunkSizeWarningLimit: 1500,
+  },
   test: {
     // Worktrees of parallel Claude Code sessions live in .claude/worktrees: not part of this checkout
     exclude: [...configDefaults.exclude, '.claude/**'],

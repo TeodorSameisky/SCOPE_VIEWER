@@ -33,7 +33,7 @@ export function CalloutPanel(p: Props) {
             ? 'Click in the plot to place a marker.'
             : p.tool === 'region'
               ? 'Drag in the plot to mark a time region.'
-              : 'Pick a callout type, then click (or drag, for a region) in the plot. Double-click a callout to edit it.'}
+              : 'Pick a callout type, then click (or drag, for a region) in the plot. Double-click a callout to edit it. Write TeX math between $…$.'}
       </p>
 
       {sorted.length === 0 && <div className="empty">No callouts yet.</div>}

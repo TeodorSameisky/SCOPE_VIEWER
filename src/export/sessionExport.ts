@@ -6,6 +6,7 @@ import type { MathDef } from '../model/math'
 import type { SpectrumDef, SpectrumOptions } from '../model/spectrum'
 import type { ChannelDisplay, Session } from '../model/types'
 import { valueAt } from '../render/draw'
+import { loadTex, texHtml } from '../render/tex'
 import { THEMES, type Appearance } from '../render/theme'
 import { downloadBlob, stem } from '../util/download'
 import { si } from '../util/format'
@@ -158,7 +159,7 @@ function reportTables(ctx: ExportContext, prefs: ExportPrefs): ReportTable[] {
             si(c.type === 'region' ? Math.min(c.t, c.t2 ?? c.t) : c.t, 's', 5),
             c.type === 'region' && c.t2 !== undefined ? si(Math.abs(c.t2 - c.t), 's') : '',
             c.channel ? channelName(c.channel) : '',
-            c.text || calloutTitle(c),
+            { html: texHtml(c.text || calloutTitle(c)) },
           ],
         })),
     })
@@ -203,6 +204,7 @@ export async function runExport(ctx: ExportContext, kind: ExportKind, prefs: Exp
 
   if (kind === 'report') {
     const image = prefs.report.image ? await canvasToBlob(await renderImage(ctx, prefs, prefs.report.appearance)) : null
+    if (prefs.report.callouts) await loadTex(ctx.callouts.map((c) => c.text))
     // Colour dots of the tables as in the image (pale trace colours darkened in a light one)
     const { ink } = THEMES[prefs.report.appearance]
     const first = session.channels[0].wave

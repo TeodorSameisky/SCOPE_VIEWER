@@ -2,6 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffec
 import type { Callout } from '../model/callouts'
 import { calloutsSvg } from '../render/callouts'
 import { AXIS_GUTTER, DIVS_Y, divToValue, drawTimeAxis, drawView, valueAt, valueToDiv } from '../render/draw'
+import { loadTex } from '../render/tex'
 import { DARK_THEME, type Theme } from '../render/theme'
 import { si } from '../util/format'
 import { CalloutLayer } from './CalloutLayer'
@@ -219,6 +220,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       ctx.drawImage(ax, 0, Math.round(viewsH * scale))
       // Callouts are vector graphics: rasterised directly at the export resolution
       if (p.callouts.length) {
+        await loadTex(p.callouts.map((c) => c.text))
         const img = await svgToImage(calloutsSvg(p.callouts, { channels: p.channels, views: p.views, win: p.win, plotW, viewH }, theme))
         if (img) ctx.drawImage(img, 0, 0, plotW * scale, viewsH * scale)
       }
