@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { ClipboardCopy, Download, FileSpreadsheet, FileText, Image, Table2, Waves, X } from 'lucide-react'
 import { CSV_FORMATS, type CsvFormatKey } from '../export/csv'
+import type { Appearance } from '../render/theme'
 import { usePersistentState } from '../util/usePersistentState'
 import { RANGE_LABEL, type MeasureRange } from './state'
 import { useDismiss } from './ui/useDismiss'
@@ -13,6 +14,7 @@ export interface ImageOptions {
   spectrum: boolean
   table: boolean
   scale: 1 | 2 | 3
+  appearance: Appearance
 }
 
 export interface ReportOptions {
@@ -23,6 +25,8 @@ export interface ReportOptions {
   cursors: boolean
   callouts: boolean
   spectra: boolean
+  /** Colours of the report's image (its other options come from the image options) */
+  appearance: Appearance
 }
 
 export interface WaveformOptions {
@@ -40,8 +44,8 @@ export interface ExportPrefs {
 
 const DEFAULT_PREFS: ExportPrefs = {
   csv: 'intl',
-  image: { header: true, legend: true, spectrum: true, table: true, scale: 2 },
-  report: { image: true, channels: true, math: true, measurements: true, cursors: true, callouts: true, spectra: true },
+  image: { header: true, legend: true, spectrum: true, table: true, scale: 2, appearance: 'dark' },
+  report: { image: true, channels: true, math: true, measurements: true, cursors: true, callouts: true, spectra: true, appearance: 'light' },
   waveforms: { range: 'screen', channels: 'visible', step: 1 },
 }
 
@@ -54,6 +58,21 @@ const KINDS: { key: ExportKind; label: string; icon: typeof Image; hint: string 
 ]
 
 const STEPS = [1, 2, 5, 10, 20, 50, 100, 1000]
+
+const APPEARANCES: { key: Appearance; label: string; note: string }[] = [
+  { key: 'dark', label: 'Dark', note: 'as on screen' },
+  { key: 'light', label: 'Light', note: 'for print: white background, pale trace colours darkened' },
+]
+
+/** Stored preferences completed with the defaults of options added since they were saved */
+function withDefaults(p: ExportPrefs): ExportPrefs {
+  return {
+    ...p,
+    image: { ...DEFAULT_PREFS.image, ...p.image },
+    report: { ...DEFAULT_PREFS.report, ...p.report },
+    waveforms: { ...DEFAULT_PREFS.waveforms, ...p.waveforms },
+  }
+}
 
 interface Props {
   initial: ExportKind
@@ -75,7 +94,8 @@ interface Props {
 /** One dialog for all outputs, with the options of each */
 export function ExportDialog(p: Props) {
   const [kind, setKind] = useState<ExportKind>(p.initial)
-  const [prefs, setPrefs] = usePersistentState<ExportPrefs>('scope-viewer:export', DEFAULT_PREFS)
+  const [stored, setPrefs] = usePersistentState<ExportPrefs>('scope-viewer:export', DEFAULT_PREFS)
+  const prefs = withDefaults(stored)
   const [title, setTitle] = useState(p.defaultTitle)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -106,6 +126,19 @@ export function ExportDialog(p: Props) {
       <input type="checkbox" checked={value && !disabled} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       {label}
     </label>
+  )
+  const appearanceField = (value: Appearance, onChange: (a: Appearance) => void) => (
+    <fieldset>
+      <legend>Appearance</legend>
+      <div className="segmented">
+        {APPEARANCES.map((a) => (
+          <button key={a.key} type="button" className={value === a.key ? 'active' : ''} onClick={() => onChange(a.key)}>
+            {a.label}
+          </button>
+        ))}
+      </div>
+      <span className="muted">{APPEARANCES.find((a) => a.key === value)?.note}</span>
+    </fieldset>
   )
   const formatSelect = (
     <label className="field">
@@ -170,6 +203,7 @@ export function ExportDialog(p: Props) {
                   {check('Spectrum', img.spectrum, (v) => set('image', { spectrum: v }), !p.hasSpectra, p.hasSpectra ? undefined : 'No spectrum shown')}
                   {check('Measurement table', img.table, (v) => set('image', { table: v }), !p.measurementInfo.count)}
                 </fieldset>
+                {appearanceField(img.appearance, (a) => set('image', { appearance: a }))}
                 <fieldset>
                   <legend>Resolution</legend>
                   <div className="segmented">
@@ -209,7 +243,8 @@ export function ExportDialog(p: Props) {
                     {check('Spectrum peaks', prefs.report.spectra, (v) => set('report', { spectra: v }), !p.hasSpectra)}
                   </div>
                 </fieldset>
-                <p className="hint">The image uses the image options (header, legend, resolution).</p>
+                {appearanceField(prefs.report.appearance, (a) => set('report', { appearance: a }))}
+                <p className="hint">The image uses the image options (header, legend, resolution) with the appearance chosen here.</p>
               </>
             )}
 

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { AXIS_GUTTER, DIVS_Y, THEME, valueToDiv } from '../render/draw'
+import { AXIS_GUTTER, DIVS_Y, PLOT_FONT, valueToDiv } from '../render/draw'
+import { DARK_THEME } from '../render/theme'
 import { zoomAround, type LiveChannel, type NavKind, type TimeWindow } from './state'
 
 const HEIGHT = 46
@@ -65,7 +66,7 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate }: 
     views.forEach((ids, vi) => {
       const top = vi * laneH
       if (vi > 0) {
-        ctx.fillStyle = THEME.grid
+        ctx.fillStyle = DARK_THEME.grid
         ctx.fillRect(0, Math.round(top), plotW, 1)
       }
       ctx.save()
@@ -122,7 +123,7 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate }: 
     // trigger position
     const xt = tToX(0)
     if (xt >= 0 && xt <= plotW) {
-      ctx.fillStyle = THEME.trigger
+      ctx.fillStyle = DARK_THEME.trigger
       ctx.beginPath()
       ctx.moveTo(xt - 4, 0)
       ctx.lineTo(xt + 4, 0)
@@ -138,8 +139,8 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate }: 
       ctx.strokeRect(a + 0.5, 0.5, b - a, HEIGHT - 1)
     }
     // Label in the gutter
-    ctx.fillStyle = THEME.axisText
-    ctx.font = THEME.font
+    ctx.fillStyle = DARK_THEME.axisText
+    ctx.font = PLOT_FONT
     ctx.textBaseline = 'middle'
     ctx.textAlign = 'left'
     ctx.fillText('Overview', plotW + 6, HEIGHT / 2)

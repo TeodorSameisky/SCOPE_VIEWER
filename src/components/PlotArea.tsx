@@ -1,6 +1,8 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
 import type { Callout } from '../model/callouts'
+import { calloutsSvg } from '../render/callouts'
 import { AXIS_GUTTER, DIVS_Y, divToValue, drawTimeAxis, drawView, valueAt, valueToDiv } from '../render/draw'
+import { DARK_THEME, type Theme } from '../render/theme'
 import { si } from '../util/format'
 import { CalloutLayer } from './CalloutLayer'
 import {
@@ -60,7 +62,7 @@ interface Props {
 
 export interface PlotAreaHandle {
   /** Draw all views, callouts and the time axis at `scale` × the screen size (CSS pixels) */
-  renderImage: (scale: number) => Promise<HTMLCanvasElement>
+  renderImage: (scale: number, theme: Theme) => Promise<HTMLCanvasElement>
   /** Current size of the plot (CSS pixels) */
   size: () => { w: number; h: number }
 }
@@ -135,11 +137,12 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
           cursors: p.cursors.on ? { a: p.cursors.a, b: p.cursors.b, sourceId: p.cursors.source, showLabels: vi === 0 } : undefined,
           trigger: { sourceId: p.trigger?.source, level: p.trigger?.level, showMarker: true },
           hoverT: drag ? undefined : hoverT,
+          theme: DARK_THEME,
         })
         drawDragPreview(ctx, dpr, vi)
       })
       const ax = axisRef.current?.getContext('2d')
-      if (ax) drawTimeAxis(ax, size.w, AXIS_H, dpr, p.win.start, p.win.end, ticks)
+      if (ax) drawTimeAxis(ax, size.w, AXIS_H, dpr, p.win.start, p.win.end, ticks, DARK_THEME)
     })
     return () => cancelAnimationFrame(id)
     // drawDragPreview only reads `drag`, `viewH`
@@ -178,7 +181,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
 
   useImperativeHandle(ref, () => ({
     size: () => size,
-    renderImage: async (scale: number) => {
+    renderImage: async (scale: number, theme: Theme) => {
       const out = document.createElement('canvas')
       out.width = Math.round(size.w * scale)
       out.height = Math.round((viewsH + AXIS_H) * scale)
@@ -205,20 +208,21 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
           axisChannel: traces.find((t) => t.display.id === p.selected)?.display ?? traces[0]?.display,
           cursors: p.cursors.on ? { a: p.cursors.a, b: p.cursors.b, sourceId: p.cursors.source, showLabels: vi === 0 } : undefined,
           trigger: { sourceId: p.trigger?.source, level: p.trigger?.level, showMarker: true },
+          theme,
         })
         ctx.drawImage(cv, 0, Math.round(vi * viewH * scale))
       })
       const ax = document.createElement('canvas')
       ax.width = out.width
       ax.height = Math.round(AXIS_H * scale)
-      drawTimeAxis(ax.getContext('2d')!, size.w, AXIS_H, scale, p.win.start, p.win.end, ticks)
+      drawTimeAxis(ax.getContext('2d')!, size.w, AXIS_H, scale, p.win.start, p.win.end, ticks, theme)
       ctx.drawImage(ax, 0, Math.round(viewsH * scale))
       // Callouts are vector graphics: rasterised directly at the export resolution
-      if (svgRef.current && p.callouts.length) {
-        const img = await svgToImage(svgRef.current)
+      if (p.callouts.length) {
+        const img = await svgToImage(calloutsSvg(p.callouts, { channels: p.channels, views: p.views, win: p.win, plotW, viewH }, theme))
         if (img) ctx.drawImage(img, 0, 0, plotW * scale, viewsH * scale)
       }
-      if (p.cursors.on) drawCursorReadout(ctx, scale, p, tToX)
+      if (p.cursors.on) drawCursorReadout(ctx, scale, p, tToX, theme)
       return out
     },
   }))
@@ -491,11 +495,8 @@ function cursorSummary(p: Props) {
   )
 }
 
-/** Rasterise the callout SVG (without selection outlines) for PNG export. */
-async function svgToImage(svg: SVGSVGElement): Promise<HTMLImageElement | null> {
-  const clone = svg.cloneNode(true) as SVGSVGElement
-  clone.querySelectorAll('[data-ui="selection"]').forEach((n) => n.remove())
-  const xml = new XMLSerializer().serializeToString(clone)
+/** Rasterise the callout SVG for PNG export. */
+async function svgToImage(xml: string): Promise<HTMLImageElement | null> {
   const url = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml' }))
   try {
     const img = new Image()
@@ -510,7 +511,7 @@ async function svgToImage(svg: SVGSVGElement): Promise<HTMLImageElement | null> 
 }
 
 /** The Δt / Δv box of the cursors, drawn into exported images (on screen it is HTML) */
-function drawCursorReadout(ctx: CanvasRenderingContext2D, scale: number, p: Props, tToX: (t: number) => number) {
+function drawCursorReadout(ctx: CanvasRenderingContext2D, scale: number, p: Props, tToX: (t: number) => number, theme: Theme) {
   const dt = p.cursors.b - p.cursors.a
   const src = p.channels.find((c) => c.wave.id === p.cursors.source)
   const unit = src?.wave.yUnit ?? 'V'
@@ -521,11 +522,11 @@ function drawCursorReadout(ctx: CanvasRenderingContext2D, scale: number, p: Prop
   ctx.font = '11px "JetBrains Mono", ui-monospace, Consolas, monospace'
   const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 20
   const x = Math.max(8, (tToX(p.cursors.a) + tToX(p.cursors.b)) / 2 - w / 2)
-  ctx.fillStyle = 'rgba(30, 36, 46, 0.9)'
-  ctx.strokeStyle = '#3a4454'
+  ctx.fillStyle = theme.readoutBg
+  ctx.strokeStyle = theme.readoutBorder
   ctx.fillRect(x, 22, w, 40)
   ctx.strokeRect(x + 0.5, 22.5, w, 40)
-  ctx.fillStyle = '#d7dce4'
+  ctx.fillStyle = theme.text
   lines.forEach((l, i) => ctx.fillText(l, x + 10, 38 + i * 16))
   ctx.restore()
 }

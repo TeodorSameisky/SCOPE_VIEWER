@@ -1,7 +1,8 @@
 import type { Peak, Spectrum } from '../math/fft'
 import type { FreqAxis, SpectrumScale } from '../model/spectrum'
 import { niceStep, siTick } from '../util/format'
-import { THEME } from './draw'
+import { PLOT_FONT } from './draw'
+import type { Theme } from './theme'
 
 /** Height of the frequency axis below the spectrum plot */
 export const FREQ_AXIS_H = 22
@@ -113,10 +114,11 @@ export interface SpectrumDrawOptions {
   hoverF?: number
   /** Rubber band of a frequency zoom (px) */
   band?: { x0: number; x1: number }
+  theme: Theme
 }
 
 export function drawSpectrum(ctx: CanvasRenderingContext2D, o: SpectrumDrawOptions): void {
-  const { dpr, map } = o
+  const { dpr, map, theme } = o
   const W = o.width
   const plotW = map.width
   const plotH = o.height - FREQ_AXIS_H
@@ -124,7 +126,7 @@ export function drawSpectrum(ctx: CanvasRenderingContext2D, o: SpectrumDrawOptio
 
   ctx.save()
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-  ctx.fillStyle = THEME.bg
+  ctx.fillStyle = theme.bg
   ctx.fillRect(0, 0, W, o.height)
   ctx.lineWidth = 1
 
@@ -132,7 +134,7 @@ export function drawSpectrum(ctx: CanvasRenderingContext2D, o: SpectrumDrawOptio
   const fTicks = freqTicks(map)
   for (const t of fTicks) {
     const x = Math.round(fToX(map, t.f)) + 0.5
-    ctx.strokeStyle = t.major ? THEME.grid : 'rgba(160, 170, 185, 0.07)'
+    ctx.strokeStyle = t.major ? theme.grid : theme.gridMinor
     ctx.beginPath()
     ctx.moveTo(x, 0)
     ctx.lineTo(x, plotH)
@@ -140,7 +142,7 @@ export function drawSpectrum(ctx: CanvasRenderingContext2D, o: SpectrumDrawOptio
   }
   const lv = levelTicks(o.yLo, o.yHi, plotH)
   ctx.setLineDash([2, 4])
-  ctx.strokeStyle = THEME.grid
+  ctx.strokeStyle = theme.grid
   for (const v of lv.values) {
     const y = Math.round(yOf(v)) + 0.5
     ctx.beginPath()
@@ -149,7 +151,7 @@ export function drawSpectrum(ctx: CanvasRenderingContext2D, o: SpectrumDrawOptio
     ctx.stroke()
   }
   ctx.setLineDash([])
-  ctx.strokeStyle = THEME.gridCenter
+  ctx.strokeStyle = theme.gridCenter
   ctx.strokeRect(0.5, 0.5, plotW - 1, plotH - 1)
 
   // Traces: highest bin per device-pixel column (peak detector), so narrow lines never vanish
@@ -162,7 +164,7 @@ export function drawSpectrum(ctx: CanvasRenderingContext2D, o: SpectrumDrawOptio
     const { rms, df } = tr.spec
     const last = rms.length - 1
     const cols = Math.ceil(plotW * dpr)
-    ctx.strokeStyle = tr.color
+    ctx.strokeStyle = theme.ink(tr.color)
     ctx.lineWidth = 1.2
     ctx.lineJoin = 'round'
     ctx.beginPath()
@@ -195,7 +197,7 @@ export function drawSpectrum(ctx: CanvasRenderingContext2D, o: SpectrumDrawOptio
       const x = fToX(map, pk.freq)
       if (x < 0 || x > plotW) return
       const y = Math.max(16, yOf(levelValue(o.scale, pk.rms)))
-      ctx.fillStyle = tr.color
+      ctx.fillStyle = theme.ink(tr.color)
       ctx.beginPath()
       ctx.moveTo(x, y - 2)
       ctx.lineTo(x - 4, y - 8)
@@ -209,7 +211,7 @@ export function drawSpectrum(ctx: CanvasRenderingContext2D, o: SpectrumDrawOptio
   // Hover crosshair with the level of each trace
   if (o.hoverF !== undefined) {
     const x = fToX(map, o.hoverF)
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)'
+    ctx.strokeStyle = theme.hover
     ctx.beginPath()
     ctx.moveTo(Math.round(x) + 0.5, 0)
     ctx.lineTo(Math.round(x) + 0.5, plotH)
@@ -217,7 +219,7 @@ export function drawSpectrum(ctx: CanvasRenderingContext2D, o: SpectrumDrawOptio
     for (const tr of o.traces) {
       const r = readLevel(tr.spec, o.hoverF, xToF(map, x - 0.5), xToF(map, x + 0.5))
       if (!r) continue
-      ctx.fillStyle = tr.color
+      ctx.fillStyle = theme.ink(tr.color)
       ctx.beginPath()
       ctx.arc(x, yOf(Math.max(floor, levelValue(o.scale, r.rms))), 3.5, 0, Math.PI * 2)
       ctx.fill()
@@ -237,8 +239,8 @@ export function drawSpectrum(ctx: CanvasRenderingContext2D, o: SpectrumDrawOptio
   ctx.restore()
 
   // Level labels in the right gutter
-  ctx.font = THEME.font
-  ctx.fillStyle = THEME.axisText
+  ctx.font = PLOT_FONT
+  ctx.fillStyle = theme.axisText
   ctx.textAlign = 'left'
   ctx.textBaseline = 'middle'
   for (const v of lv.values) {
@@ -252,7 +254,7 @@ export function drawSpectrum(ctx: CanvasRenderingContext2D, o: SpectrumDrawOptio
   // Frequency labels below, skipping any that would overlap the previous one
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
-  ctx.strokeStyle = THEME.gridCenter
+  ctx.strokeStyle = theme.gridCenter
   const labelled = fTicks.filter((t) => t.label)
   const linearStep = map.axis === 'linear' || !labelled.some((t) => !t.major) ? (labelled.length > 1 ? labelled[1].f - labelled[0].f : undefined) : undefined
   let lastRight = -Infinity

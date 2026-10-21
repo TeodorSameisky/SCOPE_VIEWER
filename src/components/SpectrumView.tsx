@@ -5,6 +5,7 @@ import { MAX_SPECTRA, PEAK_COUNTS, levelUnit, type FreqAxis, type SpectrumDef, t
 import type { Waveform } from '../model/types'
 import { AXIS_GUTTER } from '../render/draw'
 import { FREQ_AXIS_H, drawSpectrum, levelValue, readLevel, xToF, type FreqMap, type FreqRange } from '../render/spectrum'
+import { DARK_THEME, type Theme } from '../render/theme'
 import { niceStep, si } from '../util/format'
 import { channelName } from '../util/names'
 import type { CursorState, LiveChannel, TimeWindow } from './state'
@@ -45,7 +46,7 @@ export interface SpectrumExport {
 
 export interface SpectrumViewHandle {
   /** The spectrum plot with a caption line, at `scale` × the screen size */
-  renderImage: (scale: number) => HTMLCanvasElement | null
+  renderImage: (scale: number, theme: Theme) => HTMLCanvasElement | null
   /** The visible spectra with their peaks (in the current frequency view) */
   getData: () => SpectrumExport
 }
@@ -155,13 +156,14 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
         traces: shown.map((r) => ({ spec: r.spec, color: r.channel.display.color, peaks: peaks.get(r.def.id) ?? [] })),
         hoverF: drag ? undefined : hoverF,
         band: drag?.kind === 'band' ? drag : undefined,
+        theme: DARK_THEME,
       })
     })
     return () => cancelAnimationFrame(id)
   }, [shown, peaks, size, axis, fr.lo, fr.hi, plotW, scale, yr, unit, hoverF, drag])
 
   useImperativeHandle(ref, () => ({
-    renderImage: (k: number) => {
+    renderImage: (k: number, theme: Theme) => {
       if (!shown.length) return null
       const CAPTION = 20
       const out = document.createElement('canvas')
@@ -169,10 +171,10 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
       out.height = Math.round((size.h + CAPTION) * k)
       const ctx = out.getContext('2d')!
       ctx.setTransform(k, 0, 0, k, 0, 0)
-      ctx.fillStyle = '#0b0e13'
+      ctx.fillStyle = theme.page
       ctx.fillRect(0, 0, size.w, CAPTION)
       ctx.font = '600 12px system-ui, sans-serif'
-      ctx.fillStyle = '#d7dce4'
+      ctx.fillStyle = theme.text
       ctx.textBaseline = 'middle'
       let x = 8
       ctx.fillText('Spectrum', x, CAPTION / 2)
@@ -180,9 +182,9 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
       ctx.font = '12px system-ui, sans-serif'
       for (const r of shown) {
         const label = `${channelName(r.def.source)} · ${windowDef(r.def.window).label}`
-        ctx.fillStyle = r.channel.display.color
+        ctx.fillStyle = theme.ink(r.channel.display.color)
         ctx.fillRect(x, CAPTION / 2 - 4, 8, 8)
-        ctx.fillStyle = '#b9c1cd'
+        ctx.fillStyle = theme.textDim
         ctx.fillText(label, x + 12, CAPTION / 2)
         x += ctx.measureText(label).width + 26
       }
@@ -199,6 +201,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
         yHi: yr.hi,
         yUnit: scale === 'db' ? levelUnit('db', unit) : unit,
         traces: shown.map((r) => ({ spec: r.spec, color: r.channel.display.color, peaks: peaks.get(r.def.id) ?? [] })),
+        theme,
       })
       ctx.setTransform(1, 0, 0, 1, 0, 0)
       ctx.drawImage(cv, 0, Math.round(CAPTION * k))

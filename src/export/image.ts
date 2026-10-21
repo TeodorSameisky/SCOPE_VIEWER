@@ -3,6 +3,7 @@
  * plot (and spectrum) rendered at the requested resolution, and the measurement table.
  * All sizes are in CSS pixels and multiplied by `scale`.
  */
+import type { Theme } from '../render/theme'
 
 export interface LegendItem {
   name: string
@@ -26,22 +27,18 @@ export interface ImageContent {
   plots: HTMLCanvasElement[]
   table?: ImageTable
   footer?: string
+  /** Colours; the plots must already be drawn with the same theme */
+  theme: Theme
 }
 
-const C = {
-  bg: '#0b0e13',
-  panel: '#12161d',
-  border: '#222934',
-  text: '#d7dce4',
-  muted: '#7d8796',
-  font: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-  mono: '"JetBrains Mono", ui-monospace, Consolas, monospace',
-}
+const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
+const MONO = '"JetBrains Mono", ui-monospace, Consolas, monospace'
 const PAD = 14
 
 export function composeImage(c: ImageContent): HTMLCanvasElement {
   const s = c.scale
   const W = c.width
+  const { theme } = c
   // Measure with a scratch context to know the height before drawing
   const probe = document.createElement('canvas').getContext('2d')!
   const headerH = c.header ? 24 + c.header.lines.length * 17 + PAD : 0
@@ -57,19 +54,19 @@ export function composeImage(c: ImageContent): HTMLCanvasElement {
   out.height = Math.round((headerH + legendH + plotsH + tableH + footerH) * s)
   const ctx = out.getContext('2d')!
   ctx.setTransform(s, 0, 0, s, 0, 0)
-  ctx.fillStyle = C.bg
+  ctx.fillStyle = theme.page
   ctx.fillRect(0, 0, W, out.height / s)
   ctx.textBaseline = 'alphabetic'
   let y = 0
 
   if (c.header) {
-    ctx.fillStyle = C.panel
+    ctx.fillStyle = theme.panel
     ctx.fillRect(0, 0, W, headerH)
-    ctx.fillStyle = C.text
-    ctx.font = `600 16px ${C.font}`
+    ctx.fillStyle = theme.text
+    ctx.font = `600 16px ${FONT}`
     ctx.fillText(c.header.title, PAD, PAD + 14)
-    ctx.font = `12px ${C.mono}`
-    ctx.fillStyle = C.muted
+    ctx.font = `12px ${MONO}`
+    ctx.fillStyle = theme.muted
     c.header.lines.forEach((l, i) => ctx.fillText(l, PAD, PAD + 34 + i * 17))
     y = headerH
   }
@@ -78,17 +75,17 @@ export function composeImage(c: ImageContent): HTMLCanvasElement {
     for (const it of legendLayout.items) {
       const x = PAD + it.x
       const yy = y + PAD / 2 + it.y
-      ctx.fillStyle = C.panel
+      ctx.fillStyle = theme.panel
       ctx.fillRect(x, yy, it.w, 34)
-      ctx.fillStyle = it.item.color
+      ctx.fillStyle = theme.ink(it.item.color)
       ctx.fillRect(x, yy, it.w, 3)
-      ctx.font = `700 12px ${C.font}`
+      ctx.font = `700 12px ${FONT}`
       ctx.fillText(it.item.name, x + 7, yy + 17)
-      ctx.fillStyle = C.text
-      ctx.font = `11.5px ${C.mono}`
+      ctx.fillStyle = theme.text
+      ctx.font = `11.5px ${MONO}`
       ctx.fillText(it.item.detail, x + 7 + it.nameW + 8, yy + 17)
-      ctx.fillStyle = C.muted
-      ctx.font = `11.5px ${C.font}`
+      ctx.fillStyle = theme.muted
+      ctx.font = `11.5px ${FONT}`
       ctx.fillText(it.item.label || ' ', x + 7, yy + 30)
     }
     y += legendH
@@ -102,33 +99,33 @@ export function composeImage(c: ImageContent): HTMLCanvasElement {
   if (tableLayout && c.table) {
     y += PAD
     const { colX, colW, rowH, fontSize } = tableLayout
-    ctx.font = `${fontSize}px ${C.font}`
-    ctx.fillStyle = C.muted
+    ctx.font = `${fontSize}px ${FONT}`
+    ctx.fillStyle = theme.muted
     c.table.columns.forEach((col, i) => drawCell(ctx, col, PAD + colX[i], y + rowH - 6, colW[i], i > 0))
-    ctx.fillStyle = C.border
+    ctx.fillStyle = theme.border
     ctx.fillRect(PAD, y + rowH, W - 2 * PAD, 1)
     c.table.rows.forEach((r, ri) => {
       const ry = y + (ri + 1) * rowH
       r.cells.forEach((cell, i) => {
         if (i === 0 && r.color) {
-          ctx.fillStyle = r.color
+          ctx.fillStyle = theme.ink(r.color)
           ctx.beginPath()
           ctx.arc(PAD + 4, ry + rowH / 2 + 1, 4, 0, Math.PI * 2)
           ctx.fill()
         }
-        ctx.fillStyle = C.text
-        ctx.font = i === 0 ? `${fontSize}px ${C.font}` : `${fontSize - 0.5}px ${C.mono}`
+        ctx.fillStyle = theme.text
+        ctx.font = i === 0 ? `${fontSize}px ${FONT}` : `${fontSize - 0.5}px ${MONO}`
         drawCell(ctx, cell, PAD + colX[i] + (i === 0 && r.color ? 12 : 0), ry + rowH - 6, colW[i] - (i === 0 && r.color ? 12 : 0), i > 0)
       })
-      ctx.fillStyle = C.border
+      ctx.fillStyle = theme.border
       ctx.fillRect(PAD, ry + rowH, W - 2 * PAD, 1)
     })
     y += tableLayout.height + PAD
   }
 
   if (c.footer) {
-    ctx.fillStyle = C.muted
-    ctx.font = `11px ${C.font}`
+    ctx.fillStyle = theme.muted
+    ctx.font = `11px ${FONT}`
     ctx.fillText(c.footer, PAD, y + 15)
   }
   return out
@@ -147,11 +144,11 @@ function layoutLegend(ctx: CanvasRenderingContext2D, items: LegendItem[], maxW: 
   let y = 0
   const out: { item: LegendItem; x: number; y: number; w: number; nameW: number }[] = []
   for (const item of items) {
-    ctx.font = `700 12px ${C.font}`
+    ctx.font = `700 12px ${FONT}`
     const nameW = ctx.measureText(item.name).width
-    ctx.font = `11.5px ${C.mono}`
+    ctx.font = `11.5px ${MONO}`
     const detailW = ctx.measureText(item.detail).width
-    ctx.font = `11.5px ${C.font}`
+    ctx.font = `11.5px ${FONT}`
     const labelW = ctx.measureText(item.label).width
     const w = Math.ceil(Math.max(nameW + 8 + detailW, labelW) + 14)
     if (x > 0 && x + w > maxW) {
@@ -170,9 +167,9 @@ function layoutTable(ctx: CanvasRenderingContext2D, t: ImageTable, maxW: number)
   let widths: number[] = []
   for (; fontSize >= 9; fontSize -= 0.5) {
     widths = t.columns.map((col, i) => {
-      ctx.font = `${fontSize}px ${C.font}`
+      ctx.font = `${fontSize}px ${FONT}`
       let w = ctx.measureText(col).width
-      ctx.font = `${fontSize}px ${i === 0 ? C.font : C.mono}`
+      ctx.font = `${fontSize}px ${i === 0 ? FONT : MONO}`
       for (const r of t.rows) w = Math.max(w, ctx.measureText(r.cells[i] ?? '').width + (i === 0 && r.color ? 12 : 0))
       return w + 18
     })

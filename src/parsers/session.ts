@@ -14,7 +14,8 @@ const TEK_COLORS: Record<string, string> = {
   CH7: '#c86bff',
   CH8: '#2fd6a0',
 }
-const FALLBACK_COLORS = ['#f2e32c', '#22c8e6', '#ff3d5a', '#8fd43a', '#ff8a1c', '#4a63ff', '#c86bff', '#2fd6a0']
+/** Trace colours for channels without a Tektronix default */
+export const CHANNEL_COLORS = ['#f2e32c', '#22c8e6', '#ff3d5a', '#8fd43a', '#ff8a1c', '#4a63ff', '#c86bff', '#2fd6a0']
 
 export interface InputFile {
   name: string
@@ -64,7 +65,7 @@ function buildSession(fileName: string, format: string, waves: Waveform[], setup
     const display: ChannelDisplay = {
       id,
       label: setupString(s[`:${id}:LABEL:NAME`]) ?? '',
-      color: TEK_COLORS[id] ?? FALLBACK_COLORS[i % FALLBACK_COLORS.length],
+      color: TEK_COLORS[id] ?? CHANNEL_COLORS[i % CHANNEL_COLORS.length],
       visible: state === undefined ? true : state !== '0',
       scale: scale ?? auto!.scale,
       position: setupNumber(s[`:${id}:POSITION`]) ?? 0,

@@ -2,20 +2,13 @@ import type { ChannelDisplay, Waveform } from '../model/types'
 import type { MinMaxPyramid } from '../dsp/minmax'
 import { siTick } from '../util/format'
 import { channelTag } from '../util/names'
+import type { Theme } from './theme'
 
 export const DIVS_Y = 10
 /** Gutter on the right of each plot for the vertical scale labels */
 export const AXIS_GUTTER = 64
 
-export const THEME = {
-  bg: '#05070a',
-  grid: 'rgba(160, 170, 185, 0.16)',
-  gridCenter: 'rgba(160, 170, 185, 0.32)',
-  axisText: '#8a94a3',
-  cursor: '#e6e9ee',
-  trigger: '#ff9d2e',
-  font: '11px "JetBrains Mono", ui-monospace, Consolas, monospace',
-}
+export const PLOT_FONT = '11px "JetBrains Mono", ui-monospace, Consolas, monospace'
 
 export interface TraceInput {
   display: ChannelDisplay
@@ -37,6 +30,7 @@ export interface ViewDrawOptions {
   trigger?: { sourceId?: string; level?: number; showMarker: boolean }
   selectedId?: string
   hoverT?: number
+  theme: Theme
 }
 
 export function valueToDiv(v: number, d: ChannelDisplay): number {
@@ -57,7 +51,7 @@ export function valueAt(w: Waveform, t: number): number {
 }
 
 export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): void {
-  const { dpr } = o
+  const { dpr, theme } = o
   const W = o.width
   const H = o.height
   const plotW = W - AXIS_GUTTER
@@ -67,21 +61,21 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
 
   ctx.save()
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-  ctx.fillStyle = THEME.bg
+  ctx.fillStyle = theme.bg
   ctx.fillRect(0, 0, W, H)
 
   // Graticule: fixed 10 vertical divisions, time grid follows nice tick values
   ctx.lineWidth = 1
   for (let i = 0; i <= DIVS_Y; i++) {
     const y = Math.round(i * divH) + 0.5
-    ctx.strokeStyle = i === DIVS_Y / 2 ? THEME.gridCenter : THEME.grid
+    ctx.strokeStyle = i === DIVS_Y / 2 ? theme.gridCenter : theme.grid
     ctx.setLineDash(i === 0 || i === DIVS_Y ? [] : [2, 4])
     ctx.beginPath()
     ctx.moveTo(0, y)
     ctx.lineTo(plotW, y)
     ctx.stroke()
   }
-  ctx.strokeStyle = THEME.grid
+  ctx.strokeStyle = theme.grid
   for (const t of o.timeTicks) {
     const x = Math.round(tx(t)) + 0.5
     ctx.beginPath()
@@ -90,7 +84,7 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
     ctx.stroke()
   }
   ctx.setLineDash([])
-  ctx.strokeStyle = THEME.gridCenter
+  ctx.strokeStyle = theme.gridCenter
   ctx.strokeRect(0.5, 0.5, plotW - 1, H - 1)
 
   // Traces
@@ -104,8 +98,8 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
   // Right axis labels for the selected/first channel of this view, at round multiples of V/div
   if (o.axisChannel) {
     const d = o.axisChannel
-    ctx.font = THEME.font
-    ctx.fillStyle = d.color
+    ctx.font = PLOT_FONT
+    ctx.fillStyle = theme.ink(d.color)
     ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
     const vLo = divToValue(-DIVS_Y / 2, d)
@@ -121,7 +115,7 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
   }
 
   // Channel ground/offset badges on the left edge
-  ctx.font = THEME.font
+  ctx.font = PLOT_FONT
   ctx.textBaseline = 'middle'
   // Badges sit at each channel's 0 V level; spread them apart where they would overlap
   const badges = o.traces
@@ -135,7 +129,8 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
   for (const { d, y } of badges) {
     const tag = channelTag(d.id)
     const w = ctx.measureText(tag).width + 8
-    ctx.fillStyle = d.color
+    const ink = theme.ink(d.color)
+    ctx.fillStyle = ink
     ctx.beginPath()
     ctx.moveTo(0, y - 7)
     ctx.lineTo(w, y - 7)
@@ -144,17 +139,17 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
     ctx.lineTo(0, y + 7)
     ctx.closePath()
     ctx.fill()
-    ctx.fillStyle = '#000'
+    ctx.fillStyle = theme.onInk(ink)
     ctx.textAlign = 'left'
     ctx.fillText(tag, 4, y + 0.5)
     if (d.label) {
-      ctx.fillStyle = d.color
+      ctx.fillStyle = ink
       ctx.font = '13px system-ui, sans-serif'
       ctx.fillText(d.label, w + 12, y + 0.5)
-      ctx.font = THEME.font
+      ctx.font = PLOT_FONT
     }
     if (d.id === o.selectedId) {
-      ctx.strokeStyle = '#fff'
+      ctx.strokeStyle = theme.selection
       ctx.lineWidth = 1
       ctx.strokeRect(0.5, y - 7.5, w + 0.5, 15)
     }
@@ -162,7 +157,7 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
 
   // Trigger: time marker and level arrow
   if (o.trigger) {
-    ctx.fillStyle = THEME.trigger
+    ctx.fillStyle = theme.trigger
     if (o.trigger.showMarker) {
       const x = tx(0)
       if (x >= 0 && x <= plotW) {
@@ -184,7 +179,7 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
         ctx.lineTo(plotW - 9, y + 6)
         ctx.closePath()
         ctx.fill()
-        ctx.strokeStyle = 'rgba(255, 157, 46, 0.35)'
+        ctx.strokeStyle = theme.triggerLevel
         ctx.setLineDash([4, 4])
         ctx.beginPath()
         ctx.moveTo(0, Math.round(y) + 0.5)
@@ -201,7 +196,7 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
     for (const [name, t] of [['A', o.cursors.a], ['B', o.cursors.b]] as const) {
       const x = Math.round(tx(t)) + 0.5
       if (x < 0 || x > plotW) continue
-      ctx.strokeStyle = THEME.cursor
+      ctx.strokeStyle = theme.cursor
       ctx.lineWidth = 1
       ctx.setLineDash(name === 'A' ? [] : [6, 3])
       ctx.beginPath()
@@ -210,9 +205,9 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
       ctx.stroke()
       ctx.setLineDash([])
       if (o.cursors.showLabels) {
-        ctx.fillStyle = THEME.cursor
+        ctx.fillStyle = theme.cursor
         ctx.fillRect(x - 8, 0, 16, 16)
-        ctx.fillStyle = '#000'
+        ctx.fillStyle = theme.cursorText
         ctx.textAlign = 'center'
         ctx.fillText(name, x, 8.5)
       }
@@ -220,7 +215,7 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
         const v = valueAt(src.wave, t)
         if (Number.isFinite(v)) {
           const y = H / 2 - valueToDiv(v, src.display) * divH
-          ctx.fillStyle = src.display.color
+          ctx.fillStyle = theme.ink(src.display.color)
           ctx.beginPath()
           ctx.arc(x, y, 3.5, 0, Math.PI * 2)
           ctx.fill()
@@ -232,7 +227,7 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
   // Hover crosshair
   if (o.hoverT !== undefined) {
     const x = Math.round(tx(o.hoverT)) + 0.5
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)'
+    ctx.strokeStyle = theme.hover
     ctx.beginPath()
     ctx.moveTo(x, 0)
     ctx.lineTo(x, H)
@@ -248,8 +243,9 @@ function drawTrace(ctx: CanvasRenderingContext2D, tr: TraceInput, o: ViewDrawOpt
   const yOf = (v: number) => H / 2 - ((v - d.offset) / d.scale + d.position) * divH
   const samplesPerPx = span / wave.dt / plotW
 
-  ctx.strokeStyle = d.color
-  ctx.fillStyle = d.color
+  const color = o.theme.ink(d.color)
+  ctx.strokeStyle = color
+  ctx.fillStyle = color
   ctx.lineWidth = d.id === o.selectedId ? 1.5 : 1.1
   ctx.lineJoin = 'round'
   ctx.beginPath()
@@ -298,17 +294,17 @@ function drawTrace(ctx: CanvasRenderingContext2D, tr: TraceInput, o: ViewDrawOpt
   ctx.stroke()
 }
 
-export function drawTimeAxis(ctx: CanvasRenderingContext2D, width: number, height: number, dpr: number, tStart: number, tEnd: number, ticks: number[]): void {
+export function drawTimeAxis(ctx: CanvasRenderingContext2D, width: number, height: number, dpr: number, tStart: number, tEnd: number, ticks: number[], theme: Theme): void {
   const plotW = width - AXIS_GUTTER
   ctx.save()
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-  ctx.fillStyle = THEME.bg
+  ctx.fillStyle = theme.bg
   ctx.fillRect(0, 0, width, height)
-  ctx.font = THEME.font
-  ctx.fillStyle = THEME.axisText
+  ctx.font = PLOT_FONT
+  ctx.fillStyle = theme.axisText
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
-  ctx.strokeStyle = THEME.gridCenter
+  ctx.strokeStyle = theme.gridCenter
   for (const t of ticks) {
     const x = Math.round(((t - tStart) / (tEnd - tStart)) * plotW) + 0.5
     ctx.beginPath()

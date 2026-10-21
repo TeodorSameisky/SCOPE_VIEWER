@@ -124,11 +124,15 @@ The **Export** menu opens one dialog for all outputs:
 
 | Output | Options |
 | --- | --- |
-| Image (PNG) | header (file, time base, trigger, cursors), channel legend, spectrum, measurement table, 1–3× resolution; copy to clipboard (HTTPS only) |
-| Report (HTML) | title, notes, image, channel and math settings, measurements, cursors, callouts, spectrum peaks – one file, printable to PDF |
+| Image (PNG) | header (file, time base, trigger, cursors), channel legend, spectrum, measurement table, 1–3× resolution, dark (as on screen) or light appearance; copy to clipboard (HTTPS only) |
+| Report (HTML) | title, notes, image, channel and math settings, measurements, cursors, callouts, spectrum peaks – one file, printable to PDF; its image is light by default |
 | Waveform data (CSV) | on screen / between cursors / whole record, visible or all channels, every n-th sample |
 | Measurements (CSV) | the measurement table, values in base units |
 | Spectra (CSV) | the visible spectra, dB or linear as shown |
+
+The light appearance is meant for paper and light documents: white background, grey grid, dark text.
+Trace colours that are too pale on white (the yellow of CH1, light cyan, green) are dimmed just enough
+for a contrast of 3:1, keeping their hue, so each channel stays recognisable.
 
 CSV files can be written comma separated, **semicolon separated with decimal comma (Excel in DE/EU)**
 or tab separated.

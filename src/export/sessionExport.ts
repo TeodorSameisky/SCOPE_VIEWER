@@ -6,6 +6,7 @@ import type { MathDef } from '../model/math'
 import type { SpectrumDef, SpectrumOptions } from '../model/spectrum'
 import type { ChannelDisplay, Session } from '../model/types'
 import { valueAt } from '../render/draw'
+import { THEMES, type Appearance } from '../render/theme'
 import { downloadBlob, stem } from '../util/download'
 import { si } from '../util/format'
 import { channelName } from '../util/names'
@@ -71,11 +72,12 @@ function infoLines(ctx: ExportContext): string[] {
   return lines
 }
 
-async function renderImage(ctx: ExportContext, prefs: ExportPrefs): Promise<HTMLCanvasElement> {
+async function renderImage(ctx: ExportContext, prefs: ExportPrefs, appearance: Appearance): Promise<HTMLCanvasElement> {
   const o = prefs.image
-  const plot = await ctx.plot?.renderImage(o.scale)
+  const theme = THEMES[appearance]
+  const plot = await ctx.plot?.renderImage(o.scale, theme)
   if (!plot) throw new Error('The plot is not ready')
-  const spec = o.spectrum ? ctx.spectrum?.renderImage(o.scale) : null
+  const spec = o.spectrum ? ctx.spectrum?.renderImage(o.scale, theme) : null
   const rows = o.table ? measureChannels(ctx.channels, ctx.measRange, ctx.win, ctx.cursors) : []
   const table = o.table && ctx.measKeys.length && rows.length ? measurementTable(rows, ctx.measKeys) : undefined
   if (table) table.columns[0] = `Channel (${RANGE_LABEL[ctx.measRange].toLowerCase()})`
@@ -97,6 +99,7 @@ async function renderImage(ctx: ExportContext, prefs: ExportPrefs): Promise<HTML
     plots: spec ? [plot, spec] : [plot],
     table,
     footer: `Scope Viewer · ${new Date().toLocaleString()}`,
+    theme,
   })
 }
 
@@ -191,7 +194,7 @@ export async function runExport(ctx: ExportContext, kind: ExportKind, prefs: Exp
   const format = csvFormat(prefs.csv)
 
   if (kind === 'image') {
-    const blob = await canvasToBlob(await renderImage(ctx, prefs))
+    const blob = await canvasToBlob(await renderImage(ctx, prefs, prefs.image.appearance))
     if (!blob) throw new Error('Could not create the image')
     if (extra.copy) await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
     else downloadBlob(blob, `${fileStem}.png`)
@@ -199,7 +202,9 @@ export async function runExport(ctx: ExportContext, kind: ExportKind, prefs: Exp
   }
 
   if (kind === 'report') {
-    const image = prefs.report.image ? await canvasToBlob(await renderImage(ctx, prefs)) : null
+    const image = prefs.report.image ? await canvasToBlob(await renderImage(ctx, prefs, prefs.report.appearance)) : null
+    // Colour dots of the tables as in the image (pale trace colours darkened in a light one)
+    const { ink } = THEMES[prefs.report.appearance]
     const first = session.channels[0].wave
     const trig = session.trigger
     const meta: [string, string][] = [
@@ -216,7 +221,7 @@ export async function runExport(ctx: ExportContext, kind: ExportKind, prefs: Exp
       notes: ctx.notes,
       meta,
       image: image ? await blobToDataUrl(image) : undefined,
-      tables: reportTables(ctx, prefs),
+      tables: reportTables(ctx, prefs).map((t) => ({ ...t, rows: t.rows.map((r) => (r.color ? { ...r, color: ink(r.color) } : r)) })),
       generatedBy: `Created with Scope Viewer from ${session.fileName}`,
     })
     downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), `${fileStem}-report.html`)
