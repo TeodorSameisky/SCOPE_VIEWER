@@ -1,0 +1,91 @@
+import { useEffect, useMemo, useState } from 'react'
+import type { Session } from '../model/types'
+import { si } from '../util/format'
+
+export function InfoPanel({ session }: { session: Session }) {
+  const [filter, setFilter] = useState('')
+  const [zoomShot, setZoomShot] = useState(false)
+  const shotUrl = useMemo(() => (session.screenshot ? URL.createObjectURL(session.screenshot) : undefined), [session.screenshot])
+  useEffect(
+    () => () => {
+      if (shotUrl) URL.revokeObjectURL(shotUrl)
+    },
+    [shotUrl],
+  )
+
+  const first = session.channels[0]?.wave
+  const setupRows = useMemo(() => {
+    if (!session.setup) return []
+    const f = filter.trim().toUpperCase()
+    return Object.entries(session.setup)
+      .filter(([k, v]) => !f || k.includes(f) || v.toUpperCase().includes(f))
+      .slice(0, 400)
+  }, [session.setup, filter])
+
+  return (
+    <div className="panel-body">
+      <dl className="info-list">
+        <dt>File</dt>
+        <dd>{session.fileName}</dd>
+        <dt>Format</dt>
+        <dd>{session.format}</dd>
+        {first && (
+          <>
+            <dt>Record length</dt>
+            <dd className="mono">{first.data.length.toLocaleString()} pts</dd>
+            <dt>Sample interval</dt>
+            <dd className="mono">
+              {si(first.dt, 's')} ({si(1 / first.dt, 'S/s')})
+            </dd>
+            <dt>Record</dt>
+            <dd className="mono">
+              {si(first.t0, 's')} … {si(first.t0 + (first.data.length - 1) * first.dt, 's')}
+            </dd>
+          </>
+        )}
+        {session.horizontal && (
+          <>
+            <dt>Horizontal</dt>
+            <dd className="mono">
+              {si(session.horizontal.scale, 's/div')}, pos {session.horizontal.position}%
+            </dd>
+          </>
+        )}
+        {session.trigger && (
+          <>
+            <dt>Trigger</dt>
+            <dd className="mono">
+              {session.trigger.source} {session.trigger.slope?.toLowerCase()} {session.trigger.level !== undefined && si(session.trigger.level, 'V')}
+            </dd>
+          </>
+        )}
+      </dl>
+
+      {shotUrl && (
+        <>
+          <h4>Instrument screenshot</h4>
+          <img className="screenshot" src={shotUrl} alt="Scope screen at time of saving" onClick={() => setZoomShot(true)} />
+          {zoomShot && (
+            <div className="modal" onClick={() => setZoomShot(false)}>
+              <img src={shotUrl} alt="Scope screen at time of saving" />
+            </div>
+          )}
+        </>
+      )}
+
+      {session.setup && (
+        <>
+          <h4>Instrument setup ({Object.keys(session.setup).length} settings)</h4>
+          <input className="search" placeholder="Filter, e.g. CH2 or TRIGGER" value={filter} onChange={(e) => setFilter(e.target.value)} />
+          <div className="setup-list mono">
+            {setupRows.map(([k, v]) => (
+              <div key={k}>
+                <span className="k">{k}</span> <span className="v">{v}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
