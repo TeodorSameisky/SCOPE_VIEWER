@@ -1,4 +1,5 @@
-import { useDeferredValue, useMemo } from 'react'
+import { useDeferredValue, useMemo, useRef } from 'react'
+import { X } from 'lucide-react'
 import { MEASUREMENT_DEFS, measure, type MeasurementKey, type Measurements } from '../dsp/measure'
 import { si } from '../util/format'
 import type { CursorState, LiveChannel, MeasureRange, TimeWindow } from './state'
@@ -11,6 +12,9 @@ interface Props {
   setRange: (r: MeasureRange) => void
   keys: MeasurementKey[]
   setKeys: (k: MeasurementKey[]) => void
+  height: number
+  setHeight: (h: number) => void
+  onClose: () => void
 }
 
 export function MeasurementTable(p: Props) {
@@ -41,8 +45,28 @@ export function MeasurementTable(p: Props) {
   const defs = p.keys.map((k) => MEASUREMENT_DEFS.find((d) => d.key === k)!)
   const unused = MEASUREMENT_DEFS.filter((d) => !p.keys.includes(d.key))
 
+  // Drag the top edge to resize the panel
+  const resize = useRef<{ y0: number; h0: number } | null>(null)
+  const onResizeDown = (e: React.PointerEvent) => {
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+    resize.current = { y0: e.clientY, h0: p.height }
+  }
+  const onResizeMove = (e: React.PointerEvent) => {
+    if (!resize.current) return
+    p.setHeight(Math.round(Math.min(window.innerHeight * 0.6, Math.max(90, resize.current.h0 - (e.clientY - resize.current.y0)))))
+  }
+
   return (
-    <div className="measure">
+    <div className="measure" style={{ height: p.height }}>
+      <div
+        className="resize-handle"
+        role="separator"
+        aria-orientation="horizontal"
+        title="Drag to resize"
+        onPointerDown={onResizeDown}
+        onPointerMove={onResizeMove}
+        onPointerUp={() => (resize.current = null)}
+      />
       <div className="measure-bar">
         <span className="section-title">Measurements</span>
         <div className="segmented">
@@ -64,6 +88,10 @@ export function MeasurementTable(p: Props) {
             </option>
           ))}
         </select>
+        <span className="spacer" />
+        <button type="button" className="icon-btn" title="Hide measurements (T)" aria-label="Hide measurements" onClick={p.onClose}>
+          <X size={16} />
+        </button>
       </div>
       <div className="measure-scroll">
         <table className="data-table">

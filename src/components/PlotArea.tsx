@@ -36,6 +36,8 @@ interface Props {
   record: TimeWindow
   minSpan: number
   tool: Tool
+  /** Short instruction shown while a non-default tool is active */
+  hint?: string
   /** Continuous navigation (wheel, pan) */
   onNavigate: (w: TimeWindow, kind: NavKind) => void
   /** Discrete zoom, optionally with new vertical settings for some channels */
@@ -433,6 +435,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
         </div>
       )}
       {hoverT !== undefined && !drag && <div className="hover-time">{si(hoverT, 's', 5)}</div>}
+      {p.hint && <div className="tool-hint">{p.hint}</div>}
     </div>
   )
 })

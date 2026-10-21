@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { X } from 'lucide-react'
 import type { ChannelDisplay, Session } from '../model/types'
 import type { MeasurementKey } from '../dsp/measure'
 import {
@@ -14,14 +15,16 @@ import {
 import { MinMaxPyramid } from '../dsp/minmax'
 import { buildCsv } from '../export/csv'
 import { downloadBlob, stem } from '../util/download'
-import { si } from '../util/format'
+import { usePersistentState } from '../util/usePersistentState'
 import { CalloutPanel } from './CalloutPanel'
-import { ChannelPanel } from './ChannelPanel'
+import { ChannelBar } from './ChannelBar'
 import { CursorPanel } from './CursorPanel'
 import { InfoPanel } from './InfoPanel'
 import { MeasurementTable } from './MeasurementTable'
 import { Overview } from './Overview'
 import { PlotArea, type NewCallout, type PlotAreaHandle } from './PlotArea'
+import { Rail, type PanelId } from './Rail'
+import { TopBar } from './TopBar'
 import {
   timeTicks,
   zoomAround,
@@ -53,21 +56,29 @@ const TEK_MEAS: Record<string, MeasurementKey> = {
 }
 const DEFAULT_MEAS: MeasurementKey[] = ['max', 'min', 'pkpk', 'mean', 'rms', 'frequency', 'riseTime', 'fallTime']
 
-type Tab = 'channels' | 'cursors' | 'callouts' | 'info'
-
 /** Window + vertical settings, restored by "zoom back" */
 interface ViewState {
   win: TimeWindow
   vertical: Record<string, { scale: number; position: number; offset: number }>
 }
 
-const TOOL_HINT: Record<Tool, string> = {
-  pan: 'Drag: pan · Wheel: zoom · Shift+drag or drag on time axis: zoom to range · Double-click: full record',
-  zoom: 'Drag a rectangle: zoom time + vertical · Shift+drag: time only · Click: zoom in · Alt+click: zoom out',
+/** Shown in the plot while a tool other than Pan is active */
+const TOOL_HINT: Partial<Record<Tool, string>> = {
+  zoom: 'Drag a rectangle to zoom time + vertical · Shift+drag: time only · Click: zoom in · Alt+click: out · Esc: done',
   note: 'Click on a trace to attach a note · Esc: cancel',
   marker: 'Click to place a marker · Esc: cancel',
   region: 'Drag to mark a time region · Esc: cancel',
 }
+
+const PANEL_TITLE: Record<PanelId, string> = { cursors: 'Cursors', callouts: 'Callouts', info: 'Session' }
+
+interface Layout {
+  panel: PanelId | null
+  overview: boolean
+  measurements: boolean
+  measHeight: number
+}
+const DEFAULT_LAYOUT: Layout = { panel: null, overview: true, measurements: true, measHeight: 170 }
 
 interface Props {
   session: Session
@@ -117,7 +128,22 @@ export function Scope({ session, onOpen, onClose }: Props) {
     }
   })
   const [selected, setSelected] = useState<string | undefined>(session.trigger?.source ?? session.channels[0]?.wave.id)
-  const [tab, setTab] = useState<Tab>('channels')
+  const [layout, setLayout] = usePersistentState<Layout>('scope-viewer:layout', DEFAULT_LAYOUT)
+  const setPanel = (panel: PanelId | null) => setLayout((l) => ({ ...l, panel }))
+  const toggleOverview = () => setLayout((l) => ({ ...l, overview: !l.overview }))
+  const toggleMeasurements = () => setLayout((l) => ({ ...l, measurements: !l.measurements }))
+  // Focus mode hides every panel and remembers what was open
+  const beforeFocus = useRef<Layout | null>(null)
+  const focusMode = !layout.panel && !layout.overview && !layout.measurements
+  const toggleFocus = () => {
+    if (focusMode) {
+      const prev = beforeFocus.current ?? DEFAULT_LAYOUT
+      setLayout((l) => ({ ...l, panel: prev.panel, overview: prev.overview, measurements: prev.measurements }))
+    } else {
+      beforeFocus.current = layout
+      setLayout((l) => ({ ...l, panel: null, overview: false, measurements: false }))
+    }
+  }
   const [measRange, setMeasRange] = useState<MeasureRange>('screen')
   const [measKeys, setMeasKeys] = useState<MeasurementKey[]>(() => {
     const fromSetup = (session.measurements ?? []).map((m) => TEK_MEAS[m.type]).filter(Boolean)
@@ -227,7 +253,7 @@ export function Scope({ session, onOpen, onClose }: Props) {
       if (otherFile && !confirm('These callouts were saved for a different session file. Import them anyway?')) return
       const ids = new Set(imported.map((c) => c.id))
       setCallouts((cs) => [...cs.filter((c) => !ids.has(c.id)), ...imported])
-      setTab('callouts')
+      setPanel('callouts')
     } catch (e) {
       alert(`Could not import callouts: ${e instanceof Error ? e.message : String(e)}`)
     }
@@ -260,6 +286,10 @@ export function Scope({ session, onOpen, onClose }: Props) {
           m: () => setTool('marker'),
           r: () => setTool('region'),
           f: () => zoomTo(record),
+          c: () => setCursors({ ...cursors, on: !cursors.on }),
+          o: toggleOverview,
+          t: toggleMeasurements,
+          '\\': toggleFocus,
           '+': () => zoomTo(zoomAround(win, mid, 0.5, minSpan, maxSpan)),
           '=': () => zoomTo(zoomAround(win, mid, 0.5, minSpan, maxSpan)),
           '-': () => zoomTo(zoomAround(win, mid, 2, minSpan, maxSpan)),
@@ -319,56 +349,28 @@ export function Scope({ session, onOpen, onClose }: Props) {
 
   return (
     <div className="scope">
-      <header className="toolbar">
-        <div className="brand">
-          <span className="logo">◢</span> Scope Viewer
-        </div>
-        <button onClick={onOpen}>Open…</button>
-        <span className="file-name" title={session.fileName}>
-          {session.fileName}
-        </span>
-        <div className="spacer" />
-        <div className="tool-group" role="group" aria-label="Mouse tool">
-          <button className={tool === 'pan' ? 'active' : ''} onClick={() => setTool('pan')} title="Pan and select (P)">
-            ✋ Pan
-          </button>
-          <button className={tool === 'zoom' ? 'active' : ''} onClick={() => setTool('zoom')} title="Box zoom: drag a rectangle (Z)">
-            ⬚ Zoom
-          </button>
-        </div>
-        <div className="tool-group" role="group" aria-label="Callouts">
-          <button className={tool === 'note' ? 'active' : ''} onClick={() => setTool(tool === 'note' ? 'pan' : 'note')} title="Note on a trace (N)">
-            ✎ Note
-          </button>
-          <button className={tool === 'marker' ? 'active' : ''} onClick={() => setTool(tool === 'marker' ? 'pan' : 'marker')} title="Time marker (M)">
-            ⚑ Marker
-          </button>
-          <button className={tool === 'region' ? 'active' : ''} onClick={() => setTool(tool === 'region' ? 'pan' : 'region')} title="Time region (R)">
-            ↔ Region
-          </button>
-        </div>
-        <button onClick={zoomBack} disabled={!history.length} title="Back to the previous view (Backspace)">
-          ↶ Back
-        </button>
-        <button onClick={() => zoomTo(initialWin)} title="Back to the view saved in the session">
-          Saved view
-        </button>
-        <button onClick={() => zoomTo(record)} disabled={!zoomed} title="Show the whole record (F, double-click plot)">
-          Full record
-        </button>
-        <button className={cursors.on ? 'active' : ''} onClick={() => setCursors({ ...cursors, on: !cursors.on })}>
-          Cursors
-        </button>
-        <button onClick={exportCsv}>Export CSV</button>
-        <button onClick={exportPng}>Export PNG</button>
-        <button className="ghost" onClick={onClose} title="Close session">
-          ✕
-        </button>
-      </header>
+      <TopBar
+        fileName={session.fileName}
+        onOpen={onOpen}
+        onClose={onClose}
+        tool={tool}
+        setTool={setTool}
+        canGoBack={history.length > 0}
+        onBack={zoomBack}
+        onSavedView={() => zoomTo(initialWin)}
+        onFullRecord={() => zoomTo(record)}
+        zoomed={zoomed}
+        cursorsOn={cursors.on}
+        onToggleCursors={() => setCursors({ ...cursors, on: !cursors.on })}
+        onExportCsv={exportCsv}
+        onExportPng={exportPng}
+        onExportCallouts={exportCallouts}
+        calloutCount={callouts.length}
+      />
 
-      <div className="workspace">
+      <div className={`workspace ${layout.panel ? 'with-panel' : ''}`}>
         <main className="main">
-          <Overview channels={channels} views={views} record={record} win={win} minSpan={minSpan} onNavigate={navigate} />
+          {layout.overview && <Overview channels={channels} views={views} record={record} win={win} minSpan={minSpan} onNavigate={navigate} />}
           <PlotArea
             ref={plotRef}
             channels={channels}
@@ -377,6 +379,7 @@ export function Scope({ session, onOpen, onClose }: Props) {
             record={record}
             minSpan={minSpan}
             tool={tool}
+            hint={TOOL_HINT[tool]}
             onNavigate={navigate}
             onZoomTo={zoomTo}
             cursors={cursors}
@@ -394,84 +397,82 @@ export function Scope({ session, onOpen, onClose }: Props) {
             onEditCallout={editCallout}
             onDeleteCallout={deleteCallout}
           />
-          <MeasurementTable
-            channels={channels}
-            win={win}
-            cursors={cursors}
-            range={measRange}
-            setRange={setMeasRange}
-            keys={measKeys}
-            setKeys={setMeasKeys}
-          />
+          {layout.measurements && (
+            <MeasurementTable
+              channels={channels}
+              win={win}
+              cursors={cursors}
+              range={measRange}
+              setRange={setMeasRange}
+              keys={measKeys}
+              setKeys={setMeasKeys}
+              height={layout.measHeight}
+              setHeight={(measHeight) => setLayout((l) => ({ ...l, measHeight }))}
+              onClose={toggleMeasurements}
+            />
+          )}
         </main>
 
-        <aside className="sidebar">
-          <nav className="tabs">
-            {(['channels', 'cursors', 'callouts', 'info'] as const).map((t) => (
-              <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
-                {t[0].toUpperCase() + t.slice(1)}
-                {t === 'callouts' && callouts.length > 0 && <span className="badge">{callouts.length}</span>}
+        {layout.panel && (
+          <aside className="sidebar" aria-label={PANEL_TITLE[layout.panel]}>
+            <div className="sidebar-head">
+              <h3>{PANEL_TITLE[layout.panel]}</h3>
+              <button type="button" className="icon-btn" title="Close panel" aria-label="Close panel" onClick={() => setPanel(null)}>
+                <X size={16} />
               </button>
-            ))}
-          </nav>
-          {tab === 'channels' && (
-            <ChannelPanel
-              channels={channels}
-              views={views}
-              selected={selected}
-              setSelected={setSelected}
-              onAdjust={onAdjust}
-              onMoveToView={onMoveToView}
-              onAutoscale={onAutoscale}
-            />
-          )}
-          {tab === 'cursors' && <CursorPanel channels={channels} cursors={cursors} setCursors={setCursors} win={win} />}
-          {tab === 'callouts' && (
-            <CalloutPanel
-              callouts={callouts}
-              channels={channels}
-              selectedId={selectedCallout}
-              tool={tool}
-              setTool={setTool}
-              onSelect={setSelectedCallout}
-              onUpdate={updateCallout}
-              onDelete={deleteCallout}
-              onJump={jumpToCallout}
-              onExport={exportCallouts}
-              onImport={importCallouts}
-              onClear={() => {
-                setCallouts([])
-                setEditing(null)
-                setSelectedCallout(undefined)
-              }}
-            />
-          )}
-          {tab === 'info' && <InfoPanel session={session} />}
-        </aside>
+            </div>
+            {layout.panel === 'cursors' && <CursorPanel channels={channels} cursors={cursors} setCursors={setCursors} win={win} />}
+            {layout.panel === 'callouts' && (
+              <CalloutPanel
+                callouts={callouts}
+                channels={channels}
+                selectedId={selectedCallout}
+                tool={tool}
+                setTool={setTool}
+                onSelect={setSelectedCallout}
+                onUpdate={updateCallout}
+                onDelete={deleteCallout}
+                onJump={jumpToCallout}
+                onExport={exportCallouts}
+                onImport={importCallouts}
+                onClear={() => {
+                  setCallouts([])
+                  setEditing(null)
+                  setSelectedCallout(undefined)
+                }}
+              />
+            )}
+            {layout.panel === 'info' && <InfoPanel session={session} />}
+          </aside>
+        )}
+
+        <Rail
+          panel={layout.panel}
+          setPanel={setPanel}
+          overview={layout.overview}
+          toggleOverview={toggleOverview}
+          measurements={layout.measurements}
+          toggleMeasurements={toggleMeasurements}
+          focusMode={focusMode}
+          toggleFocus={toggleFocus}
+          calloutCount={callouts.length}
+        />
       </div>
 
-      <footer className="statusbar mono">
-        <span>
-          <b>Horizontal</b> {si(tPerDiv, 's/div', 3)}
-        </span>
-        <span>
-          <b>Window</b> {si(win.start, 's')} … {si(win.end, 's')}
-        </span>
-        <span>
-          <b>SR</b> {si(1 / minDt, 'S/s', 3)}
-        </span>
-        <span>
-          <b>RL</b> {session.channels[0].wave.data.length.toLocaleString()} pts
-        </span>
-        {session.trigger && (
-          <span>
-            <b>Trigger</b> {session.trigger.source} {session.trigger.slope === 'FALL' ? '↘' : '↗'}{' '}
-            {session.trigger.level !== undefined && si(session.trigger.level, 'V', 3)}
-          </span>
-        )}
-        <span className="spacer" />
-        <span className="muted">{TOOL_HINT[tool]}</span>
-      </footer>
+      <ChannelBar
+        channels={channels}
+        views={views}
+        selected={selected}
+        setSelected={setSelected}
+        onAdjust={onAdjust}
+        onMoveToView={onMoveToView}
+        onAutoscale={onAutoscale}
+        win={win}
+        timePerDiv={tPerDiv}
+        sampleRate={1 / minDt}
+        recordLength={session.channels[0].wave.data.length}
+        trigger={session.trigger}
+      />
     </div>
   )
 }

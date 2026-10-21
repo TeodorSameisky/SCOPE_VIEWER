@@ -13,6 +13,17 @@ All parsing happens **in the browser** (in a Web Worker). Session files are neve
 | Tektronix waveform `.wfm` (WFM#001–#003) | One or more files; drop a matching `.set` file together with them to restore the setup. FastFrame: only the first frame is shown. |
 | Rigol | Planned. |
 
+## Layout
+
+- **Top bar** – open file, mouse tools (Pan, Zoom, Note, Marker, Region), view navigation, cursors, Export menu
+- **Plot** – with the optional overview strip above and the measurements table below
+- **Right rail** – opens the side panels (Cursor readouts, Callouts, Session info & setup) and shows/hides
+  the overview strip and measurements; *Focus* (`\`) hides everything except the plot
+- **Channel bar** (bottom) – one badge per channel like on the scope; click a badge for its settings
+  (label, colour, V/div, position, offset, view), the eye toggles visibility
+
+Which panels are open is remembered in the browser.
+
 ## Features
 
 - Stacked waveform views with the scope's colours, labels, ground markers, trigger point and level
@@ -52,8 +63,11 @@ its contents) and can be exported/imported as JSON to share them.
 ### Keyboard
 
 `P` pan · `Z` zoom tool · `N` note · `M` marker · `R` region · `Esc` back to pan ·
-`F` full record · `+`/`-` zoom · `←`/`→` pan · `Backspace` zoom back ·
+`F` full record · `+`/`-` zoom · `←`/`→` pan · `Backspace` zoom back · `C` cursors ·
+`O` overview · `T` measurements · `\` focus mode ·
 `Enter` edit / `Delete` delete the selected callout
+
+The **?** button at the bottom of the rail shows all mouse and keyboard controls.
 
 ## Development
 
