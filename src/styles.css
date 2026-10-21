@@ -474,6 +474,11 @@ code {
   gap: 8px;
   min-height: 0;
 }
+/* Panel content keeps its size and the panel scrolls. Without this, flex items with their own
+   scroll area (like the setup list) would be squeezed to almost nothing instead. */
+.panel-body > * {
+  flex-shrink: 0;
+}
 .panel-body h4 {
   margin: 10px 0 0;
   font-size: 12px;
@@ -858,7 +863,7 @@ th:hover .x {
 }
 .setup-list {
   font-size: 11px;
-  max-height: 340px;
+  max-height: min(420px, 60vh);
   overflow: auto;
   background: #0d1016;
   border: 1px solid var(--border);

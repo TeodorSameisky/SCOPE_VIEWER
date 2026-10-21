@@ -13,7 +13,6 @@ export function InfoPanel({ session, storage }: { session: Session; storage?: Re
     const f = filter.trim().toUpperCase()
     return Object.entries(session.setup)
       .filter(([k, v]) => !f || k.includes(f) || v.toUpperCase().includes(f))
-      .slice(0, 400)
   }, [session.setup, filter])
 
   return (
@@ -71,7 +70,10 @@ export function InfoPanel({ session, storage }: { session: Session; storage?: Re
 
       {session.setup && (
         <>
-          <h4>Instrument setup ({Object.keys(session.setup).length} settings)</h4>
+          <h4>
+            Instrument setup (
+            {filter.trim() ? `${setupRows.length} of ${Object.keys(session.setup).length}` : Object.keys(session.setup).length} settings)
+          </h4>
           <input className="search" placeholder="Filter, e.g. CH2 or TRIGGER" value={filter} onChange={(e) => setFilter(e.target.value)} />
           <div className="setup-list mono">
             {setupRows.map(([k, v]) => (
