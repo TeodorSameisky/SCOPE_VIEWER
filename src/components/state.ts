@@ -39,3 +39,20 @@ export function stepScale(scale: number, dir: 1 | -1): number {
 }
 
 export type DisplayPatch = Partial<Omit<ChannelDisplay, 'id'>>
+
+/** Active mouse tool in the plot */
+export type Tool = 'pan' | 'zoom' | 'note' | 'marker' | 'region'
+
+/**
+ * How a view change was made. Continuous changes (wheel, pan) are grouped so that
+ * "zoom back" steps over a whole gesture instead of every single event.
+ */
+export type NavKind = 'zoom' | 'pan' | 'wheel'
+
+/** Zoom the time window by factor f (>1 = out) keeping time t at the same screen position. */
+export function zoomAround(w: TimeWindow, t: number, f: number, minSpan: number, maxSpan: number): TimeWindow {
+  const span = w.end - w.start
+  const ns = Math.min(maxSpan, Math.max(minSpan, span * f))
+  const frac = (t - w.start) / span
+  return { start: t - frac * ns, end: t - frac * ns + ns }
+}

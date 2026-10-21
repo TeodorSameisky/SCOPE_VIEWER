@@ -61,6 +61,9 @@ button.ghost {
   background: transparent;
   border-color: transparent;
 }
+button.text-btn.danger {
+  color: var(--danger);
+}
 button.text-btn {
   background: transparent;
   border: none;
@@ -180,6 +183,7 @@ code {
 }
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 7px 12px;
@@ -204,7 +208,8 @@ code {
 }
 .main {
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 1fr auto;
   min-width: 0;
   min-height: 0;
 }
@@ -544,6 +549,138 @@ th:hover .x {
   margin-right: 4px;
 }
 
+/* tool groups (segmented buttons) */
+.tool-group {
+  display: flex;
+}
+.tool-group button {
+  border-radius: 0;
+  margin-left: -1px;
+}
+.tool-group button:first-child {
+  border-radius: 6px 0 0 6px;
+  margin-left: 0;
+}
+.tool-group button:last-child {
+  border-radius: 0 6px 6px 0;
+}
+.badge {
+  display: inline-block;
+  margin-left: 6px;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent-2);
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+/* overview navigator */
+.overview {
+  background: #0a0d12;
+  border-bottom: 1px solid var(--border);
+  touch-action: none;
+  user-select: none;
+  overflow: hidden;
+}
+
+/* callouts */
+.callout-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.callout-editor {
+  position: absolute;
+  width: 250px;
+  padding: 8px;
+  background: rgba(20, 25, 33, 0.97);
+  border: 1px solid #3a4454;
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: default;
+  z-index: 5;
+}
+.callout-editor textarea,
+.callout-card textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  background: #0d1016;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 5px 7px;
+}
+.callout-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.callout-editor-hint {
+  color: var(--muted);
+  font-size: 11px;
+}
+.swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+}
+.swatch.active,
+.swatch:hover:not(:disabled) {
+  border-color: #fff;
+}
+.callout-tools {
+  display: flex;
+  gap: 6px;
+}
+.callout-tools button {
+  flex: 1;
+}
+.callout-card {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--co);
+  border-radius: 6px;
+  background: var(--panel-2);
+  padding: 7px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+}
+.callout-card.selected {
+  border-color: var(--co);
+  box-shadow: 0 0 0 1px var(--co) inset;
+}
+.callout-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.callout-icon {
+  color: var(--co);
+  font-size: 14px;
+}
+.empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 18px 0;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+}
+.row.wrap {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
 /* overlays */
 .drop-overlay,
 .busy-overlay {
@@ -590,7 +727,7 @@ th:hover .x {
     grid-template-columns: minmax(0, 1fr);
   }
   .main {
-    grid-template-rows: 62vh auto;
+    grid-template-rows: auto 62vh auto;
   }
   .measure {
     max-height: none;

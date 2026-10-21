@@ -39,6 +39,8 @@ export interface SessionCursors {
 
 export interface Session {
   fileName: string
+  /** SHA-256 of the opened file(s), identifies the session across visits */
+  fingerprint?: string
   /** Instrument family/format, e.g. "Tektronix TSS" */
   format: string
   channels: Channel[]

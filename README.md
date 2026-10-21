@@ -16,14 +16,44 @@ All parsing happens **in the browser** (in a Web Worker). Session files are neve
 ## Features
 
 - Stacked waveform views with the scope's colours, labels, ground markers, trigger point and level
-- Zoom (mouse wheel, Shift+drag box zoom), pan (drag), double-click to show the whole record
 - Min/max decimation pyramid, so long records stay responsive
 - Click a trace to select it; Ctrl+wheel changes its V/div, Alt+wheel its position
 - Time cursors A/B with Δt, 1/Δt, Δv and per-channel values
 - Measurements on screen, between cursors or over the whole record: max, min, pk-pk, mean, RMS,
   top, base, amplitude, frequency, period, rise/fall time (10–90 %), positive width, duty cycle
 - Instrument screenshot and searchable instrument setup
-- Export the visible range as CSV and the plot as PNG
+- Export the visible range as CSV and the plot (including callouts) as PNG
+
+### Zooming
+
+| How | What it does |
+| --- | --- |
+| Mouse wheel | Zoom time around the pointer (Shift+wheel pans) |
+| **Zoom** tool, drag a rectangle | Zoom time *and* vertical range of that view |
+| **Zoom** tool, click / Alt+click | Zoom in / out 2× |
+| Shift+drag, or drag along the time axis | Zoom to the marked time range |
+| Overview strip | Drag to mark a range, drag the box to move it, drag its edges to resize, click to centre |
+| **↶ Back** (Backspace) | Step back through previous views, including vertical zoom |
+| Full record (F, double-click) / Saved view | Whole record / the view saved on the scope |
+
+### Callouts
+
+Mark events directly on the waveforms:
+
+- **Note** — text attached to a point on a trace; it follows the trace when zooming or changing V/div
+- **Marker** — vertical line at an event time across all views
+- **Region** — a marked time span with its Δt
+
+Pick a type in the toolbar (or press N / M / R), click (or drag for a region) in the plot and type
+the text. Drag callouts to move them, double-click to edit. The **Callouts** tab lists all of them
+with *Go to*. Callouts are stored in the browser per session file (identified by a SHA-256 hash of
+its contents) and can be exported/imported as JSON to share them.
+
+### Keyboard
+
+`P` pan · `Z` zoom tool · `N` note · `M` marker · `R` region · `Esc` back to pan ·
+`F` full record · `+`/`-` zoom · `←`/`→` pan · `Backspace` zoom back ·
+`Enter` edit / `Delete` delete the selected callout
 
 ## Development
 
@@ -39,6 +69,7 @@ Code layout:
 ```
 src/parsers/   file formats (tekWfm, tekSetup, session = .tss/.wfm loader, worker)
 src/dsp/       min/max pyramid and measurements
+src/model/     data types and callouts (storage, import/export)
 src/render/    canvas drawing of views and time axis
 src/components React UI (Scope workspace, plot, panels)
 ```
