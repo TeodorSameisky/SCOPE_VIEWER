@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useState } from 'react'
 import { CALLOUT_COLORS, type Callout } from '../model/callouts'
 import { calloutShapes, type CalloutGeo, type CalloutLayout, type CalloutPart } from '../render/callouts'
+import { CalloutValueEditor } from './CalloutValueEditor'
 import { DIVS_Y } from '../render/draw'
 import { DARK_THEME } from '../render/theme'
 
@@ -27,12 +28,12 @@ interface Drag {
   box?: { ax: number; ay: number; bx: number; by: number; bw: number; bh: number }
 }
 
-/** Where the inline editor of a callout goes (below its label; above it for regions) */
-function editorPosition(g: CalloutGeo | undefined): { left: number; top: number } | null {
+/** Where the inline editor of a callout goes: below its label, above it for regions (labels at the bottom) */
+function editorPosition(g: CalloutGeo | undefined): { left: number; top: number; above?: boolean } | null {
   if (!g) return null
   if (g.type === 'note') return { left: g.bx, top: g.by + g.bh + 4 }
   if (g.type === 'marker') return { left: g.fx, top: g.fy + g.h + 6 }
-  return { left: g.lx, top: g.ly - 112 }
+  return { left: g.lx, top: g.ly - 6, above: true }
 }
 
 /**
@@ -154,9 +155,14 @@ export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLay
       {editing && pos && (
         <div
           className="callout-editor"
-          style={{ left: Math.max(4, Math.min(p.plotW - 250, pos.left)), top: Math.max(4, Math.min(totalH - 110, pos.top)) }}
+          style={{
+            left: Math.max(4, Math.min(p.plotW - 250, pos.left)),
+            ...(pos.above ? { top: pos.top, transform: 'translateY(-100%)' } : { top: Math.max(4, Math.min(totalH - 140, pos.top)) }),
+          }}
           onPointerDown={(e) => e.stopPropagation()}
           onDoubleClick={(e) => e.stopPropagation()}
+          // Done when the focus leaves the editor (not when it moves to the measure selection)
+          onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && p.onEdit(null)}
         >
           <textarea
             autoFocus
@@ -170,8 +176,8 @@ export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLay
                 p.onEdit(null)
               }
             }}
-            onBlur={() => p.onEdit(null)}
           />
+          <CalloutValueEditor callout={editing} sources={p.channels.map((c) => c.wave.id)} onUpdate={(patch) => p.onUpdate(editing.id, patch)} keepFocus />
           <div className="callout-editor-row">
             {CALLOUT_COLORS.map((col) => (
               <button

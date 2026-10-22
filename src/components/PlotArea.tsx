@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
-import type { Callout } from '../model/callouts'
+import { calloutSpan, type Callout } from '../model/callouts'
 import { calloutsSvg, flagsBottom, layoutCallouts } from '../render/callouts'
 import { AXIS_GUTTER, DIVS_Y, divToValue, drawTimeAxis, drawView, valueAt, valueToDiv } from '../render/draw'
 import { loadTex, useTexVersion } from '../render/tex'
@@ -78,6 +78,8 @@ interface Props {
   onDeleteCallout: (id: string) => void
   onContextMenu?: (e: React.MouseEvent, at: PlotPoint) => void
   onCalloutMenu?: (e: React.MouseEvent, c: Callout) => void
+  /** Go to a callout (the counters of callouts outside the view) */
+  onJumpToCallout: (c: Callout) => void
 }
 
 export interface PlotAreaHandle {
@@ -457,6 +459,25 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   }
 
   const cursorReadout = p.cursors.on ? cursorSummary(p) : null
+  // Callouts outside the view: counted in the top corners, a click goes to the nearest
+  const before = p.callouts.filter((c) => calloutSpan(c)[1] < p.win.start)
+  const after = p.callouts.filter((c) => calloutSpan(c)[0] > p.win.end)
+  const nearestBefore = before.reduce<Callout | undefined>((a, c) => (!a || calloutSpan(c)[1] > calloutSpan(a)[1] ? c : a), undefined)
+  const nearestAfter = after.reduce<Callout | undefined>((a, c) => (!a || calloutSpan(c)[0] < calloutSpan(a)[0] ? c : a), undefined)
+  const offscreen = (dir: 'left' | 'right', n: number, c: Callout | undefined) =>
+    c && (
+      <button
+        type="button"
+        className={`offscreen-callouts ${dir}`}
+        style={dir === 'right' ? { right: size.w - plotW + 4 } : undefined}
+        title={`${n} callout${n > 1 ? 's' : ''} ${dir === 'left' ? 'before' : 'after'} this view: go to the nearest (${dir === 'left' ? ',' : '.'})`}
+        onPointerDown={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+        onClick={() => p.onJumpToCallout(c)}
+      >
+        {dir === 'left' ? `‹ ${n}` : `${n} ›`}
+      </button>
+    )
   const showHover = hover !== undefined && hoverT !== undefined && !drag && !p.editingCallout
   const nearCursor =
     hoverT !== undefined && p.cursors.on && (p.tool === 'pan' || p.tool === 'zoom') && [p.cursors.a, p.cursors.b].some((t) => Math.abs(tToX(t) - tToX(hoverT)) < GRAB_PX)
@@ -542,6 +563,8 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
         />
       )}
       {showHover && !p.readout && <div className="hover-time">{si(hoverT, 's', 5)}</div>}
+      {offscreen('left', before.length, nearestBefore)}
+      {offscreen('right', after.length, nearestAfter)}
       {p.hint && <div className="tool-hint">{p.hint}</div>}
     </div>
   )

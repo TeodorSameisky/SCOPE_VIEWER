@@ -1,6 +1,5 @@
 import { measure, type MeasurementKey, type Measurements } from '../dsp/measure'
-import { measurementDef } from '../dsp/measureDefs'
-import { si } from '../util/format'
+import { formatMeasurement, measurementDef } from '../dsp/measureDefs'
 import { channelName } from '../util/names'
 import { sampleRange, type CursorState, type LiveChannel, type MeasureRange, type TimeWindow } from '../components/state'
 
@@ -17,13 +16,6 @@ export function measureChannels(channels: LiveChannel[], range: MeasureRange, wi
       const [i0, i1] = sampleRange(channel.wave, range, win, cursors)
       return { channel, m: measure(channel.wave.data, i0, i1, channel.wave.t0, channel.wave.dt) }
     })
-}
-
-/** Formatted text of one measurement value ("—" when not available) */
-export function formatMeasurement(key: MeasurementKey, v: number, yUnit: string): string {
-  const d = measurementDef(key)
-  if (d.unit === '%') return Number.isFinite(v) ? `${v.toFixed(2)} %` : '—'
-  return si(v, d.unit === 'y' ? yUnit : d.unit)
 }
 
 /** Table rows (name + formatted values) for images and reports */

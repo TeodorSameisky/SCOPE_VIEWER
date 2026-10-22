@@ -2,6 +2,8 @@ import type { CSSProperties, DOMAttributes, ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { calloutTitle, type Callout } from '../model/callouts'
+import { calloutValueText } from '../model/calloutValues'
+import type { Waveform } from '../model/types'
 import { si } from '../util/format'
 import type { LiveChannel, TimeWindow } from '../components/state'
 import { DIVS_Y, valueAt, valueToDiv } from './draw'
@@ -108,6 +110,8 @@ interface NoteGeo {
   bw: number
   bh: number
   lines: TextLine[]
+  /** Value of the trace at the anchor (showValue), below the text */
+  value?: TextLine
 }
 
 interface MarkerGeo {
@@ -131,6 +135,8 @@ interface RegionGeo {
   w: number
   h: number
   label: TextLine
+  /** Measurements over the span (measure), below the label */
+  value?: TextLine
 }
 
 export type CalloutGeo = NoteGeo | MarkerGeo | RegionGeo
@@ -139,7 +145,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 const FLAG_GAP = 3
 
 /** Note: the text box stays inside the plot, whatever its stored offset from the anchor */
-function noteGeometry(c: Callout, p: CalloutLayout): NoteGeo | null {
+function noteGeometry(c: Callout, p: CalloutLayout, waves: Waveform[]): NoteGeo | null {
   const span = p.win.end - p.win.start
   const ax = ((c.t - p.win.start) / span) * p.plotW
   if (ax < -1 || ax > p.plotW + 1) return null
@@ -158,11 +164,14 @@ function noteGeometry(c: Callout, p: CalloutLayout): NoteGeo | null {
     ay = v * p.viewH + p.viewH / 2 - c.div * divH
   }
   const lines = (c.text || calloutTitle(c)).split('\n').map((l) => layoutLine(l, FONT, NOTE_LINE))
-  const bw = Math.ceil(Math.max(...lines.map((l) => l.width))) + PAD * 2
-  const bh = lines.reduce((h, l) => h + l.ascent + l.descent, 0) + PAD
+  const valueText = calloutValueText(c, waves)
+  const value = valueText !== undefined ? layoutLine(valueText, FONT, NOTE_LINE) : undefined
+  const all = value ? [...lines, value] : lines
+  const bw = Math.ceil(Math.max(...all.map((l) => l.width))) + PAD * 2
+  const bh = all.reduce((h, l) => h + l.ascent + l.descent, 0) + PAD
   const bx = clamp(ax + (c.dx ?? 24), 2, p.plotW - bw - 2)
   const by = clamp(ay + (c.dy ?? -46), 2, totalH - bh - 2)
-  return { type: 'note', ax, ay, bx, by, bw, bh, lines }
+  return { type: 'note', ax, ay, bx, by, bw, bh, lines, value }
 }
 
 /** Marker: dashed line with a flag at the top, on the left of the line near the right edge */
@@ -175,17 +184,19 @@ function markerGeometry(c: Callout, p: CalloutLayout): MarkerGeo | null {
 }
 
 /** Region: shaded time span with its label at the bottom of the plot */
-function regionGeometry(c: Callout, p: CalloutLayout): RegionGeo | null {
+function regionGeometry(c: Callout, p: CalloutLayout, waves: Waveform[]): RegionGeo | null {
   const tToX = (t: number) => ((t - p.win.start) / (p.win.end - p.win.start)) * p.plotW
   const t2 = c.t2 ?? c.t
   const xa = tToX(Math.min(c.t, t2))
   const xb = tToX(Math.max(c.t, t2))
   if (xb < -1 || xa > p.plotW + 1) return null
   const label = layoutLine(`${calloutTitle(c)}  Δt ${si(Math.abs(t2 - c.t), 's')}`, FONT, FLAG_LINE)
-  const w = label.width + 14
-  const h = label.ascent + label.descent
+  const valueText = calloutValueText(c, waves)
+  const value = valueText !== undefined ? layoutLine(valueText, FONT, FLAG_LINE) : undefined
+  const w = Math.max(label.width, value?.width ?? 0) + 14
+  const h = label.ascent + label.descent + (value ? value.ascent + value.descent : 0)
   const totalH = p.viewH * Math.max(1, p.views.length)
-  return { type: 'region', xa, xb, lx: Math.min(Math.max(xa, 0) + 4, p.plotW - w - 2), ly: totalH - h - 6, w, h, label }
+  return { type: 'region', xa, xb, lx: Math.min(Math.max(xa, 0) + 4, p.plotW - w - 2), ly: totalH - h - 6, w, h, label, value }
 }
 
 /**
@@ -213,8 +224,9 @@ export function layoutCallouts(callouts: Callout[], p: CalloutLayout): Map<strin
   const geo = new Map<string, CalloutGeo>()
   const markers: MarkerGeo[] = []
   const regions: RegionGeo[] = []
+  const waves = p.channels.map((ch) => ch.wave)
   for (const c of callouts) {
-    const g = c.type === 'note' ? noteGeometry(c, p) : c.type === 'marker' ? markerGeometry(c, p) : regionGeometry(c, p)
+    const g = c.type === 'note' ? noteGeometry(c, p, waves) : c.type === 'marker' ? markerGeometry(c, p) : regionGeometry(c, p, waves)
     if (!g) continue
     geo.set(c.id, g)
     if (g.type === 'marker') markers.push(g)
@@ -268,6 +280,7 @@ export function calloutShapes(
             const top = g.lines.slice(0, i).reduce((y, prev) => y + prev.ascent + prev.descent, g.by + PAD / 2)
             return <g key={i}>{lineElements(l, g.bx + PAD, top + l.ascent, c.text ? theme.noteText : theme.notePlaceholder)}</g>
           })}
+          {g.value && lineElements(g.value, g.bx + PAD, g.by + g.bh - PAD / 2 - g.value.descent, ink)}
           <circle cx={g.ax} cy={g.ay} r={selected ? 5 : 4} fill={ink} stroke="#000" strokeWidth={1} {...handlers('anchor')} />
         </g>
       )
@@ -287,7 +300,7 @@ export function calloutShapes(
     }
 
     // region
-    const { xa, xb, lx, ly, w, h, label } = g
+    const { xa, xb, lx, ly, w, h, label, value } = g
     const [startPart, endPart]: CalloutPart[] = c.t <= (c.t2 ?? c.t) ? ['start', 'end'] : ['end', 'start']
     return (
       <g key={c.id}>
@@ -299,6 +312,7 @@ export function calloutShapes(
         <rect x={lx} y={ly} width={w} height={h} rx={3} fill={theme.labelBox} stroke={ink} {...handlers('region')} />
         {selected && <rect x={lx - 3} y={ly - 3} width={w + 6} height={h + 6} rx={5} fill="none" stroke={theme.selection} strokeDasharray="3 3" />}
         {lineElements(label, lx + 7, ly + label.ascent, ink)}
+        {value && lineElements(value, lx + 7, ly + h - value.descent, theme.noteText)}
       </g>
     )
   })

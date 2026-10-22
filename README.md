@@ -94,6 +94,16 @@ the text. Drag callouts to move them, double-click to edit. The **Callouts** tab
 with *Go to*; right-click a callout for its commands. Callouts are saved with the session (see *Saving*).
 Callout files from earlier versions can still be opened with *File → Open analysis file*.
 
+**Values in callouts:** a note on a trace can show the trace's value and the time at its anchor (*Show value*
+in its editor, the Callouts panel or its right-click menu); it follows when the note is moved. A region can
+measure a channel over its time span: choose the channel and the measurements (max, min, pk-pk, mean, RMS,
+frequency, rise time, …) and they appear in its label next to Δt, e.g. `Startup  Δt 2.30 ms` /
+`Ch 2: rise 120.0 µs · pk-pk 3.20 V`. The values are part of image and report exports.
+
+**Finding callouts:** the overview strip marks every callout along its bottom edge (click one to go there);
+counters in the top corners of the plot show how many callouts lie before or after the view (click to go
+to the nearest); `,` and `.` step to the previous / next callout.
+
 Labels never get in each other's way: note boxes stay inside the plot, flags of markers that are close
 together and labels of overlapping regions are stacked, and the cursor readout moves below the flags.
 
@@ -188,7 +198,7 @@ or tab separated.
 `P` pan · `Z` zoom tool · `N` note · `M` marker · `R` region · `Esc` back to pan ·
 `Ctrl+Z` undo · `Ctrl+Y` redo · `F` full record · `+`/`-` zoom · `←`/`→` pan · `Backspace` zoom back · `C` cursors ·
 `V` values at the pointer · `O` overview · `T` measurements · `\` focus mode ·
-`Enter` edit / `Delete` delete the selected callout
+`Enter` edit / `Delete` delete the selected callout · `,` / `.` previous / next callout
 
 The **?** button at the bottom of the rail shows all mouse and keyboard controls.
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { CALLOUT_COLORS, CALLOUT_ICON, calloutTitle, type Callout } from '../model/callouts'
 import { si } from '../util/format'
+import { CalloutValueEditor } from './CalloutValueEditor'
 import type { LiveChannel, Tool } from './state'
 
 interface Props {
@@ -82,6 +83,7 @@ export function CalloutPanel(p: Props) {
               placeholder={calloutTitle({ ...c, text: '' })}
               onChange={(e) => p.onUpdate(c.id, { text: e.target.value })}
             />
+            <CalloutValueEditor callout={c} sources={p.channels.map((x) => x.wave.id)} onUpdate={(patch) => p.onUpdate(c.id, patch)} />
             <div className="callout-editor-row">
               {CALLOUT_COLORS.map((col) => (
                 <button

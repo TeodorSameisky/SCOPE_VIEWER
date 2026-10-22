@@ -1,3 +1,4 @@
+import { si } from '../util/format'
 import type { MeasurementKey } from './measure'
 
 export type MeasureGroup = 'amplitude' | 'timing'
@@ -170,4 +171,11 @@ export const MEASUREMENT_NOTES: { title: string; text: string }[] = [
 
 export function measurementDef(key: MeasurementKey): MeasurementDef {
   return MEASUREMENT_DEFS.find((d) => d.key === key)!
+}
+
+/** Formatted text of one measurement value ("—" when not available) */
+export function formatMeasurement(key: MeasurementKey, v: number, yUnit: string): string {
+  const d = measurementDef(key)
+  if (d.unit === '%') return Number.isFinite(v) ? `${v.toFixed(2)} %` : '—'
+  return si(v, d.unit === 'y' ? yUnit : d.unit)
 }

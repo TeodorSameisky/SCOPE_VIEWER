@@ -1,11 +1,13 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import {
+  Activity,
   ArrowLeft,
   AudioLines,
   Copy,
   Eye,
   EyeOff,
   Flag,
+  Hash,
   Home,
   Image,
   LocateFixed,
@@ -24,7 +26,7 @@ import {
 } from 'lucide-react'
 import type { ChannelDisplay, Session } from '../model/types'
 import type { MeasurementKey } from '../dsp/measure'
-import { CALLOUT_COLORS, DEFAULT_CALLOUT_COLOR, calloutTitle, newCalloutId, nextCalloutNumber, type Callout } from '../model/callouts'
+import { CALLOUT_COLORS, DEFAULT_CALLOUT_COLOR, calloutSpan, calloutTitle, newCalloutId, nextCalloutNumber, type Callout } from '../model/callouts'
 import { MinMaxPyramid } from '../dsp/minmax'
 import { evaluateMath } from '../math/expr'
 import { MATH_COLORS, MAX_MATH, nextMathId, type MathDef } from '../model/math'
@@ -318,6 +320,15 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     }
     setSelectedCallout(c.id)
   }
+  /** Go to the previous / next callout in time: from the selected one, else from the middle of the view */
+  const stepCallout = (dir: -1 | 1) => {
+    const sorted = [...callouts].sort((a, b) => calloutSpan(a)[0] - calloutSpan(b)[0])
+    const i = sorted.findIndex((c) => c.id === selectedCallout)
+    const mid = (win.start + win.end) / 2
+    const next =
+      i >= 0 ? sorted[i + dir] : dir > 0 ? sorted.find((c) => calloutSpan(c)[0] > mid) : sorted.findLast((c) => calloutSpan(c)[0] < mid)
+    if (next) jumpToCallout(next)
+  }
   // ---------- export dialog (declared early: shortcuts are off while it is open) ----------
   const [exportKind, setExportKind] = useState<ExportKind | null>(null)
   const [exportPlotSize, setExportPlotSize] = useState({ w: 0, h: 0 })
@@ -521,6 +532,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
           t: toggleMeasurements,
           v: toggleReadout,
           '\\': toggleFocus,
+          ',': () => stepCallout(-1),
+          '.': () => stepCallout(1),
           '+': () => zoomTo(zoomAround(win, mid, 0.5, minSpan, maxSpan)),
           '=': () => zoomTo(zoomAround(win, mid, 0.5, minSpan, maxSpan)),
           '-': () => zoomTo(zoomAround(win, mid, 2, minSpan, maxSpan)),
@@ -736,6 +749,14 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
         icon: MoveHorizontal,
         onClick: () => addCallout({ type: 'region', t: Math.min(cursors.a, cursors.b), t2: Math.max(cursors.a, cursors.b) }),
       },
+      callouts.length > 0 && {
+        kind: 'choices',
+        label: 'Callout',
+        options: [
+          { label: '‹ Previous', title: 'Go to the previous callout (,)', onClick: () => stepCallout(-1) },
+          { label: 'Next ›', title: 'Go to the next callout (.)', onClick: () => stepCallout(1) },
+        ],
+      },
       ch && '-',
       ch && channelHeading(ch.wave.id, si(valueAt(ch.wave, t), ch.wave.yUnit)),
       ...(ch ? channelItems(ch.wave.id, true) : []),
@@ -757,6 +778,13 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
       { kind: 'heading', label: calloutTitle(c), color: c.color, detail: c.type === 'region' ? `Δt ${si(Math.abs(t2 - c.t), 's')}` : si(c.t, 's', 5) },
       { label: 'Edit text', icon: Pencil, hint: 'Enter', onClick: () => editCallout(c.id) },
       { kind: 'choices', label: 'Colour', options: CALLOUT_COLORS.map((col) => ({ label: col, color: col, checked: c.color === col, onClick: () => updateCallout(c.id, { color: col }) })) },
+      c.type === 'note' && {
+        label: c.channel ? 'Show value at the anchor' : 'Show time at the anchor',
+        icon: Hash,
+        checked: !!c.showValue,
+        onClick: () => updateCallout(c.id, { showValue: c.showValue ? undefined : true }),
+      },
+      c.type === 'region' && { label: c.measure ? 'Change measurements…' : 'Measure in this region…', icon: Activity, onClick: () => editCallout(c.id) },
       { label: c.type === 'region' ? 'Zoom to region' : 'Go to', icon: LocateFixed, onClick: () => jumpToCallout(c) },
       c.type === 'region'
         ? { label: 'Set cursors to region', icon: Ruler, onClick: () => setCursors({ ...cursors, on: true, a: Math.min(c.t, t2), b: Math.max(c.t, t2) }) }
@@ -834,7 +862,18 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
       <div className={`workspace ${layout.panel ? 'with-panel' : ''}`}>
         <main className="main">
           {layout.overview && (
-            <Overview channels={channels} views={views} record={record} win={win} minSpan={minSpan} onNavigate={navigate} onContextMenu={overviewMenu} />
+            <Overview
+              channels={channels}
+              views={views}
+              record={record}
+              win={win}
+              minSpan={minSpan}
+              onNavigate={navigate}
+              onContextMenu={overviewMenu}
+              callouts={callouts}
+              selectedCallout={selectedCallout}
+              onJumpToCallout={jumpToCallout}
+            />
           )}
           <PlotArea
             ref={plotRef}
@@ -864,6 +903,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
             onDeleteCallout={deleteCallout}
             onContextMenu={plotMenu}
             onCalloutMenu={calloutMenu}
+            onJumpToCallout={jumpToCallout}
           />
           {spectra.length > 0 && (
             <SpectrumView

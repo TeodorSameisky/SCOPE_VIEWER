@@ -1,10 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { calloutSpan, calloutTitle, type Callout } from '../model/callouts'
 import { AXIS_GUTTER, DIVS_Y, PLOT_FONT, valueToDiv } from '../render/draw'
 import { DARK_THEME } from '../render/theme'
 import { zoomAround, type LiveChannel, type NavKind, type TimeWindow } from './state'
 
 const HEIGHT = 46
 const EDGE_PX = 6
+/** Strip at the bottom with the callouts */
+const BAND = 8
+const HIT_PX = 5
 
 interface Props {
   channels: LiveChannel[]
@@ -15,25 +19,31 @@ interface Props {
   onNavigate: (w: TimeWindow, kind: NavKind) => void
   /** Right-click, with the time at the pointer */
   onContextMenu?: (e: React.MouseEvent, t: number) => void
+  /** Shown as ticks along the bottom; a click on one goes there */
+  callouts: Callout[]
+  selectedCallout?: string
+  onJumpToCallout: (c: Callout) => void
 }
 
 type Drag =
   | { kind: 'move'; x0: number; win: TimeWindow }
   | { kind: 'start' | 'end' }
   | { kind: 'select'; x0: number; x1: number }
+  | { kind: 'callout'; callout: Callout }
 
 /**
  * Navigator above the plot: the whole record in miniature with the visible window
  * as a box. Drag the box to pan, drag its edges to resize, drag elsewhere to mark
  * a new range to zoom into, click to centre the view.
  */
-export function Overview({ channels, views, record, win, minSpan, onNavigate, onContextMenu }: Props) {
+export function Overview({ channels, views, record, win, minSpan, onNavigate, onContextMenu, callouts, selectedCallout, onJumpToCallout }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const tracesRef = useRef<HTMLCanvasElement | null>(null)
   const [width, setWidth] = useState(800)
   const [drag, setDrag] = useState<Drag | null>(null)
   const [hoverPart, setHoverPart] = useState<'move' | 'edge' | null>(null)
+  const [hoverCallout, setHoverCallout] = useState<Callout | null>(null)
   const moved = useRef(false)
 
   const plotW = Math.max(1, width - AXIS_GUTTER)
@@ -140,6 +150,40 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
       ctx.strokeStyle = 'rgba(80, 160, 255, 0.9)'
       ctx.strokeRect(a + 0.5, 0.5, b - a, HEIGHT - 1)
     }
+    // Callouts along the bottom: regions as bars, markers as lines, notes as dots
+    for (const c of callouts) {
+      const [ta, tb] = calloutSpan(c)
+      const selected = c.id === selectedCallout
+      ctx.fillStyle = c.color
+      ctx.strokeStyle = c.color
+      if (c.type === 'region') {
+        const xa = tToX(ta)
+        ctx.globalAlpha = selected ? 0.9 : 0.6
+        ctx.fillRect(xa, HEIGHT - BAND + 2, Math.max(2, tToX(tb) - xa), BAND - 3)
+      } else {
+        const x = Math.round(tToX(ta)) + 0.5
+        if (c.type === 'marker') {
+          ctx.globalAlpha = 0.45
+          ctx.lineWidth = 1
+          ctx.beginPath()
+          ctx.moveTo(x, 0)
+          ctx.lineTo(x, HEIGHT)
+          ctx.stroke()
+        }
+        ctx.globalAlpha = 1
+        ctx.beginPath()
+        ctx.arc(x, HEIGHT - BAND / 2, selected ? 3.5 : 2.5, 0, Math.PI * 2)
+        ctx.fill()
+      }
+      if (selected) {
+        ctx.globalAlpha = 1
+        ctx.strokeStyle = '#fff'
+        ctx.lineWidth = 1
+        const xa = tToX(ta)
+        ctx.strokeRect(Math.round(xa - 4) + 0.5, HEIGHT - BAND - 0.5, Math.max(8, tToX(tb) - xa + 8), BAND)
+      }
+    }
+    ctx.globalAlpha = 1
     // Label in the gutter
     ctx.fillStyle = DARK_THEME.axisText
     ctx.font = PLOT_FONT
@@ -149,6 +193,7 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
   })
 
   const localX = (e: React.PointerEvent) => e.clientX - wrapRef.current!.getBoundingClientRect().left
+  const localY = (e: React.PointerEvent) => e.clientY - wrapRef.current!.getBoundingClientRect().top
   const partAt = (x: number): 'start' | 'end' | 'move' | null => {
     const x0 = tToX(win.start)
     const x1 = tToX(win.end)
@@ -157,6 +202,25 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
     // When the view shows (nearly) the whole record, dragging inside marks a new range instead
     if (x > x0 && x < x1 && x1 - x0 < plotW * 0.9) return 'move'
     return null
+  }
+
+  /** The callout whose tick is at (x, y): only in the strip at the bottom, points before regions */
+  const calloutAt = (x: number, y: number): Callout | null => {
+    if (y < HEIGHT - BAND - 2) return null
+    let best: Callout | null = null
+    let bestD = HIT_PX
+    for (const c of callouts) {
+      const [ta, tb] = calloutSpan(c)
+      const xa = tToX(ta)
+      const xb = tToX(tb)
+      // Inside a region counts as near, but any point within reach wins over it
+      const d = x >= xa && x <= xb ? (c.type === 'region' ? HIT_PX - 0.5 : 0) : Math.min(Math.abs(x - xa), Math.abs(x - xb))
+      if (d < bestD) {
+        bestD = d
+        best = c
+      }
+    }
+    return best
   }
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -169,6 +233,11 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
       // ignore
     }
     moved.current = false
+    const hit = calloutAt(x, localY(e))
+    if (hit) {
+      setDrag({ kind: 'callout', callout: hit })
+      return
+    }
     const part = partAt(x)
     if (part === 'move') setDrag({ kind: 'move', x0: x, win })
     else if (part) setDrag({ kind: part })
@@ -178,7 +247,9 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
   const onPointerMove = (e: React.PointerEvent) => {
     const x = Math.min(plotW, Math.max(0, localX(e)))
     if (!drag) {
-      const part = partAt(x)
+      const hit = calloutAt(x, localY(e))
+      setHoverCallout(hit)
+      const part = hit ? null : partAt(x)
       setHoverPart(part === 'move' ? 'move' : part ? 'edge' : null)
       return
     }
@@ -199,7 +270,9 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
 
   const onPointerUp = (e: React.PointerEvent) => {
     const x = Math.min(plotW, Math.max(0, localX(e)))
-    if (drag?.kind === 'select') {
+    if (drag?.kind === 'callout') {
+      if (!moved.current) onJumpToCallout(drag.callout)
+    } else if (drag?.kind === 'select') {
       if (Math.abs(drag.x1 - drag.x0) > 3) {
         const a = xToT(Math.min(drag.x0, drag.x1))
         const b = xToT(Math.max(drag.x0, drag.x1))
@@ -232,17 +305,36 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
   }, [win, record.start, recSpan, plotW, minSpan, onNavigate])
 
   const dpr = window.devicePixelRatio || 1
-  const cursor = drag?.kind === 'move' ? 'grabbing' : drag ? 'ew-resize' : hoverPart === 'move' ? 'grab' : hoverPart === 'edge' ? 'ew-resize' : 'crosshair'
+  const cursor =
+    drag?.kind === 'move'
+      ? 'grabbing'
+      : drag?.kind === 'callout' || (!drag && hoverCallout)
+        ? 'pointer'
+        : drag
+          ? 'ew-resize'
+          : hoverPart === 'move'
+            ? 'grab'
+            : hoverPart === 'edge'
+              ? 'ew-resize'
+              : 'crosshair'
   return (
     <div
       ref={wrapRef}
       className="overview"
       style={{ cursor }}
-      title="Overview: drag to mark a range to zoom into, drag the box to move it, drag its edges to resize"
+      title={
+        hoverCallout
+          ? `${calloutTitle(hoverCallout)}: click to go there`
+          : 'Overview: drag to mark a range to zoom into, drag the box to move it, drag its edges to resize. Callouts are marked along the bottom.'
+      }
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerLeave={() => !drag && setHoverPart(null)}
+      onPointerLeave={() => {
+        if (drag) return
+        setHoverPart(null)
+        setHoverCallout(null)
+      }}
       onContextMenu={(e) => onContextMenu?.(e, xToT(Math.min(plotW, Math.max(0, e.clientX - e.currentTarget.getBoundingClientRect().left))))}
     >
       <canvas ref={canvasRef} width={Math.round(width * dpr)} height={Math.round(HEIGHT * dpr)} style={{ width, height: HEIGHT, display: 'block' }} />

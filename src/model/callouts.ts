@@ -1,3 +1,6 @@
+import type { MeasurementKey } from '../dsp/measure'
+import { MEASUREMENT_DEFS } from '../dsp/measureDefs'
+
 /**
  * User annotations on a session ("callouts", after the Tektronix feature of the same name).
  * Positions are stored in data coordinates (time, channel value) so callouts stay attached
@@ -24,6 +27,15 @@ export interface Callout {
   dy?: number
   text: string
   color: string
+  /** Note: also show the value of its trace (or the time) at the anchor */
+  showValue?: boolean
+  /** Region: measurements of a channel over its time span, shown in its label */
+  measure?: RegionMeasure
+}
+
+export interface RegionMeasure {
+  channel: string
+  keys: MeasurementKey[]
 }
 
 export const CALLOUT_COLORS = ['#ffd84d', '#ff9d2e', '#ff5a6a', '#8fd43a', '#3fb6ff', '#c86bff', '#e6e9ee']
@@ -40,6 +52,12 @@ export function calloutTitle(c: Callout): string {
   const first = c.text.split('\n')[0].trim()
   if (first) return first
   return `${c.type === 'note' ? 'Note' : c.type === 'marker' ? 'Marker' : 'Region'} ${c.n}`
+}
+
+/** Time span of a callout: a point for notes and markers */
+export function calloutSpan(c: Callout): [number, number] {
+  const t2 = c.t2 ?? c.t
+  return c.type === 'region' ? [Math.min(c.t, t2), Math.max(c.t, t2)] : [c.t, c.t]
 }
 
 export function newCalloutId(): string {
@@ -86,7 +104,17 @@ export function sanitizeCallouts(list: unknown): Callout[] {
       dy: typeof c.dy === 'number' ? c.dy : undefined,
       text: typeof c.text === 'string' ? c.text.slice(0, 2000) : '',
       color: typeof c.color === 'string' && /^#[0-9a-f]{3,8}$/i.test(c.color) ? c.color : DEFAULT_CALLOUT_COLOR[c.type],
+      showValue: c.type === 'note' && c.showValue === true ? true : undefined,
+      measure: c.type === 'region' ? sanitizeMeasure(c.measure) : undefined,
     })
   }
   return out
+}
+
+function sanitizeMeasure(m: unknown): RegionMeasure | undefined {
+  if (!m || typeof m !== 'object') return undefined
+  const { channel, keys } = m as Partial<RegionMeasure>
+  if (typeof channel !== 'string' || !Array.isArray(keys)) return undefined
+  // Known keys only, in the order of the measurement list
+  return { channel, keys: MEASUREMENT_DEFS.map((d) => d.key).filter((k) => keys.includes(k)) }
 }

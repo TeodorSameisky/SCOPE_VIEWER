@@ -2,6 +2,7 @@ import type { MeasurementKey } from '../dsp/measure'
 import { measurementDef } from '../dsp/measureDefs'
 import type { MathResult } from '../math/expr'
 import { calloutTitle, type Callout } from '../model/callouts'
+import { calloutValueText } from '../model/calloutValues'
 import type { MathDef } from '../model/math'
 import type { SpectrumDef, SpectrumOptions } from '../model/spectrum'
 import type { ChannelDisplay, Session } from '../model/types'
@@ -18,7 +19,7 @@ import { RANGE_LABEL, type CursorState, type LiveChannel, type MeasureRange, typ
 import { buildMeasurementsCsv, buildSpectrumCsv, buildWaveformCsv, csvFormat, waveformRowCount } from './csv'
 import { canvasToBlob, composeImage } from './image'
 import { measureChannels, measurementTable } from './measureRows'
-import { blobToDataUrl, buildReport, type ReportTable } from './report'
+import { blobToDataUrl, buildReport, esc, type ReportTable } from './report'
 
 /** What an export needs to know about the open session and its view */
 export interface ExportContext {
@@ -147,6 +148,12 @@ function reportTables(ctx: ExportContext, prefs: ExportPrefs): ReportTable[] {
     })
   }
   if (o.callouts && callouts.length) {
+    const waves = channels.map((c) => c.wave)
+    /** The value line of a callout below its text */
+    const valueHtml = (c: Callout) => {
+      const v = calloutValueText(c, waves)
+      return v ? `<br><small>${esc(v)}</small>` : ''
+    }
     tables.push({
       title: 'Callouts',
       columns: ['Callout', 'Time', 'Duration', 'Channel', 'Text'],
@@ -159,7 +166,7 @@ function reportTables(ctx: ExportContext, prefs: ExportPrefs): ReportTable[] {
             si(c.type === 'region' ? Math.min(c.t, c.t2 ?? c.t) : c.t, 's', 5),
             c.type === 'region' && c.t2 !== undefined ? si(Math.abs(c.t2 - c.t), 's') : '',
             c.channel ? channelName(c.channel) : '',
-            { html: texHtml(c.text || calloutTitle(c)) },
+            { html: texHtml(c.text || calloutTitle(c)) + valueHtml(c) },
           ],
         })),
     })
