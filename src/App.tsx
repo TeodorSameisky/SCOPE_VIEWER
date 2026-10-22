@@ -135,7 +135,41 @@ export default function App() {
   useEffect(() => {
     openRef.current = open
   })
-  useEffect(() => onLaunchFiles((files) => openRef.current(files)), [])
+  const launched = useRef(false)
+  useEffect(
+    () =>
+      onLaunchFiles((files) => {
+        launched.current = true
+        openRef.current(files)
+      }),
+    [],
+  )
+
+  // Stay in the session across a page reload (F5, or "Reload" for a new version): the open session
+  // is remembered per tab and reopened from the files kept in the browser. A new tab or window
+  // starts on the start page.
+  const [toRestore] = useState(readOpenSession)
+  const [restoring, setRestoring] = useState(toRestore !== null)
+  useEffect(() => {
+    if (!toRestore) return
+    let cancelled = false
+    ;(async () => {
+      const files = await loadSessionFiles(toRestore.fingerprint)
+      // A file launched from the operating system takes precedence
+      if (cancelled || launched.current) return
+      if (files?.length) await openRef.current(files)
+      else setError(`“${toRestore.fileName}” could not be reopened after reloading, because its file is not kept in this browser. Open it again.`)
+      setRestoring(false)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [toRestore])
+  useEffect(() => {
+    const fp = current?.session.fingerprint
+    if (restoring) return
+    rememberOpenSession(fp ? { fingerprint: fp, fileName: current!.session.fileName } : null)
+  }, [current, restoring])
 
   // Closing the file dialog without a file ends a "Locate…"
   useEffect(() => {
@@ -190,6 +224,15 @@ export default function App() {
             filesVersion={filesVersion}
           />
         </ErrorBoundary>
+      ) : restoring && toRestore ? (
+        <div className="landing">
+          <div className="landing-card">
+            <div className="brand big">
+              <Logo size={30} /> Scope Viewer
+            </div>
+            <p>Reopening {toRestore.fileName}…</p>
+          </div>
+        </div>
       ) : (
         <div className="landing">
           <div className="landing-card">
@@ -256,4 +299,25 @@ export default function App() {
       <PwaStatus />
     </>
   )
+}
+
+const OPEN_KEY = 'scope-viewer:open-session'
+
+/** The session that was open in this tab before a reload (sessionStorage is per tab) */
+function readOpenSession(): { fingerprint: string; fileName: string } | null {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(OPEN_KEY) ?? 'null')
+    return v && typeof v.fingerprint === 'string' && typeof v.fileName === 'string' ? v : null
+  } catch {
+    return null
+  }
+}
+
+function rememberOpenSession(v: { fingerprint: string; fileName: string } | null): void {
+  try {
+    if (v) sessionStorage.setItem(OPEN_KEY, JSON.stringify(v))
+    else sessionStorage.removeItem(OPEN_KEY)
+  } catch {
+    // storage unavailable: the session just is not reopened after a reload
+  }
 }

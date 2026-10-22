@@ -122,6 +122,9 @@ first; their analyses stay and can be reopened with *Locate…*, which asks for 
 be switched off in the Session panel, which also deletes the kept files. The 50 most recently changed
 analyses are kept.
 
+**Reloading** the page (or *Reload* for a new version) reopens the session that was open in that tab,
+from its kept file. A new tab or window starts on the start page with the recent sessions.
+
 To keep or share the work, use the **File** menu:
 
 | File | Contents |
