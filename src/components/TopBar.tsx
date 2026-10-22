@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   Archive,
   Check,
+  Crosshair,
   Download,
   FileJson,
   FileSpreadsheet,
@@ -53,6 +54,8 @@ interface Props {
   zoomed: boolean
   cursorsOn: boolean
   onToggleCursors: () => void
+  readoutOn: boolean
+  onToggleReadout: () => void
   onExport: (kind: ExportKind) => void
   hasSpectra: boolean
 }
@@ -103,6 +106,7 @@ export function TopBar(p: Props) {
       <IconButton icon={Maximize2} label="Full record" shortcut="F" disabled={!p.zoomed} onClick={p.onFullRecord} />
       <div className="sep" />
       <IconButton icon={Ruler} label="Cursors" shortcut="C" showLabel active={p.cursorsOn} onClick={p.onToggleCursors} />
+      <IconButton icon={Crosshair} label="Values at the pointer" shortcut="V" active={p.readoutOn} onClick={p.onToggleReadout} />
 
       <div className="spacer" />
 

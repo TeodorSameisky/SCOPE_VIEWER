@@ -31,6 +31,9 @@ Which panels are open is remembered in the browser.
 - Stacked waveform views with the scope's colours, labels, ground markers, trigger point and level
 - Min/max decimation pyramid, so long records stay responsive
 - Click a trace to select it; Ctrl+wheel changes its V/div, Alt+wheel its position
+- **Values at the pointer**: next to the pointer, the time and the value of every visible channel, with a
+  ring where each trace crosses that time; the trace under the pointer is highlighted. Toggle with the
+  crosshair button in the top bar or `V`
 - Time cursors A/B with Δt, 1/Δt, Δv and per-channel values
 - Measurements on screen, between cursors or over the whole record: max, min, pk-pk, mean, RMS,
   top, base, amplitude, frequency, period, rise/fall time (10–90 %), positive width, duty cycle.
@@ -174,7 +177,7 @@ or tab separated.
 
 `P` pan · `Z` zoom tool · `N` note · `M` marker · `R` region · `Esc` back to pan ·
 `F` full record · `+`/`-` zoom · `←`/`→` pan · `Backspace` zoom back · `C` cursors ·
-`O` overview · `T` measurements · `\` focus mode ·
+`V` values at the pointer · `O` overview · `T` measurements · `\` focus mode ·
 `Enter` edit / `Delete` delete the selected callout
 
 The **?** button at the bottom of the rail shows all mouse and keyboard controls.

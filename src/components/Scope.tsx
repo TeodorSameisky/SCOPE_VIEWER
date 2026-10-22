@@ -102,8 +102,10 @@ interface Layout {
   measurements: boolean
   measHeight: number
   specHeight: number
+  /** Values of all channels next to the pointer */
+  readout: boolean
 }
-const DEFAULT_LAYOUT: Layout = { panel: null, overview: true, measurements: true, measHeight: 170, specHeight: 220 }
+const DEFAULT_LAYOUT: Layout = { panel: null, overview: true, measurements: true, measHeight: 170, specHeight: 220, readout: true }
 
 /** The session file(s) as opened, kept for saving a bundle */
 export interface SourceFile {
@@ -179,6 +181,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
   const setPanel = (panel: PanelId | null) => setLayout((l) => ({ ...l, panel }))
   const toggleOverview = () => setLayout((l) => ({ ...l, overview: !l.overview }))
   const toggleMeasurements = () => setLayout((l) => ({ ...l, measurements: !l.measurements }))
+  const toggleReadout = () => setLayout((l) => ({ ...l, readout: !l.readout }))
   // Focus mode hides every panel and remembers what was open
   const beforeFocus = useRef<Layout | null>(null)
   const focusMode = !layout.panel && !layout.overview && !layout.measurements
@@ -388,6 +391,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
           c: () => setCursors({ ...cursors, on: !cursors.on }),
           o: toggleOverview,
           t: toggleMeasurements,
+          v: toggleReadout,
           '\\': toggleFocus,
           '+': () => zoomTo(zoomAround(win, mid, 0.5, minSpan, maxSpan)),
           '=': () => zoomTo(zoomAround(win, mid, 0.5, minSpan, maxSpan)),
@@ -794,6 +798,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
         zoomed={zoomed}
         cursorsOn={cursors.on}
         onToggleCursors={() => setCursors({ ...cursors, on: !cursors.on })}
+        readoutOn={layout.readout}
+        onToggleReadout={toggleReadout}
         onExport={openExport}
         hasSpectra={spectra.some((s) => s.visible)}
       />
@@ -823,6 +829,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
             minSpan={minSpan}
             tool={tool}
             hint={TOOL_HINT[tool]}
+            readout={layout.readout}
             onNavigate={navigate}
             onZoomTo={zoomTo}
             cursors={cursors}

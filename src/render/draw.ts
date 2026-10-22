@@ -31,6 +31,8 @@ export interface ViewDrawOptions {
   trigger?: { sourceId?: string; level?: number; showMarker: boolean }
   selectedId?: string
   hoverT?: number
+  /** Mark where each trace crosses the hover line */
+  hoverDots?: boolean
   theme: Theme
 }
 
@@ -229,6 +231,25 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
     ctx.moveTo(x, 0)
     ctx.lineTo(x, H)
     ctx.stroke()
+    if (o.hoverDots) {
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(0, 0, plotW, H)
+      ctx.clip()
+      ctx.lineWidth = 1.5
+      for (const tr of o.traces) {
+        const v = valueAt(tr.wave, o.hoverT)
+        const y = H / 2 - valueToDiv(v, tr.display) * divH
+        if (!Number.isFinite(y) || y < -4 || y > H + 4) continue
+        ctx.fillStyle = theme.bg
+        ctx.strokeStyle = theme.ink(tr.display.color)
+        ctx.beginPath()
+        ctx.arc(x, y, 3.5, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.stroke()
+      }
+      ctx.restore()
+    }
   }
   ctx.restore()
 }

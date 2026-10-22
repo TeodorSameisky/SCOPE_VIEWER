@@ -5,6 +5,7 @@ import { AXIS_GUTTER, DIVS_Y, divToValue, drawTimeAxis, drawView, valueAt, value
 import { loadTex } from '../render/tex'
 import { DARK_THEME, type Theme } from '../render/theme'
 import { si } from '../util/format'
+import { channelName } from '../util/names'
 import { CalloutLayer } from './CalloutLayer'
 import {
   stepScale,
@@ -53,6 +54,8 @@ interface Props {
   tool: Tool
   /** Short instruction shown while a non-default tool is active */
   hint?: string
+  /** Show the values of all channels at the pointer */
+  readout: boolean
   /** Continuous navigation (wheel, pan) */
   onNavigate: (w: TimeWindow, kind: NavKind) => void
   /** Discrete zoom, optionally with new vertical settings for some channels */
@@ -100,7 +103,8 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   const axisRef = useRef<HTMLCanvasElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const [size, setSize] = useState({ w: 800, h: 600 })
-  const [hoverT, setHoverT] = useState<number | undefined>()
+  /** Pointer position over the plot (CSS pixels) */
+  const [hover, setHover] = useState<{ x: number; y: number } | undefined>()
   const [drag, setDrag] = useState<Drag | null>(null)
   const dragMoved = useRef(false)
 
@@ -113,6 +117,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   const maxSpan = (p.record.end - p.record.start) * 4
   const xToT = useCallback((x: number) => p.win.start + (x / plotW) * span, [p.win.start, plotW, span])
   const tToX = useCallback((t: number) => ((t - p.win.start) / span) * plotW, [p.win.start, plotW, span])
+  const hoverT = hover && hover.x >= 0 && hover.x <= plotW ? xToT(hover.x) : undefined
 
   useLayoutEffect(() => {
     const el = containerRef.current
@@ -152,6 +157,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
           cursors: p.cursors.on ? { a: p.cursors.a, b: p.cursors.b, sourceId: p.cursors.source, showLabels: vi === 0 } : undefined,
           trigger: { sourceId: p.trigger?.source, level: p.trigger?.level, showMarker: true },
           hoverT: drag ? undefined : hoverT,
+          hoverDots: p.readout,
           theme: DARK_THEME,
         })
         drawDragPreview(ctx, dpr, vi)
@@ -162,7 +168,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     return () => cancelAnimationFrame(id)
     // drawDragPreview only reads `drag`, `viewH`
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.channels, p.views, p.win, p.cursors, p.selected, p.trigger, size, viewH, hoverT, drag])
+  }, [p.channels, p.views, p.win, p.cursors, p.selected, p.trigger, p.readout, size, viewH, hoverT, drag])
 
   /** Rubber band for zoom / region selection */
   const drawDragPreview = (ctx: CanvasRenderingContext2D, dpr: number, vi: number) => {
@@ -323,7 +329,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
 
   const onPointerMove = (e: React.PointerEvent) => {
     const { x, y } = local(e)
-    setHoverT(x >= 0 && x <= plotW ? xToT(x) : undefined)
+    setHover({ x, y })
     if (!drag) return
     if (drag.kind === 'click') {
       if (Math.hypot(x - drag.x0, y - drag.y0) > 3) dragMoved.current = true
@@ -442,6 +448,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   }
 
   const cursorReadout = p.cursors.on ? cursorSummary(p) : null
+  const showHover = hover !== undefined && hoverT !== undefined && !drag && !p.editingCallout
   const nearCursor =
     hoverT !== undefined && p.cursors.on && (p.tool === 'pan' || p.tool === 'zoom') && [p.cursors.a, p.cursors.b].some((t) => Math.abs(tToX(t) - tToX(hoverT)) < GRAB_PX)
   const cursorStyle =
@@ -463,7 +470,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerLeave={() => setHoverT(undefined)}
+      onPointerLeave={() => setHover(undefined)}
       // no auto-scroll on a middle click
       onMouseDown={(e) => e.button === 1 && e.preventDefault()}
       onDoubleClick={() => (p.tool === 'pan' || p.tool === 'zoom') && p.onZoomTo(p.record)}
@@ -509,11 +516,55 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
           {cursorReadout}
         </div>
       )}
-      {hoverT !== undefined && !drag && <div className="hover-time">{si(hoverT, 's', 5)}</div>}
+      {showHover && p.readout && (
+        <HoverReadout
+          t={hoverT}
+          x={hover.x}
+          y={hover.y}
+          channels={p.channels}
+          views={p.views}
+          near={hover.y < viewsH ? nearestTrace(hover.x, hover.y) : undefined}
+          width={plotW}
+          height={size.h}
+        />
+      )}
+      {showHover && !p.readout && <div className="hover-time">{si(hoverT, 's', 5)}</div>}
       {p.hint && <div className="tool-hint">{p.hint}</div>}
     </div>
   )
 })
+
+/**
+ * Time and the value of every visible channel at the pointer, next to the pointer (on the side
+ * with room). The channel whose trace is under the pointer is highlighted.
+ */
+function HoverReadout(p: { t: number; x: number; y: number; channels: LiveChannel[]; views: string[][]; near?: string; width: number; height: number }) {
+  const byId = new Map(p.channels.map((c) => [c.wave.id, c]))
+  const rows = p.views.flat().flatMap((id) => {
+    const c = byId.get(id)
+    return c?.display.visible ? [c] : []
+  })
+  const flipX = p.x > p.width - 200
+  const flipY = p.y + 14 + 26 + rows.length * 17 > p.height
+  return (
+    <div
+      className="hover-readout"
+      style={{ left: p.x, top: p.y, transform: `translate(${flipX ? 'calc(-100% - 14px)' : '14px'}, ${flipY ? 'calc(-100% - 10px)' : '14px'})` }}
+    >
+      <span className="hr-time mono">{si(p.t, 's', 5)}</span>
+      {rows.map((c) => (
+        <div key={c.wave.id} className={`hr-row ${c.wave.id === p.near ? 'near' : ''}`}>
+          <span className="dot" style={{ background: c.display.color }} />
+          <span className="hr-name">
+            {channelName(c.wave.id)}
+            {c.display.label && <span className="hr-label">{c.display.label}</span>}
+          </span>
+          <span className="hr-value mono">{si(valueAt(c.wave, p.t), c.wave.yUnit, 4)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 function cursorSummary(p: Props) {
   const dt = p.cursors.b - p.cursors.a

@@ -537,6 +537,56 @@ code {
   color: var(--muted);
   pointer-events: none;
 }
+/* Values of all channels next to the pointer */
+.hover-readout {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: auto auto auto;
+  align-items: center;
+  column-gap: 7px;
+  row-gap: 1px;
+  padding: 5px 9px 6px;
+  background: rgba(20, 25, 33, 0.9);
+  border: 1px solid #3a4454;
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.hr-time {
+  grid-column: 1 / -1;
+  margin-bottom: 2px;
+  color: var(--text);
+}
+.hr-row {
+  display: contents;
+}
+.hr-row .dot {
+  width: 7px;
+  height: 7px;
+  margin: 0;
+}
+.hr-name {
+  color: var(--muted);
+}
+.hr-label {
+  display: inline-block;
+  margin-left: 5px;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+.hr-value {
+  text-align: right;
+  color: #c4cad4;
+}
+.hr-row.near .hr-name,
+.hr-row.near .hr-value {
+  color: #fff;
+  font-weight: 600;
+}
 .tool-hint {
   position: absolute;
   left: 50%;

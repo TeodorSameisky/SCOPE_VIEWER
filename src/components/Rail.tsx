@@ -50,6 +50,7 @@ const SHORTCUTS: [string[], string][] = [
   [['P  Z'], 'Pan / Zoom tool'],
   [['N  M  R'], 'Note / Marker / Region'],
   [['C'], 'Cursors on/off'],
+  [['V'], 'Values of all channels at the pointer on/off'],
   [['F'], 'Full record'],
   [['+  −  ←  →'], 'Zoom / pan'],
   [['Backspace'], 'Back to previous view'],
