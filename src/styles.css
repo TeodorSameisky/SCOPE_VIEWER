@@ -757,11 +757,63 @@ code {
   border-top: 1px solid var(--border);
   min-width: 0;
 }
-.badges {
+/* The badges stay in one row; when they do not fit, the row scrolls sideways */
+.badges-wrap {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
+  flex: 0 1 auto;
   min-width: 0;
+}
+.badges {
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.badges::-webkit-scrollbar {
+  display: none;
+}
+.badges-track {
+  display: flex;
+  gap: 5px;
+  width: max-content;
+  height: 100%;
+}
+.badges-scroll {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 34px;
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+  border: none;
+  border-radius: 0;
+  color: var(--text);
+}
+.badges-scroll.left {
+  left: 0;
+  justify-content: flex-start;
+  background: linear-gradient(to right, var(--chrome) 40%, transparent);
+}
+.badges-scroll.right {
+  right: 0;
+  justify-content: flex-end;
+  background: linear-gradient(to left, var(--chrome) 40%, transparent);
+}
+.badges-scroll.left:hover:not(:disabled) {
+  color: var(--accent);
+  background: linear-gradient(to right, var(--chrome) 40%, transparent);
+}
+.badges-scroll.right:hover:not(:disabled) {
+  color: var(--accent);
+  background: linear-gradient(to left, var(--chrome) 40%, transparent);
+}
+.badge-actions {
+  display: flex;
+  flex: none;
+  gap: 5px;
 }
 .ch-badge {
   position: relative;
@@ -1315,6 +1367,23 @@ th:hover .x {
 }
 .th-btn svg {
   opacity: 0.45;
+}
+/* Dragging a column header to move the column */
+.col-dragging {
+  user-select: none;
+}
+.col-dragging th,
+.col-dragging .th-btn {
+  cursor: grabbing;
+}
+.data-table th.dragging {
+  opacity: 0.45;
+}
+.data-table th.drop-before {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.data-table th.drop-after {
+  box-shadow: inset -2px 0 0 var(--accent);
 }
 .th-btn:hover:not(:disabled) {
   background: transparent;

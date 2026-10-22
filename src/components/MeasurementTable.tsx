@@ -82,6 +82,62 @@ export function MeasurementTable(p: Props) {
     setPopup({ ...popup, left, top: r.bottom + 6, above: r.top - 6 })
   }
 
+  // ---------- drag a column header to move the column ----------
+  const [colDrag, setColDrag] = useState<{ key: MeasurementKey; to: number } | null>(null)
+  const colPress = useRef<{ key: MeasurementKey; x0: number; pointerId: number; el: HTMLElement } | null>(null)
+  const headRef = useRef<HTMLTableRowElement>(null)
+  /** Insertion index (0 … number of columns) for the pointer at x */
+  const dropIndex = (x: number) =>
+    [...(headRef.current?.querySelectorAll<HTMLElement>('th[data-key]') ?? [])].filter((th) => {
+      const r = th.getBoundingClientRect()
+      return x > r.left + r.width / 2
+    }).length
+  const onColDown = (e: React.PointerEvent<HTMLElement>, key: MeasurementKey) => {
+    if (e.button !== 0 || (e.target as HTMLElement).closest('.x')) return
+    colPress.current = { key, x0: e.clientX, pointerId: e.pointerId, el: e.currentTarget }
+  }
+  const onColMove = (e: React.PointerEvent) => {
+    const press = colPress.current
+    if (!press) return
+    if (e.buttons === 0) {
+      colPress.current = null
+      return
+    }
+    // A click still opens the explanation: the drag starts after a few pixels
+    if (!colDrag) {
+      if (Math.abs(e.clientX - press.x0) < 5) return
+      try {
+        press.el.setPointerCapture(press.pointerId)
+      } catch {
+        // synthetic events have no active pointer
+      }
+    }
+    setColDrag({ key: press.key, to: dropIndex(e.clientX) })
+  }
+  const onColUp = () => {
+    const d = colDrag
+    colPress.current = null
+    setColDrag(null)
+    if (!d) return
+    const from = p.keys.indexOf(d.key)
+    const k = p.keys.filter((x) => x !== d.key)
+    k.splice(d.to > from ? d.to - 1 : d.to, 0, d.key)
+    if (k.join() !== p.keys.join()) p.setKeys(k)
+  }
+  /** The dragged header is dimmed; a line before or after a header shows where it would land */
+  const dropClass = (i: number) => {
+    if (!colDrag) return undefined
+    const from = p.keys.indexOf(colDrag.key)
+    const moves = colDrag.to !== from && colDrag.to !== from + 1
+    return [
+      p.keys[i] === colDrag.key && 'dragging',
+      moves && colDrag.to === i && 'drop-before',
+      moves && colDrag.to === p.keys.length && i === p.keys.length - 1 && 'drop-after',
+    ]
+      .filter(Boolean)
+      .join(' ')
+  }
+
   // ---------- context menus ----------
   const menu = useContextMenu()
   const rows = visible.flatMap((c) => {
@@ -214,15 +270,27 @@ export function MeasurementTable(p: Props) {
       </div>
       <div className="measure-scroll">
         <table className="data-table">
-          <thead>
-            <tr>
+          <thead className={colDrag ? 'col-dragging' : undefined}>
+            <tr ref={headRef}>
               <th>Channel</th>
-              {defs.map((d) => (
-                <th key={d.key} data-key={d.key} onContextMenu={(e) => headerMenu(e, d)}>
+              {defs.map((d, i) => (
+                <th
+                  key={d.key}
+                  data-key={d.key}
+                  className={dropClass(i)}
+                  onContextMenu={(e) => headerMenu(e, d)}
+                  onPointerDown={(e) => onColDown(e, d.key)}
+                  onPointerMove={onColMove}
+                  onPointerUp={onColUp}
+                  onPointerCancel={() => {
+                    colPress.current = null
+                    setColDrag(null)
+                  }}
+                >
                   <button
                     type="button"
                     className="th-btn"
-                    title={`${d.short} Click for details.`}
+                    title={`${d.short} Click for details, drag to move the column.`}
                     onClick={(e) => openAt(e, { kind: 'info', key: d.key })}
                   >
                     {d.label}

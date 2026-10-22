@@ -22,7 +22,9 @@ All parsing happens **in the browser** (in a Web Worker). Session files are neve
 - **Right rail** – opens the side panels (Cursor readouts, Callouts, Session info & setup) and shows/hides
   the overview strip and measurements; *Focus* (`\`) hides everything except the plot
 - **Channel bar** (bottom) – one badge per channel like on the scope; click a badge for its settings
-  (label, colour, V/div, position, offset, view), the eye toggles visibility
+  (label, colour, V/div, position, offset, view), the eye toggles visibility. The badges stay in one row:
+  in a narrow window the row scrolls sideways (mouse wheel or the arrows at its edges), and the selected
+  channel is always scrolled into view
 
 Which panels are open is remembered in the browser.
 
@@ -37,8 +39,8 @@ Which panels are open is remembered in the browser.
 - Time cursors A/B with Δt, 1/Δt, Δv and per-channel values
 - Measurements on screen, between cursors or over the whole record: max, min, pk-pk, mean, RMS,
   top, base, amplitude, frequency, period, rise/fall time (10–90 %), positive width, duty cycle.
-  Click a column header for an explanation with a diagram; the **Reference** panel (book icon in the
-  rail) documents every measurement and the reference levels used
+  Click a column header for an explanation with a diagram, drag it to move the column; the **Reference**
+  panel (book icon in the rail) documents every measurement and the reference levels used
 - **Math channels** and **Spectrum (FFT)** (see below)
 - Instrument screenshot and searchable instrument setup
 - Saving in the browser, analysis files and bundles; exports to image, report and CSV (see below)

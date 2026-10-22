@@ -1,5 +1,6 @@
-import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react'
-import { AlertTriangle, AudioLines, Eye, EyeOff, Plus } from 'lucide-react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
+import { AlertTriangle, AudioLines, ChevronLeft, ChevronRight, Eye, EyeOff, Plus } from 'lucide-react'
 import type { MathResult } from '../math/expr'
 import { MAX_MATH, type MathDef } from '../model/math'
 import type { ChannelDisplay, Session } from '../model/types'
@@ -51,16 +52,21 @@ export interface ChannelBarHandle {
   openSettings: (id: string) => void
 }
 
+/** Badges closer than this to the edge of the scrolling row are under the fade */
+const EDGE_PX = 30
+
 /**
  * Bottom settings bar, modelled on the badges of a Tektronix scope:
  * one compact badge per channel and math channel (click to select and open its
- * settings), followed by horizontal and trigger summaries.
+ * settings), followed by horizontal and trigger summaries. The badges stay in one row;
+ * when they do not fit, the row scrolls sideways (wheel, the arrows at its edges).
  */
 export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBar(p, ref) {
   // The popover is positioned fixed so it is never clipped
   const [open, setOpen] = useState<{ id: string; left: number; bottom: number } | null>(null)
   const popRef = useRef<HTMLDivElement>(null)
-  const barRef = useRef<HTMLElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const trackRef = useRef<HTMLDivElement>(null)
   const close = useCallback(() => setOpen(null), [])
   useDismiss(popRef, open !== null, close)
 
@@ -69,10 +75,65 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
     const r = el.getBoundingClientRect()
     setOpen({ id, left: Math.max(8, Math.min(r.left, window.innerWidth - 356)), bottom: window.innerHeight - r.top + 6 })
   }
+
+  // ---------- one scrolling row ----------
+  const [edges, setEdges] = useState({ left: false, right: false })
+  const updateEdges = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const left = el.scrollLeft > 1
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1
+    setEdges((e) => (e.left === left && e.right === right ? e : { left, right }))
+  }, [])
+  useLayoutEffect(() => {
+    // The row or its content changed size (window, badges added, longer labels)
+    const ro = new ResizeObserver(updateEdges)
+    if (scrollRef.current) ro.observe(scrollRef.current)
+    if (trackRef.current) ro.observe(trackRef.current)
+    return () => ro.disconnect()
+  }, [updateEdges])
+  // A vertical wheel scrolls the row sideways when it does not fit
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const wheel = (e: WheelEvent) => {
+      if ((e.target as Element).closest('.popover') || el.scrollWidth <= el.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return
+      e.preventDefault()
+      el.scrollLeft += e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY
+    }
+    el.addEventListener('wheel', wheel, { passive: false })
+    return () => el.removeEventListener('wheel', wheel)
+  }, [])
+
+  const badgeEl = (id: string) => scrollRef.current?.querySelector<HTMLElement>(`.ch-badge[data-id="${CSS.escape(id)}"]`) ?? null
+  /** Scroll a badge fully into view (clear of the edge fades) and return it */
+  const reveal = (id: string) => {
+    const row = scrollRef.current
+    const b = badgeEl(id)
+    if (!row || !b || row.scrollWidth <= row.clientWidth) return b
+    const s = row.getBoundingClientRect()
+    const r = b.getBoundingClientRect()
+    if (r.left < s.left + EDGE_PX) row.scrollLeft -= s.left + EDGE_PX - r.left
+    else if (r.right > s.right - EDGE_PX) row.scrollLeft += r.right - (s.right - EDGE_PX)
+    return b
+  }
+  // The selected channel (e.g. by clicking its trace) is always visible in the row
+  useEffect(() => {
+    if (p.selected) reveal(p.selected)
+    // reveal only reads refs
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.selected])
+  const onScroll = () => {
+    updateEdges()
+    // The open settings stay attached to their badge
+    if (open) openFor(open.id, badgeEl(open.id))
+  }
+  const scrollBy = (dir: -1 | 1) => scrollRef.current?.scrollBy({ left: dir * scrollRef.current.clientWidth * 0.7, behavior: 'smooth' })
+
   useImperativeHandle(ref, () => ({
     openSettings: (id) => {
       p.setSelected(id)
-      openFor(id, barRef.current?.querySelector<HTMLElement>(`.ch-badge[data-id="${CSS.escape(id)}"]`))
+      openFor(id, reveal(id))
     },
   }))
 
@@ -144,48 +205,66 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
   )
 
   return (
-    <footer ref={barRef} className="channel-bar">
-      <div className="badges">
-        {p.channels.map((c) => badge(c.wave.id, c.display, c.wave.yUnit, c.display.label, settings(c.display, c.wave.yUnit)))}
-        {p.math.map((m) => {
-          const unit = m.result?.wave?.yUnit ?? ''
-          return badge(
-            m.def.id,
-            m.display,
-            unit,
-            m.display.label || m.def.expr,
-            settings(
-              m.display,
-              unit,
-              <MathEditor
-                key={m.def.expr}
-                def={m.def}
-                result={m.result}
-                sources={sources}
-                onChange={(patch) => p.onChangeMath(m.def.id, patch)}
-                onRemove={() => {
-                  setOpen(null)
-                  p.onRemoveMath(m.def.id)
-                }}
-                onOpenReference={() => {
-                  setOpen(null)
-                  p.onOpenMathReference()
-                }}
-              />,
-            ),
-            m.result?.error,
-          )
-        })}
+    <footer className="channel-bar">
+      <div className="badges-wrap">
+        {edges.left && (
+          <button type="button" className="badges-scroll left" tabIndex={-1} aria-label="Scroll the channels left" onClick={() => scrollBy(-1)}>
+            <ChevronLeft size={16} />
+          </button>
+        )}
+        <div ref={scrollRef} className="badges" onScroll={onScroll}>
+          <div ref={trackRef} className="badges-track">
+            {p.channels.map((c) => badge(c.wave.id, c.display, c.wave.yUnit, c.display.label, settings(c.display, c.wave.yUnit)))}
+            {p.math.map((m) => {
+              const unit = m.result?.wave?.yUnit ?? ''
+              return badge(
+                m.def.id,
+                m.display,
+                unit,
+                m.display.label || m.def.expr,
+                settings(
+                  m.display,
+                  unit,
+                  <MathEditor
+                    key={m.def.expr}
+                    def={m.def}
+                    result={m.result}
+                    sources={sources}
+                    onChange={(patch) => p.onChangeMath(m.def.id, patch)}
+                    onRemove={() => {
+                      setOpen(null)
+                      p.onRemoveMath(m.def.id)
+                    }}
+                    onOpenReference={() => {
+                      setOpen(null)
+                      p.onOpenMathReference()
+                    }}
+                  />,
+                ),
+                m.result?.error,
+              )
+            })}
+          </div>
+        </div>
+        {edges.right && (
+          <button type="button" className="badges-scroll right" tabIndex={-1} aria-label="Scroll the channels right" onClick={() => scrollBy(1)}>
+            <ChevronRight size={16} />
+          </button>
+        )}
+      </div>
+      <div className="badge-actions">
         <button
           type="button"
           className="add-math"
           disabled={p.math.length >= MAX_MATH}
           title={p.math.length >= MAX_MATH ? `At most ${MAX_MATH} math channels` : 'Add a math channel (computed from other channels)'}
-          onClick={(e) => {
-            // The new badge takes the place of this button, so open its editor there
-            const el = e.currentTarget
-            const id = p.onAddMath()
-            if (id) openFor(id, el)
+          onClick={() => {
+            // Render the new badge right away, then open its editor at it
+            let id: string | undefined
+            flushSync(() => {
+              id = p.onAddMath()
+            })
+            if (id) openFor(id, reveal(id))
           }}
         >
           <Plus size={14} aria-hidden /> Math
