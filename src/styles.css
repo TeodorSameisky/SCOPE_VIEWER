@@ -603,7 +603,13 @@ code {
   border-color: var(--ch);
   box-shadow: 0 0 0 1px var(--ch) inset;
 }
-.ch-badge.off {
+/* A hidden channel dims its badge, but not the settings popover that opens from it */
+.ch-badge.off:not(.selected) {
+  border-color: rgba(34, 41, 52, 0.6);
+  border-top-color: color-mix(in srgb, var(--ch) 45%, transparent);
+}
+.ch-badge.off .ch-main,
+.ch-badge.off .ch-eye {
   opacity: 0.45;
 }
 .ch-main {
