@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { FileSearch, FileText, Trash2 } from 'lucide-react'
+import { FileSearch, FileText, FolderOpen, Trash2 } from 'lucide-react'
 import { forgetSession, listRecentSessions, type RecentSession } from '../model/recent'
 import { formatBytes } from '../util/format'
+import { useContextMenu } from './ui/menuContext'
 
 interface Props {
   /** Fingerprint of the session that is open (shown, but not offered to open) */
@@ -25,6 +26,11 @@ function when(iso: string): string {
 export function RecentSessions({ current, onOpen, refreshKey, onLoaded, limit }: Props) {
   const [list, setList] = useState<RecentSession[] | null>(null)
   const [version, setVersion] = useState(0)
+  const menu = useContextMenu()
+  const forget = async (r: RecentSession) => {
+    await forgetSession(r.fingerprint)
+    setVersion((v) => v + 1)
+  }
 
   useEffect(() => {
     let alive = true
@@ -50,7 +56,21 @@ export function RecentSessions({ current, onOpen, refreshKey, onLoaded, limit }:
         const isCurrent = r.fingerprint === current
         const kept = r.fileBytes !== undefined
         return (
-          <li key={r.fingerprint} className={isCurrent ? 'current' : ''}>
+          <li
+            key={r.fingerprint}
+            className={isCurrent ? 'current' : ''}
+            onContextMenu={(e) =>
+              !isCurrent &&
+              menu(e, [
+                { kind: 'heading', label: r.fileName },
+                kept
+                  ? { label: 'Open', icon: FolderOpen, onClick: () => onOpen(r) }
+                  : { label: 'Locate the file…', icon: FileSearch, onClick: () => onOpen(r) },
+                '-',
+                { label: 'Forget this session', icon: Trash2, danger: true, title: 'Delete its analysis and kept file from this browser', onClick: () => forget(r) },
+              ])
+            }
+          >
             <button
               type="button"
               className="recent-open"
@@ -75,10 +95,7 @@ export function RecentSessions({ current, onOpen, refreshKey, onLoaded, limit }:
                 className="icon-btn"
                 title="Forget this session (its analysis and kept file)"
                 aria-label={`Forget ${r.fileName}`}
-                onClick={async () => {
-                  await forgetSession(r.fingerprint)
-                  setVersion((v) => v + 1)
-                }}
+                onClick={() => forget(r)}
               >
                 <Trash2 size={14} />
               </button>

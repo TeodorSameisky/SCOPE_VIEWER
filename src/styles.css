@@ -367,6 +367,129 @@ code {
   color: var(--muted);
 }
 
+/* ---------- context menu (right-click) ---------- */
+.context-menu {
+  position: fixed;
+  z-index: 90;
+  min-width: 220px;
+  max-width: 320px;
+  max-height: calc(100vh - 8px);
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+}
+.context-menu:focus {
+  outline: none;
+}
+.context-menu .cm-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  padding: 5px 8px 5px 6px;
+}
+.context-menu .cm-item:hover:not(:disabled),
+.context-menu .cm-item:focus {
+  background: #1e2430;
+  outline: none;
+}
+.context-menu .cm-item:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.context-menu .cm-item.danger {
+  color: var(--danger);
+}
+.cm-icon {
+  display: inline-flex;
+  width: 16px;
+  flex: none;
+  color: var(--muted);
+}
+.cm-item:hover:not(:disabled) .cm-icon,
+.cm-item:focus .cm-icon {
+  color: var(--text);
+}
+.cm-item.danger .cm-icon {
+  color: inherit;
+}
+.cm-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.context-menu kbd {
+  margin-left: 12px;
+  color: var(--muted);
+  background: transparent;
+  border-color: var(--border);
+}
+.cm-heading {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px 3px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+}
+.cm-heading .dot {
+  flex: none;
+}
+.cm-heading-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cm-heading small {
+  margin-left: auto;
+  padding-left: 12px;
+  font-weight: 400;
+  color: var(--text);
+  white-space: nowrap;
+}
+.cm-choices {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 30px;
+}
+.cm-choices-label {
+  color: var(--muted);
+  min-width: 52px;
+}
+.cm-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.cm-options button:not(.swatch) {
+  padding: 2px 8px;
+  font-size: 12px;
+  border-radius: 5px;
+}
+.cm-options button:focus {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+.cm-options .swatch {
+  width: 16px;
+  height: 16px;
+}
+.cm-options .swatch:focus {
+  outline: none;
+  border-color: #fff;
+}
+
 .workspace {
   position: relative;
   display: grid;
@@ -1486,12 +1609,21 @@ button.primary {
   }
 }
 
-.undo-toast {
+/* Undo offers and short confirmations, above the channel bar */
+.toast-stack {
   position: fixed;
   left: 50%;
   bottom: 84px;
   transform: translateX(-50%);
   z-index: 70;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.undo-toast {
+  pointer-events: auto;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1500,6 +1632,10 @@ button.primary {
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.undo-toast.notice {
+  padding: 7px 14px;
+  pointer-events: none;
 }
 .undo-toast .text-btn {
   display: inline-flex;

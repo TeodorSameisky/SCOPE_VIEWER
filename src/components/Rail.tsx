@@ -40,7 +40,9 @@ export function Rail(p: Props) {
 const SHORTCUTS: [string[], string][] = [
   [['Wheel'], 'Zoom time around the pointer'],
   [['Shift + wheel'], 'Pan'],
+  [['Right-click'], 'Commands for the point, trace, callout, channel or table cell under the pointer'],
   [['Drag'], 'Pan (Pan tool) / zoom rectangle (Zoom tool)'],
+  [['Middle drag'], 'Pan with any tool'],
   [['Shift + drag', 'Drag on time axis'], 'Zoom to a time range'],
   [['Double-click'], 'Full record'],
   [['Click a trace'], 'Select channel'],

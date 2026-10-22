@@ -1,8 +1,30 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import {
+  AudioLines,
+  Copy,
+  Eye,
+  EyeOff,
+  Flag,
+  Home,
+  Image,
+  LocateFixed,
+  Maximize2,
+  MoveHorizontal,
+  Pencil,
+  Ruler,
+  ScanEye,
+  SlidersHorizontal,
+  StickyNote,
+  Trash2,
+  Undo2,
+  UnfoldVertical,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react'
 import type { ChannelDisplay, Session } from '../model/types'
 import type { MeasurementKey } from '../dsp/measure'
-import { DEFAULT_CALLOUT_COLOR, calloutTitle, newCalloutId, nextCalloutNumber, type Callout } from '../model/callouts'
+import { CALLOUT_COLORS, DEFAULT_CALLOUT_COLOR, calloutTitle, newCalloutId, nextCalloutNumber, type Callout } from '../model/callouts'
 import { MinMaxPyramid } from '../dsp/minmax'
 import { evaluateMath } from '../math/expr'
 import { MATH_COLORS, MAX_MATH, nextMathId, type MathDef } from '../model/math'
@@ -24,18 +46,21 @@ import {
 } from '../model/workspace'
 import { buildBundle } from '../export/bundle'
 import { runExport, waveformRows, type ExportContext } from '../export/sessionExport'
+import { valueAt } from '../render/draw'
+import { copyText } from '../util/clipboard'
 import { downloadBlob, stem } from '../util/download'
+import { si } from '../util/format'
 import { channelName } from '../util/names'
 import { usePersistentState } from '../util/usePersistentState'
 import type { RecentSession } from '../model/recent'
 import { CalloutPanel } from './CalloutPanel'
-import { ChannelBar, type MathItem } from './ChannelBar'
+import { ChannelBar, type ChannelBarHandle, type MathItem } from './ChannelBar'
 import { CursorPanel } from './CursorPanel'
 import { ExportDialog, type ExportKind } from './ExportDialog'
 import { InfoPanel } from './InfoPanel'
 import { MeasurementTable } from './MeasurementTable'
 import { Overview } from './Overview'
-import { PlotArea, type NewCallout, type PlotAreaHandle } from './PlotArea'
+import { PlotArea, type NewCallout, type PlotAreaHandle, type PlotPoint } from './PlotArea'
 import { ReferencePanel, type ReferenceSection } from './ReferencePanel'
 import { Rail, type PanelId } from './Rail'
 import { SpectrumView, type SpectrumViewHandle } from './SpectrumView'
@@ -53,6 +78,7 @@ import {
   type TimeWindow,
   type Tool,
 } from './state'
+import { useContextMenu, type MenuEntry } from './ui/menuContext'
 
 /** Window + vertical settings, restored by "zoom back" */
 interface ViewState {
@@ -313,6 +339,18 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     const t = window.setTimeout(() => setUndo((u) => (u?.id === undo.id ? null : u)), 8000)
     return () => window.clearTimeout(t)
   }, [undo])
+
+  // ---------- short confirmations ("… copied") ----------
+  const [notice, setNotice] = useState<{ message: string; id: number } | null>(null)
+  useEffect(() => {
+    if (!notice) return
+    const t = window.setTimeout(() => setNotice((n) => (n?.id === notice.id ? null : n)), 2500)
+    return () => window.clearTimeout(t)
+  }, [notice])
+  const copy = async (text: string, what: string) => {
+    const ok = await copyText(text)
+    setNotice({ message: ok ? `${what} copied` : 'This browser does not allow copying here', id: Date.now() })
+  }
 
   // ---------- keyboard shortcuts ----------
   useEffect(() => {
@@ -588,6 +626,153 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     return Math.min(c.wave.data.length, i1) > Math.max(0, i0)
   }).length
 
+  // ---------- context menus (right-click) ----------
+  const openMenu = useContextMenu()
+  const channelBarRef = useRef<ChannelBarHandle>(null)
+
+  /** Put cursor A or B at `t`; when the cursors come on, the other one is moved into view if needed */
+  const placeCursor = (which: 'a' | 'b', t: number) => {
+    const next = { ...cursors, on: true, [which]: t }
+    const other = which === 'a' ? 'b' : 'a'
+    if (!cursors.on && (next[other] < win.start || next[other] > win.end)) {
+      const span = win.end - win.start
+      next[other] = Math.min(win.end, Math.max(win.start, t + (which === 'a' ? 0.2 : -0.2) * span))
+    }
+    setCursors(next)
+  }
+
+  const channelHeading = (id: string, detail?: string): MenuEntry => {
+    const d = displayById.get(id)
+    return { kind: 'heading', label: `${channelName(id)}${d?.label ? ` · ${d.label}` : ''}`, color: d?.color, detail }
+  }
+  /** Commands for one channel: on its badge, on its trace and on its measurement row */
+  const channelItems = (id: string, compact = false): MenuEntry[] => {
+    const d = displayById.get(id)
+    if (!d) return []
+    const hasWave = channels.some((c) => c.wave.id === id)
+    const others = displays.filter((x) => x.id !== id)
+    const solo = d.visible && others.every((x) => !x.visible)
+    const view = views.findIndex((v) => v.includes(id))
+    const hasSpectrum = spectrumSources.has(id)
+    const isMath = mathDefs.some((m) => m.id === id)
+    return [
+      { label: isMath ? 'Settings and expression…' : 'Settings…', icon: SlidersHorizontal, onClick: () => channelBarRef.current?.openSettings(id) },
+      { label: d.visible ? 'Hide' : 'Show', icon: d.visible ? EyeOff : Eye, onClick: () => onAdjust(id, { visible: !d.visible }) },
+      solo
+        ? { label: 'Show all channels', icon: Eye, disabled: !others.length, onClick: () => setDisplays((ds) => ds.map((x) => ({ ...x, visible: true }))) }
+        : { label: 'Show only this channel', icon: ScanEye, onClick: () => setDisplays((ds) => ds.map((x) => ({ ...x, visible: x.id === id }))) },
+      { label: 'Autoscale', icon: UnfoldVertical, title: 'Fit the whole waveform into its view', disabled: !hasWave, onClick: () => onAutoscale(id) },
+      !compact && {
+        kind: 'choices',
+        label: 'View',
+        options: [
+          ...views.map((_, i) => ({ label: String(i + 1), title: `Move to view ${i + 1}`, checked: i === view, onClick: () => onMoveToView(id, i) })),
+          { label: 'New', title: 'Move to a new view of its own', disabled: view >= 0 && views[view].length === 1, onClick: () => onMoveToView(id, views.length) },
+        ],
+      },
+      {
+        label: hasSpectrum ? 'Remove spectrum' : 'Show spectrum (FFT)',
+        icon: AudioLines,
+        disabled: !hasWave || (!hasSpectrum && spectra.length >= MAX_SPECTRA),
+        onClick: () => toggleSpectrum(id),
+      },
+      cursors.on && hasWave && { label: 'Cursor Δv on this channel', icon: Ruler, checked: cursors.source === id, onClick: () => setCursors({ ...cursors, source: id }) },
+      !compact && isMath && '-',
+      !compact && isMath && { label: 'Delete math channel', icon: Trash2, danger: true, onClick: () => removeMath(id) },
+    ]
+  }
+  const channelMenu = (e: React.MouseEvent, id: string) => {
+    const d = displayById.get(id)
+    const unit = channels.find((c) => c.wave.id === id)?.wave.yUnit
+    openMenu(e, [channelHeading(id, d && si(d.scale, `${unit || 'U'}/div`, 3)), ...channelItems(id)])
+  }
+
+  /** Time and value of every visible channel at `t`, one per line */
+  const valuesAt = (t: number) =>
+    [
+      `t = ${si(t, 's', 6)}`,
+      ...visibleChannels.map((c) => `${channelName(c.wave.id)}${c.display.label ? ` (${c.display.label})` : ''}: ${si(valueAt(c.wave, t), c.wave.yUnit, 5)}`),
+    ].join('\n')
+
+  const plotMenu = (e: React.MouseEvent, at: PlotPoint) => {
+    const { t, note } = at
+    const ch = at.channel ? channels.find((c) => c.wave.id === at.channel) : undefined
+    if (ch) setSelected(ch.wave.id)
+    openMenu(e, [
+      { kind: 'heading', label: 'Time', detail: si(t, 's', 5) },
+      { label: 'Zoom in here', icon: ZoomIn, onClick: () => zoomTo(zoomAround(win, t, 0.5, minSpan, maxSpan)) },
+      { label: 'Zoom out here', icon: ZoomOut, onClick: () => zoomTo(zoomAround(win, t, 2, minSpan, maxSpan)) },
+      { label: 'Back', icon: Undo2, hint: 'Backspace', disabled: !history.length, onClick: zoomBack },
+      { label: 'Full record', icon: Maximize2, hint: 'F', disabled: !zoomed, onClick: () => zoomTo(record) },
+      '-',
+      {
+        kind: 'choices',
+        label: 'Cursor',
+        options: [
+          { label: 'A here', title: 'Put cursor A here', onClick: () => placeCursor('a', t) },
+          { label: 'B here', title: 'Put cursor B here', onClick: () => placeCursor('b', t) },
+        ],
+      },
+      note && { label: 'Add note here', icon: StickyNote, onClick: () => addCallout(note) },
+      { label: 'Add marker here', icon: Flag, onClick: () => addCallout({ type: 'marker', t }) },
+      cursors.on && {
+        label: 'Mark region between cursors',
+        icon: MoveHorizontal,
+        onClick: () => addCallout({ type: 'region', t: Math.min(cursors.a, cursors.b), t2: Math.max(cursors.a, cursors.b) }),
+      },
+      ch && '-',
+      ch && channelHeading(ch.wave.id, si(valueAt(ch.wave, t), ch.wave.yUnit)),
+      ...(ch ? channelItems(ch.wave.id, true) : []),
+      '-',
+      {
+        label: 'Copy values at this time',
+        icon: Copy,
+        title: 'Time and value of every visible channel',
+        disabled: !visibleChannels.length || t < record.start || t > record.end,
+        onClick: () => copy(valuesAt(t), 'Values'),
+      },
+      { label: 'Export image…', icon: Image, onClick: () => openExport('image') },
+    ])
+  }
+
+  const calloutMenu = (e: React.MouseEvent, c: Callout) => {
+    const t2 = c.t2 ?? c.t
+    openMenu(e, [
+      { kind: 'heading', label: calloutTitle(c), color: c.color, detail: c.type === 'region' ? `Δt ${si(Math.abs(t2 - c.t), 's')}` : si(c.t, 's', 5) },
+      { label: 'Edit text', icon: Pencil, hint: 'Enter', onClick: () => editCallout(c.id) },
+      { kind: 'choices', label: 'Colour', options: CALLOUT_COLORS.map((col) => ({ label: col, color: col, checked: c.color === col, onClick: () => updateCallout(c.id, { color: col }) })) },
+      { label: c.type === 'region' ? 'Zoom to region' : 'Go to', icon: LocateFixed, onClick: () => jumpToCallout(c) },
+      c.type === 'region'
+        ? { label: 'Set cursors to region', icon: Ruler, onClick: () => setCursors({ ...cursors, on: true, a: Math.min(c.t, t2), b: Math.max(c.t, t2) }) }
+        : {
+            kind: 'choices',
+            label: 'Cursor',
+            options: [
+              { label: 'A here', title: 'Put cursor A at this callout', onClick: () => placeCursor('a', c.t) },
+              { label: 'B here', title: 'Put cursor B at this callout', onClick: () => placeCursor('b', c.t) },
+            ],
+          },
+      '-',
+      { label: 'Delete', icon: Trash2, hint: 'Del', danger: true, onClick: () => deleteCallout(c.id) },
+    ])
+  }
+
+  const viewItems: MenuEntry[] = [
+    { label: 'Back', icon: Undo2, hint: 'Backspace', disabled: !history.length, onClick: zoomBack },
+    { label: 'Full record', icon: Maximize2, hint: 'F', disabled: !zoomed, onClick: () => zoomTo(record) },
+    { label: 'Saved view', icon: Home, title: 'The view the scope showed when the session was saved', onClick: () => zoomTo(initialWin) },
+  ]
+  const overviewMenu = (e: React.MouseEvent, t: number) => {
+    const span = win.end - win.start
+    openMenu(e, [
+      { kind: 'heading', label: 'Time', detail: si(t, 's', 5) },
+      { label: 'Centre the view here', icon: LocateFixed, onClick: () => zoomTo({ start: t - span / 2, end: t + span / 2 }) },
+      ...viewItems,
+      '-',
+      { label: 'Hide overview', icon: EyeOff, hint: 'O', onClick: toggleOverview },
+    ])
+  }
+
   return (
     <div className="scope">
       <TopBar
@@ -626,7 +811,9 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
 
       <div className={`workspace ${layout.panel ? 'with-panel' : ''}`}>
         <main className="main">
-          {layout.overview && <Overview channels={channels} views={views} record={record} win={win} minSpan={minSpan} onNavigate={navigate} />}
+          {layout.overview && (
+            <Overview channels={channels} views={views} record={record} win={win} minSpan={minSpan} onNavigate={navigate} onContextMenu={overviewMenu} />
+          )}
           <PlotArea
             ref={plotRef}
             channels={channels}
@@ -652,6 +839,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
             onUpdateCallout={updateCallout}
             onEditCallout={editCallout}
             onDeleteCallout={deleteCallout}
+            onContextMenu={plotMenu}
+            onCalloutMenu={calloutMenu}
           />
           {spectra.length > 0 && (
             <SpectrumView
@@ -672,6 +861,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
               onRemove={(id) => setSpectra((ss) => ss.filter((s) => s.id !== id))}
               onClose={() => setSpectra([])}
               onOpenReference={() => openReference('spectrum')}
+              onCopy={copy}
             />
           )}
           {layout.measurements && (
@@ -690,6 +880,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
               setHeight={(measHeight) => setLayout((l) => ({ ...l, measHeight }))}
               onClose={toggleMeasurements}
               onOpenReference={(key) => openReference('measurements', key)}
+              channelMenu={(id) => channelItems(id)}
+              onCopy={copy}
             />
           )}
         </main>
@@ -714,6 +906,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
                 onUpdate={updateCallout}
                 onDelete={deleteCallout}
                 onJump={jumpToCallout}
+                onContextMenu={calloutMenu}
                 onClear={() => {
                   const all = callouts
                   setCallouts([])
@@ -760,6 +953,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
       </div>
 
       <ChannelBar
+        ref={channelBarRef}
         channels={inputChannels}
         math={mathItems}
         onAddMath={addMath}
@@ -781,19 +975,35 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
         sampleRate={1 / minDt}
         recordLength={session.channels[0].wave.data.length}
         trigger={session.trigger}
+        onChannelMenu={channelMenu}
+        onTimebaseMenu={(e) =>
+          openMenu(e, [
+            { kind: 'heading', label: 'Horizontal', detail: si(tPerDiv, 's/div', 3) },
+            ...viewItems,
+            '-',
+            { label: 'Session info and setup…', icon: SlidersHorizontal, onClick: () => setPanel('info') },
+          ])
+        }
       />
 
-      {undo && (
-        <div className="undo-toast" role="status">
-          <span>{undo.message}</span>
-          <button type="button" className="text-btn" onClick={runUndo}>
-            Undo <kbd>Ctrl+Z</kbd>
-          </button>
-          <button type="button" className="icon-btn" aria-label="Dismiss" onClick={() => setUndo(null)}>
-            <X size={14} />
-          </button>
-        </div>
-      )}
+      <div className="toast-stack">
+        {notice && (
+          <div key={notice.id} className="undo-toast notice" role="status">
+            {notice.message}
+          </div>
+        )}
+        {undo && (
+          <div className="undo-toast" role="status">
+            <span>{undo.message}</span>
+            <button type="button" className="text-btn" onClick={runUndo}>
+              Undo <kbd>Ctrl+Z</kbd>
+            </button>
+            <button type="button" className="icon-btn" aria-label="Dismiss" onClick={() => setUndo(null)}>
+              <X size={14} />
+            </button>
+          </div>
+        )}
+      </div>
 
       {exportKind && (
         <ExportDialog

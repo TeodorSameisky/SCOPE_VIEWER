@@ -13,6 +13,7 @@ interface Props {
   onDelete: (id: string) => void
   onJump: (c: Callout) => void
   onClear: () => void
+  onContextMenu?: (e: React.MouseEvent, c: Callout) => void
 }
 
 export function CalloutPanel(p: Props) {
@@ -45,6 +46,11 @@ export function CalloutPanel(p: Props) {
             className={`callout-card ${c.id === p.selectedId ? 'selected' : ''}`}
             style={{ ['--co' as string]: c.color }}
             onClick={() => p.onSelect(c.id)}
+            onContextMenu={(e) => {
+              if (!p.onContextMenu || (e.target as HTMLElement).closest('textarea')) return
+              p.onSelect(c.id)
+              p.onContextMenu(e, c)
+            }}
           >
             <div className="callout-card-head">
               <span className="callout-icon">{CALLOUT_ICON[c.type]}</span>

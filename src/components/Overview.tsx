@@ -13,6 +13,8 @@ interface Props {
   win: TimeWindow
   minSpan: number
   onNavigate: (w: TimeWindow, kind: NavKind) => void
+  /** Right-click, with the time at the pointer */
+  onContextMenu?: (e: React.MouseEvent, t: number) => void
 }
 
 type Drag =
@@ -25,7 +27,7 @@ type Drag =
  * as a box. Drag the box to pan, drag its edges to resize, drag elsewhere to mark
  * a new range to zoom into, click to centre the view.
  */
-export function Overview({ channels, views, record, win, minSpan, onNavigate }: Props) {
+export function Overview({ channels, views, record, win, minSpan, onNavigate, onContextMenu }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const tracesRef = useRef<HTMLCanvasElement | null>(null)
@@ -241,6 +243,7 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate }: 
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerLeave={() => !drag && setHoverPart(null)}
+      onContextMenu={(e) => onContextMenu?.(e, xToT(Math.min(plotW, Math.max(0, e.clientX - e.currentTarget.getBoundingClientRect().left))))}
     >
       <canvas ref={canvasRef} width={Math.round(width * dpr)} height={Math.round(HEIGHT * dpr)} style={{ width, height: HEIGHT, display: 'block' }} />
     </div>

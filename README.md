@@ -40,11 +40,30 @@ Which panels are open is remembered in the browser.
 - Instrument screenshot and searchable instrument setup
 - Saving in the browser, analysis files and bundles; exports to image, report and CSV (see below)
 
+### Right-click menus
+
+Right-click (on a Mac also Ctrl+click) opens the commands for what is under the pointer:
+
+| Where | Commands |
+| --- | --- |
+| Plot | time at the pointer; zoom in / out here, back, full record; put cursor A or B here; add a note or marker here, mark the region between the cursors; copy the values of all visible channels at that time; export image |
+| A trace in the plot | additionally that channel's value and commands (see channel badge) |
+| Channel badge | settings, hide, show only this channel / show all, autoscale, move to another view, show/remove its spectrum, use it for the cursor Δv, delete (math channels) |
+| Callout (plot or Callouts panel) | edit text, colour, go to, cursors to the callout or region, delete |
+| Measurement table | copy a value, a row or the whole table (tab separated, pastes as a table), explanation, move or remove a column, add a measurement, range |
+| Spectrum | frequency and levels at the pointer (copy), zoom, full span, level / frequency scale, peak count, range, copy the peak list |
+| Overview, horizontal box | centre the view here, back, full record, saved view |
+| Stored sessions | open or locate, forget |
+
+The menus can be used with the keyboard (↑ ↓ Enter, Esc). Text fields keep the browser's own menu.
+The **middle mouse button** pans the plot with any tool.
+
 ### Zooming
 
 | How | What it does |
 | --- | --- |
 | Mouse wheel | Zoom time around the pointer (Shift+wheel pans) |
+| Right-click → Zoom in / out here | Zoom 2× around the pointer |
 | **Zoom** tool, drag a rectangle | Zoom time *and* vertical range of that view |
 | **Zoom** tool, click / Alt+click | Zoom in / out 2× |
 | Shift+drag, or drag along the time axis | Zoom to the marked time range |

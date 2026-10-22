@@ -1,5 +1,5 @@
 import { forwardRef, useDeferredValue, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { BookOpen, Eye, EyeOff, Maximize2, Plus, X } from 'lucide-react'
+import { BookOpen, ClipboardList, Copy, Eye, EyeOff, Maximize2, Plus, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { MIN_FFT_SAMPLES, WINDOW_DEFS, computeSpectrum, findPeaks, windowDef, type Peak, type Spectrum, type WindowKind } from '../math/fft'
 import { MAX_SPECTRA, PEAK_COUNTS, levelUnit, type FreqAxis, type SpectrumDef, type SpectrumOptions, type SpectrumScale } from '../model/spectrum'
 import type { Waveform } from '../model/types'
@@ -8,7 +8,8 @@ import { FREQ_AXIS_H, drawSpectrum, levelValue, readLevel, xToF, type FreqMap, t
 import { DARK_THEME, type Theme } from '../render/theme'
 import { niceStep, si } from '../util/format'
 import { channelName } from '../util/names'
-import type { CursorState, LiveChannel, TimeWindow } from './state'
+import { RANGE_LABEL, type CursorState, type LiveChannel, type TimeWindow } from './state'
+import { useContextMenu, type MenuEntry } from './ui/menuContext'
 
 interface Props {
   defs: SpectrumDef[]
@@ -27,6 +28,8 @@ interface Props {
   /** Remove all spectra */
   onClose: () => void
   onOpenReference: () => void
+  /** Copy text to the clipboard; `what` describes it for the confirmation */
+  onCopy: (text: string, what: string) => void
 }
 
 interface Result {
@@ -331,8 +334,79 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
           return v ? [{ r, v }] : []
         })
 
+  // ---------- context menus ----------
+  const menu = useContextMenu()
+  const peakLines = (rs: Shown[]) => [
+    ['Spectrum', '#', 'Frequency', 'Level'].join('\t'),
+    ...rs.flatMap((r) => (peaks.get(r.def.id) ?? []).map((pk, i) => [channelName(r.def.source), i + 1, si(pk.freq, 'Hz', 5), lvl(pk.rms)].join('\t'))),
+  ]
+  const hasPeaks = shown.some((r) => peaks.get(r.def.id)?.length)
+  const options: MenuEntry[] = [
+    {
+      kind: 'choices',
+      label: 'Level',
+      options: (['db', 'linear'] as const).map((sc) => ({ label: levelUnit(sc, unit), checked: scale === sc, onClick: () => p.setOptions({ scale: sc }) })),
+    },
+    {
+      kind: 'choices',
+      label: 'Freq.',
+      options: (['log', 'linear'] as const).map((a) => ({ label: a === 'log' ? 'Log' : 'Linear', title: `${a === 'log' ? 'Logarithmic' : 'Linear'} frequency axis`, checked: axis === a, onClick: () => p.setOptions({ axis: a }) })),
+    },
+    {
+      kind: 'choices',
+      label: 'Peaks',
+      options: PEAK_COUNTS.map((n) => ({ label: n ? String(n) : 'Off', title: n ? `List the ${n} highest peaks` : 'No peak list', checked: p.options.peaks === n, onClick: () => p.setOptions({ peaks: n }) })),
+    },
+    {
+      kind: 'choices',
+      label: 'Range',
+      options: (['screen', 'cursors', 'record'] as const).map((r) => ({
+        label: r === 'screen' ? 'Screen' : r === 'cursors' ? 'Cursors' : 'Record',
+        title: RANGE_LABEL[r],
+        checked: range === r,
+        onClick: () => p.setOptions({ range: r }),
+      })),
+    },
+    '-',
+    { label: 'Copy peak list', icon: ClipboardList, disabled: !hasPeaks, onClick: () => p.onCopy(peakLines(shown).join('\n'), 'Peak list') },
+    { label: 'Add spectrum', icon: Plus, disabled: p.defs.length >= MAX_SPECTRA, onClick: p.onAdd },
+    { label: 'Spectrum reference', icon: BookOpen, onClick: p.onOpenReference },
+  ]
+  const plotMenu = (e: React.MouseEvent) => {
+    const r = wrapRef.current!.getBoundingClientRect()
+    const x = Math.min(plotW, Math.max(0, e.clientX - r.left))
+    const inPlot = e.clientX - r.left <= plotW && e.clientY - r.top <= plotH
+    const f = xToF(map, x)
+    const levels = inPlot
+      ? shown.flatMap((s) => {
+          const v = readLevel(s.spec, f, xToF(map, x - 0.5), xToF(map, x + 0.5))
+          return v ? [{ s, v }] : []
+        })
+      : []
+    const readout = [si(f, 'Hz', 5), ...levels.map(({ s, v }) => `${channelName(s.def.source)}: ${lvl(v.rms)} at ${si(v.freq, 'Hz', 5)}`)]
+    menu(e, [
+      inPlot && { kind: 'heading', label: 'Frequency', detail: si(f, 'Hz', 5) },
+      levels.length > 0 && { label: 'Copy frequency and levels', icon: Copy, onClick: () => p.onCopy(readout.join('\n'), 'Spectrum readout') },
+      { label: 'Zoom in here', icon: ZoomIn, onClick: () => zoomF(x, 0.5) },
+      { label: 'Zoom out', icon: ZoomOut, onClick: () => zoomF(x, 2) },
+      { label: 'Full span', icon: Maximize2, disabled: !zoomed, onClick: resetZoom },
+      '-',
+      ...options,
+    ])
+  }
+  const peakMenu = (e: React.MouseEvent, r: Shown, i: number) => {
+    const pk = peaks.get(r.def.id)![i]
+    menu(e, [
+      { kind: 'heading', label: `${channelName(r.def.source)} · peak ${i + 1}`, color: r.channel.display.color, detail: si(pk.freq, 'Hz', 5) },
+      { label: 'Copy peak', icon: Copy, onClick: () => p.onCopy(`${si(pk.freq, 'Hz', 5)}\t${lvl(pk.rms)}`, `Peak ${i + 1} of ${channelName(r.def.source)}`) },
+      { label: `Copy peaks of ${channelName(r.def.source)}`, icon: ClipboardList, onClick: () => p.onCopy(peakLines([r]).join('\n'), `Peaks of ${channelName(r.def.source)}`) },
+      '-',
+      ...options,
+    ])
+  }
+
   return (
-    <section className="spectrum" aria-label="Spectrum">
+    <section className="spectrum" aria-label="Spectrum" onContextMenu={(e) => menu(e, options)}>
       <div
         className="resize-handle"
         role="separator"
@@ -452,6 +526,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
           onPointerUp={onPointerUp}
           onPointerLeave={() => setHover(null)}
           onDoubleClick={resetZoom}
+          onContextMenu={plotMenu}
           title="Wheel: zoom frequency · Ctrl+wheel: zoom level · Drag: pan · Shift+drag: zoom to range · Double-click: full span"
         >
           <canvas
@@ -496,7 +571,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
                 <table className="data-table compact peaks">
                   <tbody>
                     {peaks.get(r.def.id)!.map((pk, i) => (
-                      <tr key={i}>
+                      <tr key={i} onContextMenu={(e) => r.spec && peakMenu(e, r as Shown, i)}>
                         <td className="muted">{i + 1}</td>
                         <td className="mono">{si(pk.freq, 'Hz', 5)}</td>
                         <td className="mono">{lvl(pk.rms)}</td>

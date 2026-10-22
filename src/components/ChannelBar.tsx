@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react'
 import { AlertTriangle, AudioLines, Eye, EyeOff, Plus } from 'lucide-react'
 import type { MathResult } from '../math/expr'
 import { MAX_MATH, type MathDef } from '../model/math'
@@ -40,6 +40,15 @@ interface Props {
   sampleRate: number
   recordLength: number
   trigger?: Session['trigger']
+  /** Right-click on a badge */
+  onChannelMenu?: (e: React.MouseEvent, id: string) => void
+  /** Right-click on the horizontal / trigger summary */
+  onTimebaseMenu?: (e: React.MouseEvent) => void
+}
+
+export interface ChannelBarHandle {
+  /** Open the settings popover of a channel (as a click on its badge does) */
+  openSettings: (id: string) => void
 }
 
 /**
@@ -47,18 +56,25 @@ interface Props {
  * one compact badge per channel and math channel (click to select and open its
  * settings), followed by horizontal and trigger summaries.
  */
-export function ChannelBar(p: Props) {
+export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBar(p, ref) {
   // The popover is positioned fixed so it is never clipped
   const [open, setOpen] = useState<{ id: string; left: number; bottom: number } | null>(null)
   const popRef = useRef<HTMLDivElement>(null)
+  const barRef = useRef<HTMLElement>(null)
   const close = useCallback(() => setOpen(null), [])
   useDismiss(popRef, open !== null, close)
 
-  const openFor = (id: string, el: HTMLElement | undefined) => {
+  const openFor = (id: string, el: HTMLElement | null | undefined) => {
     if (!el) return
     const r = el.getBoundingClientRect()
     setOpen({ id, left: Math.max(8, Math.min(r.left, window.innerWidth - 356)), bottom: window.innerHeight - r.top + 6 })
   }
+  useImperativeHandle(ref, () => ({
+    openSettings: (id) => {
+      p.setSelected(id)
+      openFor(id, barRef.current?.querySelector<HTMLElement>(`.ch-badge[data-id="${CSS.escape(id)}"]`))
+    },
+  }))
 
   const sources = [...p.channels.map((c) => c.wave.id), ...p.math.map((m) => m.def.id)]
 
@@ -67,8 +83,14 @@ export function ChannelBar(p: Props) {
     return (
       <div
         key={id}
+        data-id={id}
         className={`ch-badge ${p.selected === id ? 'selected' : ''} ${d.visible ? '' : 'off'} ${error ? 'error' : ''}`}
         style={{ ['--ch' as string]: d.color }}
+        onContextMenu={(e) => {
+          if (!p.onChannelMenu || (e.target as HTMLElement).closest('.popover')) return
+          p.setSelected(id)
+          p.onChannelMenu(e, id)
+        }}
       >
         <div ref={isOpen ? popRef : undefined} className="ch-badge-inner">
           <button
@@ -122,7 +144,7 @@ export function ChannelBar(p: Props) {
   )
 
   return (
-    <footer className="channel-bar">
+    <footer ref={barRef} className="channel-bar">
       <div className="badges">
         {p.channels.map((c) => badge(c.wave.id, c.display, c.wave.yUnit, c.display.label, settings(c.display, c.wave.yUnit)))}
         {p.math.map((m) => {
@@ -179,7 +201,7 @@ export function ChannelBar(p: Props) {
         </button>
       </div>
       <div className="spacer" />
-      <div className="info-box" title={`Window ${si(p.win.start, 's')} … ${si(p.win.end, 's')}`}>
+      <div className="info-box" title={`Window ${si(p.win.start, 's')} … ${si(p.win.end, 's')}`} onContextMenu={p.onTimebaseMenu}>
         <span className="info-title">Horizontal</span>
         <span className="info-main mono">{si(p.timePerDiv, 's/div', 3)}</span>
         <span className="info-sub mono">
@@ -187,7 +209,7 @@ export function ChannelBar(p: Props) {
         </span>
       </div>
       {p.trigger && (
-        <div className="info-box trigger">
+        <div className="info-box trigger" onContextMenu={p.onTimebaseMenu}>
           <span className="info-title">Trigger</span>
           {/* In the colour of the source channel; orange (CSS) for sources without a trace, e.g. AUX */}
           <span className="info-main mono" style={{ color: p.channels.find((c) => c.wave.id === p.trigger?.source)?.display.color }}>
@@ -198,4 +220,4 @@ export function ChannelBar(p: Props) {
       )}
     </footer>
   )
-}
+})

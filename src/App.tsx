@@ -8,6 +8,7 @@ import { loadSession } from './parsers/load'
 import { Scope, type InitialState, type ScopeHandle, type SourceFile } from './components/Scope'
 import { Logo } from './components/ui/Logo'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { ContextMenuProvider } from './components/ui/ContextMenu'
 import { PwaStatus } from './components/PwaStatus'
 import { installApp, useCanInstall } from './pwa/install'
 import { onLaunchFiles } from './pwa/launch'
@@ -199,7 +200,7 @@ export default function App() {
   )
 
   return (
-    <>
+    <ContextMenuProvider>
       {picker}
       {current ? (
         <ErrorBoundary
@@ -297,7 +298,7 @@ export default function App() {
       )}
       {dragOver && <div className="drop-overlay">Drop to open</div>}
       <PwaStatus />
-    </>
+    </ContextMenuProvider>
   )
 }
 

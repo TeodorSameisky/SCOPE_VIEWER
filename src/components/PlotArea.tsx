@@ -19,8 +19,20 @@ import {
 } from './state'
 
 const AXIS_H = 24
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 const GRAB_PX = 8
 const MIN_BOX_PX = 5
+
+/** What is under the pointer when the plot is right-clicked */
+export interface PlotPoint {
+  t: number
+  /** On the time axis below the views */
+  onAxis: boolean
+  /** Trace under the pointer */
+  channel?: string
+  /** The note the Note tool would add at this point */
+  note?: NewCallout
+}
 
 export interface NewCallout {
   type: Callout['type']
@@ -59,6 +71,8 @@ interface Props {
   onUpdateCallout: (id: string, patch: Partial<Callout>) => void
   onEditCallout: (id: string | null) => void
   onDeleteCallout: (id: string) => void
+  onContextMenu?: (e: React.MouseEvent, at: PlotPoint) => void
+  onCalloutMenu?: (e: React.MouseEvent, c: Callout) => void
 }
 
 export interface PlotAreaHandle {
@@ -269,7 +283,9 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   const clampY = (y: number, view: number) => Math.min((view + 1) * viewH, Math.max(view * viewH, y))
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0) return
+    // Middle button pans with every tool; Ctrl+click on a Mac opens the context menu
+    const middle = e.button === 1
+    if ((e.button !== 0 && !middle) || (e.ctrlKey && IS_MAC)) return
     const { x, y } = local(e)
     if (x > plotW) return
     try {
@@ -278,6 +294,11 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       // synthetic events have no active pointer
     }
     dragMoved.current = false
+    if (middle) {
+      e.preventDefault()
+      setDrag({ kind: 'pan', x0: x, win: p.win })
+      return
+    }
     p.onSelectCallout(undefined)
     const onAxis = y > viewsH
     const navTool = p.tool === 'pan' || p.tool === 'zoom'
@@ -378,14 +399,26 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     p.onZoomTo({ start: mid - s / 2, end: mid + s / 2 }, patches)
   }
 
+  const addNote = (x: number, y: number) => p.onAddCallout(noteAt(x, y))
+
   /** Note attaches to the nearest trace (within 40 px), otherwise to the clicked position */
-  const addNote = (x: number, y: number) => {
+  const noteAt = (x: number, y: number): NewCallout => {
     const t = xToT(x)
     const ch = nearestTrace(x, y, 40)
     const view = Math.min(nViews - 1, Math.floor(y / viewH))
     const dy = y < 70 ? 24 : -46
-    if (ch) p.onAddCallout({ type: 'note', t, channel: ch, dy })
-    else p.onAddCallout({ type: 'note', t, view, div: DIVS_Y / 2 - (y - view * viewH) / divH, dy })
+    if (ch) return { type: 'note', t, channel: ch, dy }
+    return { type: 'note', t, view, div: DIVS_Y / 2 - (y - view * viewH) / divH, dy }
+  }
+
+  const onContextMenu = (e: React.MouseEvent) => {
+    if (!p.onContextMenu || (e.target as HTMLElement).closest('.callout-editor')) return
+    const r = containerRef.current!.getBoundingClientRect()
+    const x = clampX(e.clientX - r.left)
+    const y = e.clientY - r.top
+    const onAxis = y > viewsH
+    const yIn = Math.min(viewsH - 1, Math.max(0, y))
+    p.onContextMenu(e, { t: xToT(x), onAxis, channel: onAxis ? undefined : nearestTrace(x, yIn, 24), note: onAxis ? undefined : noteAt(x, yIn) })
   }
 
   const nearestTrace = (x: number, y: number, maxPx = 20): string | undefined => {
@@ -431,7 +464,10 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerLeave={() => setHoverT(undefined)}
+      // no auto-scroll on a middle click
+      onMouseDown={(e) => e.button === 1 && e.preventDefault()}
       onDoubleClick={() => (p.tool === 'pan' || p.tool === 'zoom') && p.onZoomTo(p.record)}
+      onContextMenu={onContextMenu}
     >
       {p.views.map((_, i) => (
         <canvas
@@ -466,6 +502,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
         onUpdate={p.onUpdateCallout}
         onEdit={p.onEditCallout}
         onDelete={p.onDeleteCallout}
+        onContextMenu={p.onCalloutMenu}
       />
       {cursorReadout && (
         <div className="cursor-readout" style={{ left: Math.max(8, Math.min(plotW - 260, (tToX(p.cursors.a) + tToX(p.cursors.b)) / 2 - 130)) }}>

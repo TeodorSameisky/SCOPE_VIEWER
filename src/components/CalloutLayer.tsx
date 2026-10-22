@@ -13,6 +13,7 @@ interface Props extends CalloutLayout {
   onUpdate: (id: string, patch: Partial<Callout>) => void
   onEdit: (id: string | null) => void
   onDelete: (id: string) => void
+  onContextMenu?: (e: React.MouseEvent, c: Callout) => void
 }
 
 interface Drag {
@@ -116,6 +117,12 @@ export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLay
   const items = calloutShapes(p.callouts, p, DARK_THEME, p.selectedId, (c, part) => ({
     onPointerDown: startDrag(c, part),
     onDoubleClick: edit(c),
+    onContextMenu: (e: React.MouseEvent) => {
+      if (!p.onContextMenu) return
+      e.stopPropagation()
+      p.onSelect(c.id)
+      p.onContextMenu(e, c)
+    },
     style: { pointerEvents: 'auto' as const, cursor: part === 'box' || part === 'region' ? 'move' : part === 'anchor' ? 'pointer' : 'ew-resize' },
   }))
 
