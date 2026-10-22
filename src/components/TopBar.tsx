@@ -13,6 +13,7 @@ import {
   Home,
   Image,
   Maximize2,
+  MonitorDown,
   MoveHorizontal,
   RotateCcw,
   Ruler,
@@ -24,6 +25,7 @@ import {
   X,
   ZoomIn,
 } from 'lucide-react'
+import { installApp, useCanInstall } from '../pwa/install'
 import type { ExportKind } from './ExportDialog'
 import { IconButton } from './ui/IconButton'
 import { Logo } from './ui/Logo'
@@ -57,6 +59,7 @@ interface Props {
 
 export function TopBar(p: Props) {
   const toggle = (t: Tool) => p.setTool(p.tool === t ? 'pan' : t)
+  const canInstall = useCanInstall()
   return (
     <header className="topbar">
       <div className="brand" title="Scope Viewer">
@@ -73,6 +76,7 @@ export function TopBar(p: Props) {
           { label: 'Save session with analysis', hint: '.scopeview', icon: Archive, onClick: p.onSaveBundle },
           { label: 'Reset to file defaults…', icon: RotateCcw, divider: true, onClick: p.onReset },
           { label: 'Saved in this browser…', icon: HardDrive, onClick: p.onShowStorage },
+          ...(canInstall ? [{ label: 'Install Scope Viewer…', hint: 'own window, offline', icon: MonitorDown, divider: true, onClick: () => void installApp() }] : []),
           { label: 'Close session', icon: X, divider: true, onClick: p.onClose },
         ]}
       />

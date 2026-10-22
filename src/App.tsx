@@ -5,6 +5,10 @@ import { loadSession } from './parsers/load'
 import { Scope, type InitialState, type ScopeHandle, type SourceFile } from './components/Scope'
 import { Logo } from './components/ui/Logo'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { PwaStatus } from './components/PwaStatus'
+import { installApp, useCanInstall } from './pwa/install'
+import { onLaunchFiles } from './pwa/launch'
+import { MonitorDown } from 'lucide-react'
 
 const ACCEPT = '.tss,.wfm,.set,.scopeview,.json'
 const isJson = (f: File) => /\.json$/i.test(f.name)
@@ -98,6 +102,15 @@ export default function App() {
     }
   }, [open])
 
+  // Files opened from the operating system with the installed app ("Open with", double-click)
+  const openRef = useRef(open)
+  useEffect(() => {
+    openRef.current = open
+  })
+  useEffect(() => onLaunchFiles((files) => openRef.current(files)), [])
+
+  const canInstall = useCanInstall()
+
   const picker = (
     <input
       ref={inputRef}
@@ -151,6 +164,14 @@ export default function App() {
               )}
             </button>
             {error && <div className="error">{error}</div>}
+            {canInstall && (
+              <div className="install-hint">
+                <button type="button" className="primary" onClick={() => installApp()}>
+                  <MonitorDown size={16} aria-hidden /> Install Scope Viewer
+                </button>
+                <span>Runs in its own window, works offline and opens .tss files from the file explorer.</span>
+              </div>
+            )}
             <ul className="formats">
               <li>
                 <b>Tektronix session</b> <code>.tss</code> (4/5/6-Series MSO)
@@ -182,6 +203,7 @@ export default function App() {
         </div>
       )}
       {dragOver && <div className="drop-overlay">Drop to open</div>}
+      <PwaStatus />
     </>
   )
 }

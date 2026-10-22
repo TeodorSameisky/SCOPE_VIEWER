@@ -1554,6 +1554,40 @@ button.primary {
   color: #ffb3bc;
 }
 
+/* ---------- installable app ---------- */
+.install-hint {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.install-hint button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.pwa-toast {
+  position: fixed;
+  right: 16px;
+  bottom: 84px;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 8px 8px 8px 14px;
+  background: #1c222c;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.pwa-toast > svg {
+  color: var(--accent);
+  flex: none;
+}
+
 /* ---------- responsive ---------- */
 @media (max-width: 1250px) {
   .btn-label {

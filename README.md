@@ -150,6 +150,25 @@ or tab separated.
 
 The **?** button at the bottom of the rail shows all mouse and keyboard controls.
 
+## Install as an app
+
+Scope Viewer is an installable web app (PWA). In Chrome or Edge use **Install Scope Viewer** on the
+start page or in the **File** menu (or the install icon in the address bar); on iPhone/iPad use
+*Share → Add to Home Screen*. The installed app
+
+- runs in its own window and starts from the Start menu / Dock like a desktop program,
+- works **offline** – the app is cached on install; the rarely used MathJax glyph tables are cached
+  the first time they are needed,
+- opens `.tss`, `.wfm` and `.scopeview` files from the file explorer (*Open with → Scope Viewer*,
+  Chromium on Windows/macOS/Linux),
+- offers new versions with a *Reload* notice instead of changing under your hands (changes are
+  autosaved, so reloading loses nothing).
+
+Installation and offline use need **HTTPS** (or `localhost`); over plain HTTP the app works as a
+normal web page. The service worker is built by `vite-plugin-pwa` (Workbox). The icons in `public/`
+are generated from `public/favicon.svg` with `npx pwa-assets-generator` (config in
+`pwa-assets.config.ts`).
+
 ## Development
 
 ```bash
@@ -157,6 +176,7 @@ npm install
 npm run dev       # http://localhost:5173
 npm test          # unit tests (session tests run only if SessionSample/Tek000.tss exists locally)
 npm run build     # type check + production build into dist/
+npm run preview   # serve the build (http://localhost:4173), to test the service worker and offline use
 ```
 
 Code layout:
@@ -184,7 +204,7 @@ pack and set the exposed port to `80`.
 
 Scope Viewer is released under the [MIT License](LICENSE), © 2026 Teodor Sameisky.
 
-It uses React, react-dom and scheduler (MIT), fflate (MIT), Lucide icons (ISC, partly MIT via Feather) and
+It uses React, react-dom and scheduler (MIT), fflate (MIT), Lucide icons (ISC, partly MIT via Feather), Workbox (MIT) and
 MathJax with its New Computer Modern based font (Apache-2.0; the glyphs derive from New Computer Modern by
 Antonis Tsolomitis, GUST Font License / GPL with font exception). `npm run build` writes their license texts
 to `third-party-licenses.txt` next to `index.html`; the app links to it on the start page and in the help popover.

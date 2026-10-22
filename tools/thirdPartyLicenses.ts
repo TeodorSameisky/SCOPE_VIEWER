@@ -36,9 +36,10 @@ function readPackage(dir: string): Pkg {
 /**
  * Writes the licenses of all npm packages bundled into the app to `fileName` next to
  * index.html: minification drops their license comments, and MIT, ISC and Apache-2.0
- * all ask for the notice to travel with the code.
+ * all ask for the notice to travel with the code. `extra` lists packages that end up in
+ * files outside the Rollup bundle (e.g. the Workbox runtime in the service worker).
  */
-export function thirdPartyLicenses(fileName = 'third-party-licenses.txt'): Plugin {
+export function thirdPartyLicenses(fileName = 'third-party-licenses.txt', extra: string[] = []): Plugin {
   let root = process.cwd()
   return {
     name: 'third-party-licenses',
@@ -49,7 +50,7 @@ export function thirdPartyLicenses(fileName = 'third-party-licenses.txt'): Plugi
       server.middlewares.use(`/${fileName}`, (_req, res) => res.end('The list of third-party licenses is created by `npm run build`.\n'))
     },
     generateBundle(_options, bundle) {
-      const dirs = new Set(BUILD_RUNTIME.map((name) => path.join(root, 'node_modules', name)))
+      const dirs = new Set([...BUILD_RUNTIME, ...extra].map((name) => path.join(root, 'node_modules', name)))
       for (const chunk of Object.values(bundle)) {
         if (chunk.type !== 'chunk') continue
         for (const id of chunk.moduleIds) {
