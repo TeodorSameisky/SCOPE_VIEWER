@@ -1,12 +1,13 @@
 import { forwardRef, useEffect, useState } from 'react'
 import { CALLOUT_COLORS, type Callout } from '../model/callouts'
-import { FLAG_Y, calloutShapes, markerGeometry, noteGeometry, regionGeometry, type CalloutLayout, type CalloutPart } from '../render/callouts'
+import { calloutShapes, type CalloutGeo, type CalloutLayout, type CalloutPart } from '../render/callouts'
 import { DIVS_Y } from '../render/draw'
-import { useTexVersion } from '../render/tex'
 import { DARK_THEME } from '../render/theme'
 
 interface Props extends CalloutLayout {
   callouts: Callout[]
+  /** Screen geometry of the callouts (layoutCallouts) */
+  geo: Map<string, CalloutGeo>
   selectedId?: string
   editingId?: string
   onSelect: (id: string | undefined) => void
@@ -22,20 +23,16 @@ interface Drag {
   x0: number
   y0: number
   orig: Callout
+  /** Note box as shown when the drag started */
+  box?: { ax: number; ay: number; bx: number; by: number; bw: number; bh: number }
 }
 
-/** Where the inline editor of a callout goes (below its label) */
-function editorPosition(c: Callout, p: Props): { left: number; top: number } | null {
-  if (c.type === 'note') {
-    const g = noteGeometry(c, p)
-    return g && { left: g.bx, top: g.by + g.bh + 4 }
-  }
-  if (c.type === 'marker') {
-    const g = markerGeometry(c, p)
-    return g && { left: g.fx, top: FLAG_Y + g.h + 6 }
-  }
-  const g = regionGeometry(c, p)
-  return g && { left: g.lx, top: g.ly - 112 }
+/** Where the inline editor of a callout goes (below its label; above it for regions) */
+function editorPosition(g: CalloutGeo | undefined): { left: number; top: number } | null {
+  if (!g) return null
+  if (g.type === 'note') return { left: g.bx, top: g.by + g.bh + 4 }
+  if (g.type === 'marker') return { left: g.fx, top: g.fy + g.h + 6 }
+  return { left: g.lx, top: g.ly - 112 }
 }
 
 /**
@@ -44,8 +41,6 @@ function editorPosition(c: Callout, p: Props): { left: number; top: number } | n
  */
 export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLayer(p, ref) {
   const [drag, setDrag] = useState<Drag | null>(null)
-  // Formulas render asynchronously: draw again when one is ready
-  useTexVersion()
   const span = p.win.end - p.win.start
   const totalH = p.viewH * Math.max(1, p.views.length)
 
@@ -61,9 +56,15 @@ export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLay
       const dT = ((x - drag.x0) / p.plotW) * span
       const o = drag.orig
       switch (drag.part) {
-        case 'box':
-          p.onUpdate(o.id, { dx: (o.dx ?? 24) + (x - drag.x0), dy: (o.dy ?? -46) + (y - drag.y0) })
+        case 'box': {
+          // The box stays inside the plot, so the stored offset never runs past the edge either
+          const b = drag.box
+          if (!b) break
+          const bx = Math.max(2, Math.min(p.plotW - b.bw - 2, b.bx + x - drag.x0))
+          const by = Math.max(2, Math.min(totalH - b.bh - 2, b.by + y - drag.y0))
+          p.onUpdate(o.id, { dx: bx - b.ax, dy: by - b.ay })
           break
+        }
         case 'anchor': {
           const t = p.win.start + (Math.min(p.plotW, Math.max(0, x)) / p.plotW) * span
           if (o.channel) p.onUpdate(o.id, { t })
@@ -98,7 +99,7 @@ export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLay
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
     }
-  }, [drag, p, span, ref])
+  }, [drag, p, span, totalH, ref])
 
   const startDrag = (c: Callout, part: CalloutPart) => (e: React.PointerEvent) => {
     if (e.button !== 0) return
@@ -107,27 +108,36 @@ export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLay
     const svg = (ref as React.RefObject<SVGSVGElement | null>).current
     const r = svg?.getBoundingClientRect()
     p.onSelect(c.id)
-    setDrag({ id: c.id, part, x0: e.clientX - (r?.left ?? 0), y0: e.clientY - (r?.top ?? 0), orig: c })
+    const g = p.geo.get(c.id)
+    const box = g?.type === 'note' ? { ax: g.ax, ay: g.ay, bx: g.bx, by: g.by, bw: g.bw, bh: g.bh } : undefined
+    setDrag({ id: c.id, part, x0: e.clientX - (r?.left ?? 0), y0: e.clientY - (r?.top ?? 0), orig: c, box })
   }
   const edit = (c: Callout) => (e: React.MouseEvent) => {
     e.stopPropagation()
     p.onEdit(c.id)
   }
 
-  const items = calloutShapes(p.callouts, p, DARK_THEME, p.selectedId, (c, part) => ({
-    onPointerDown: startDrag(c, part),
-    onDoubleClick: edit(c),
-    onContextMenu: (e: React.MouseEvent) => {
-      if (!p.onContextMenu) return
-      e.stopPropagation()
-      p.onSelect(c.id)
-      p.onContextMenu(e, c)
-    },
-    style: { pointerEvents: 'auto' as const, cursor: part === 'box' || part === 'region' ? 'move' : part === 'anchor' ? 'pointer' : 'ew-resize' },
-  }))
+  const items = calloutShapes(
+    p.callouts,
+    p,
+    DARK_THEME,
+    p.selectedId,
+    (c, part) => ({
+      onPointerDown: startDrag(c, part),
+      onDoubleClick: edit(c),
+      onContextMenu: (e: React.MouseEvent) => {
+        if (!p.onContextMenu) return
+        e.stopPropagation()
+        p.onSelect(c.id)
+        p.onContextMenu(e, c)
+      },
+      style: { pointerEvents: 'auto' as const, cursor: part === 'box' || part === 'region' ? 'move' : part === 'anchor' ? 'pointer' : 'ew-resize' },
+    }),
+    p.geo,
+  )
 
   const editing = p.callouts.find((c) => c.id === p.editingId)
-  const pos = editing ? editorPosition(editing, p) : null
+  const pos = editing ? editorPosition(p.geo.get(editing.id)) : null
 
   return (
     <>

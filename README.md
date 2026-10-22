@@ -91,8 +91,11 @@ Mark events directly on the waveforms:
 
 Pick a type in the toolbar (or press N / M / R), click (or drag for a region) in the plot and type
 the text. Drag callouts to move them, double-click to edit. The **Callouts** tab lists all of them
-with *Go to*. Callouts are saved with the session (see *Saving*); the Callouts panel can also export/import
-just the callouts as JSON.
+with *Go to*; right-click a callout for its commands. Callouts are saved with the session (see *Saving*).
+Callout files from earlier versions can still be opened with *File → Open analysis file*.
+
+Labels never get in each other's way: note boxes stay inside the plot, flags of markers that are close
+together and labels of overlapping regions are stacked, and the cursor readout moves below the flags.
 
 Callout text can contain **TeX math**: `$V(t) = V_0\,e^{-t/\tau}$` inline, `$$\frac{1}{2\pi f_c}$$` in display
 style, `\$` for a dollar sign. Formulas are rendered with MathJax (loaded the first time a callout contains

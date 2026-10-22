@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { CALLOUT_COLORS, CALLOUT_ICON, calloutTitle, type Callout } from '../model/callouts'
 import { si } from '../util/format'
 import type { LiveChannel, Tool } from './state'
@@ -18,8 +19,13 @@ interface Props {
 
 export function CalloutPanel(p: Props) {
   const sorted = [...p.callouts].sort((a, b) => a.t - b.t)
+  // A callout selected in the plot is scrolled into view in the list
+  const listRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (p.selectedId) listRef.current?.querySelector(`[data-id="${CSS.escape(p.selectedId)}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [p.selectedId])
   return (
-    <div className="panel-body">
+    <div className="panel-body" ref={listRef}>
       <div className="callout-tools">
         {(['note', 'marker', 'region'] as const).map((t) => (
           <button key={t} className={p.tool === t ? 'active' : ''} onClick={() => p.setTool(p.tool === t ? 'pan' : t)}>
@@ -43,6 +49,7 @@ export function CalloutPanel(p: Props) {
         return (
           <div
             key={c.id}
+            data-id={c.id}
             className={`callout-card ${c.id === p.selectedId ? 'selected' : ''}`}
             style={{ ['--co' as string]: c.color }}
             onClick={() => p.onSelect(c.id)}

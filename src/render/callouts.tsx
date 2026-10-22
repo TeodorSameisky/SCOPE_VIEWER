@@ -98,8 +98,11 @@ function lineElements(line: TextLine, x: number, y: number, fill: string, fontWe
 }
 
 interface NoteGeo {
+  type: 'note'
+  /** Anchor on the trace (or the free point) */
   ax: number
   ay: number
+  /** Text box */
   bx: number
   by: number
   bw: number
@@ -107,12 +110,41 @@ interface NoteGeo {
   lines: TextLine[]
 }
 
-/** Screen geometry of a note, or null when its anchor is not visible. */
-export function noteGeometry(c: Callout, p: CalloutLayout): NoteGeo | null {
+interface MarkerGeo {
+  type: 'marker'
+  x: number
+  /** Flag with the label */
+  fx: number
+  fy: number
+  w: number
+  h: number
+  label: TextLine
+}
+
+interface RegionGeo {
+  type: 'region'
+  xa: number
+  xb: number
+  /** Label box */
+  lx: number
+  ly: number
+  w: number
+  h: number
+  label: TextLine
+}
+
+export type CalloutGeo = NoteGeo | MarkerGeo | RegionGeo
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+const FLAG_GAP = 3
+
+/** Note: the text box stays inside the plot, whatever its stored offset from the anchor */
+function noteGeometry(c: Callout, p: CalloutLayout): NoteGeo | null {
   const span = p.win.end - p.win.start
   const ax = ((c.t - p.win.start) / span) * p.plotW
   if (ax < -1 || ax > p.plotW + 1) return null
   const divH = p.viewH / DIVS_Y
+  const totalH = p.viewH * Math.max(1, p.views.length)
   let ay: number | undefined
   const ch = c.channel ? p.channels.find((x) => x.wave.id === c.channel) : undefined
   const vi = ch ? p.views.findIndex((v) => v.includes(ch.wave.id)) : -1
@@ -128,18 +160,22 @@ export function noteGeometry(c: Callout, p: CalloutLayout): NoteGeo | null {
   const lines = (c.text || calloutTitle(c)).split('\n').map((l) => layoutLine(l, FONT, NOTE_LINE))
   const bw = Math.ceil(Math.max(...lines.map((l) => l.width))) + PAD * 2
   const bh = lines.reduce((h, l) => h + l.ascent + l.descent, 0) + PAD
-  return { ax, ay, bx: ax + (c.dx ?? 24), by: ay + (c.dy ?? -46), bw, bh, lines }
+  const bx = clamp(ax + (c.dx ?? 24), 2, p.plotW - bw - 2)
+  const by = clamp(ay + (c.dy ?? -46), 2, totalH - bh - 2)
+  return { type: 'note', ax, ay, bx, by, bw, bh, lines }
 }
 
-export function markerGeometry(c: Callout, p: CalloutLayout) {
+/** Marker: dashed line with a flag at the top, on the left of the line near the right edge */
+function markerGeometry(c: Callout, p: CalloutLayout): MarkerGeo | null {
   const x = ((c.t - p.win.start) / (p.win.end - p.win.start)) * p.plotW
   if (x < -1 || x > p.plotW + 1) return null
   const label = layoutLine(calloutTitle(c), FLAG_FONT, FLAG_LINE)
   const w = label.width + 14
-  return { x, fx: x + w > p.plotW ? x - w : x, w, h: label.ascent + label.descent, label }
+  return { type: 'marker', x, fx: x + w > p.plotW ? x - w : x, fy: FLAG_Y, w, h: label.ascent + label.descent, label }
 }
 
-export function regionGeometry(c: Callout, p: CalloutLayout) {
+/** Region: shaded time span with its label at the bottom of the plot */
+function regionGeometry(c: Callout, p: CalloutLayout): RegionGeo | null {
   const tToX = (t: number) => ((t - p.win.start) / (p.win.end - p.win.start)) * p.plotW
   const t2 = c.t2 ?? c.t
   const xa = tToX(Math.min(c.t, t2))
@@ -148,16 +184,66 @@ export function regionGeometry(c: Callout, p: CalloutLayout) {
   const label = layoutLine(`${calloutTitle(c)}  Δt ${si(Math.abs(t2 - c.t), 's')}`, FONT, FLAG_LINE)
   const w = label.width + 14
   const h = label.ascent + label.descent
-  // Region labels sit at the bottom of the plot (markers use the top)
   const totalH = p.viewH * Math.max(1, p.views.length)
-  return { xa, xb, lx: Math.min(Math.max(xa, 0) + 4, p.plotW - w - 2), ly: totalH - h - 6, w, h, label }
+  return { type: 'region', xa, xb, lx: Math.min(Math.max(xa, 0) + 4, p.plotW - w - 2), ly: totalH - h - 6, w, h, label }
+}
+
+/**
+ * Rows for labels [x, x + w) so that no two in a row overlap: each goes into the first row
+ * where it fits, in the order of x (as few rows as possible).
+ */
+export function stackRows(items: { x: number; w: number }[], gap = 4): number[] {
+  const order = items.map((_, i) => i).sort((a, b) => items[a].x - items[b].x)
+  const ends: number[] = []
+  const rows = new Array<number>(items.length)
+  for (const i of order) {
+    let row = ends.findIndex((end) => items[i].x >= end + gap)
+    if (row < 0) row = ends.push(0) - 1
+    ends[row] = items[i].x + items[i].w
+    rows[i] = row
+  }
+  return rows
+}
+
+/**
+ * Screen geometry of the visible callouts. Note boxes are kept inside the plot; flags of markers
+ * that would overlap are stacked downwards from the top, labels of regions upwards from the bottom.
+ */
+export function layoutCallouts(callouts: Callout[], p: CalloutLayout): Map<string, CalloutGeo> {
+  const geo = new Map<string, CalloutGeo>()
+  const markers: MarkerGeo[] = []
+  const regions: RegionGeo[] = []
+  for (const c of callouts) {
+    const g = c.type === 'note' ? noteGeometry(c, p) : c.type === 'marker' ? markerGeometry(c, p) : regionGeometry(c, p)
+    if (!g) continue
+    geo.set(c.id, g)
+    if (g.type === 'marker') markers.push(g)
+    else if (g.type === 'region') regions.push(g)
+  }
+  stackRows(markers.map((g) => ({ x: g.fx, w: g.w }))).forEach((row, i) => (markers[i].fy = FLAG_Y + row * (markers[i].h + FLAG_GAP)))
+  stackRows(regions.map((g) => ({ x: g.lx, w: g.w }))).forEach((row, i) => (regions[i].ly -= row * (regions[i].h + FLAG_GAP)))
+  return geo
+}
+
+/** Lower edge of the lowest marker flag (px from the top of the plot), 0 without markers */
+export function flagsBottom(geo: Map<string, CalloutGeo>): number {
+  let bottom = 0
+  for (const g of geo.values()) if (g.type === 'marker') bottom = Math.max(bottom, g.fy + g.h)
+  return bottom
 }
 
 /**
  * SVG elements of the callouts, regions first, then markers, then notes on top. With `interact`
  * the draggable parts get its pointer handlers; without, the shapes are static (image export).
  */
-export function calloutShapes(callouts: Callout[], p: CalloutLayout, theme: Theme, selectedId?: string, interact?: (c: Callout, part: CalloutPart) => PartProps): ReactNode[] {
+export function calloutShapes(
+  callouts: Callout[],
+  p: CalloutLayout,
+  theme: Theme,
+  selectedId?: string,
+  interact?: (c: Callout, part: CalloutPart) => PartProps,
+  geo = layoutCallouts(callouts, p),
+): ReactNode[] {
   const totalH = p.viewH * Math.max(1, p.views.length)
   const order = { region: 0, marker: 1, note: 2 }
   const sorted = [...callouts].sort((a, b) => order[a.type] - order[b.type])
@@ -167,9 +253,10 @@ export function calloutShapes(callouts: Callout[], p: CalloutLayout, theme: Them
     const handlers = (part: CalloutPart) => interact?.(c, part) ?? {}
     const ink = theme.ink(c.color)
 
-    if (c.type === 'note') {
-      const g = noteGeometry(c, p)
-      if (!g) return null
+    const g = geo.get(c.id)
+    if (!g) return null
+
+    if (g.type === 'note') {
       const lx = Math.min(Math.max(g.ax, g.bx), g.bx + g.bw)
       const ly = Math.min(Math.max(g.ay, g.by), g.by + g.bh)
       return (
@@ -186,24 +273,20 @@ export function calloutShapes(callouts: Callout[], p: CalloutLayout, theme: Them
       )
     }
 
-    if (c.type === 'marker') {
-      const g = markerGeometry(c, p)
-      if (!g) return null
-      const { x, fx, w, h, label } = g
+    if (g.type === 'marker') {
+      const { x, fx, fy, w, h, label } = g
       return (
         <g key={c.id}>
           <line x1={x} y1={0} x2={x} y2={totalH} stroke={ink} strokeWidth={selected ? 2 : 1.2} strokeDasharray="6 4" />
           {interact && <line x1={x} y1={0} x2={x} y2={totalH} stroke="transparent" strokeWidth={10} {...handlers('marker')} />}
-          <rect x={fx} y={FLAG_Y} width={w} height={h} rx={3} fill={ink} {...handlers('marker')} />
-          {selected && <rect x={fx - 3} y={FLAG_Y - 3} width={w + 6} height={h + 6} rx={5} fill="none" stroke={theme.selection} strokeDasharray="3 3" />}
-          {lineElements(label, fx + 7, FLAG_Y + label.ascent, theme.onInk(ink), 600)}
+          <rect x={fx} y={fy} width={w} height={h} rx={3} fill={ink} {...handlers('marker')} />
+          {selected && <rect x={fx - 3} y={fy - 3} width={w + 6} height={h + 6} rx={5} fill="none" stroke={theme.selection} strokeDasharray="3 3" />}
+          {lineElements(label, fx + 7, fy + label.ascent, theme.onInk(ink), 600)}
         </g>
       )
     }
 
     // region
-    const g = regionGeometry(c, p)
-    if (!g) return null
     const { xa, xb, lx, ly, w, h, label } = g
     const [startPart, endPart]: CalloutPart[] = c.t <= (c.t2 ?? c.t) ? ['start', 'end'] : ['end', 'start']
     return (
@@ -222,14 +305,14 @@ export function calloutShapes(callouts: Callout[], p: CalloutLayout, theme: Them
 }
 
 /** The callouts as a standalone SVG document in the given theme, for image export */
-export function calloutsSvg(callouts: Callout[], p: CalloutLayout, theme: Theme): string {
+export function calloutsSvg(callouts: Callout[], p: CalloutLayout, theme: Theme, geo = layoutCallouts(callouts, p)): string {
   const totalH = p.viewH * Math.max(1, p.views.length)
   const host = document.createElement('div')
   const root = createRoot(host)
   flushSync(() =>
     root.render(
       <svg xmlns="http://www.w3.org/2000/svg" width={p.plotW} height={totalH} viewBox={`0 0 ${p.plotW} ${totalH}`}>
-        {calloutShapes(callouts, p, theme)}
+        {calloutShapes(callouts, p, theme, undefined, undefined, geo)}
       </svg>,
     ),
   )

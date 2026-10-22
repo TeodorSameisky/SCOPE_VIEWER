@@ -1,8 +1,8 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
 import type { Callout } from '../model/callouts'
-import { calloutsSvg } from '../render/callouts'
+import { calloutsSvg, flagsBottom, layoutCallouts } from '../render/callouts'
 import { AXIS_GUTTER, DIVS_Y, divToValue, drawTimeAxis, drawView, valueAt, valueToDiv } from '../render/draw'
-import { loadTex } from '../render/tex'
+import { loadTex, useTexVersion } from '../render/tex'
 import { DARK_THEME, type Theme } from '../render/theme'
 import { si } from '../util/format'
 import { channelName } from '../util/names'
@@ -23,6 +23,8 @@ const AXIS_H = 24
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 const GRAB_PX = 8
 const MIN_BOX_PX = 5
+/** Top of the cursor readout box: below the cursor labels, and below the marker flags if there are any */
+const readoutTop = (flags: number) => Math.max(22, flags + 6)
 
 /** What is under the pointer when the plot is right-clicked */
 export interface PlotPoint {
@@ -118,6 +120,9 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   const xToT = useCallback((x: number) => p.win.start + (x / plotW) * span, [p.win.start, plotW, span])
   const tToX = useCallback((t: number) => ((t - p.win.start) / span) * plotW, [p.win.start, plotW, span])
   const hoverT = hover && hover.x >= 0 && hover.x <= plotW ? xToT(hover.x) : undefined
+  // Callout geometry (formulas render asynchronously: lay out again when one is ready)
+  useTexVersion()
+  const calloutGeo = layoutCallouts(p.callouts, { channels: p.channels, views: p.views, win: p.win, plotW, viewH })
 
   useLayoutEffect(() => {
     const el = containerRef.current
@@ -239,12 +244,16 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       drawTimeAxis(ax.getContext('2d')!, size.w, AXIS_H, scale, p.win.start, p.win.end, ticks, theme)
       ctx.drawImage(ax, 0, Math.round(viewsH * scale))
       // Callouts are vector graphics: rasterised directly at the export resolution
+      let flags = 0
       if (p.callouts.length) {
         await loadTex(p.callouts.map((c) => c.text))
-        const img = await svgToImage(calloutsSvg(p.callouts, { channels: p.channels, views: p.views, win: p.win, plotW, viewH }, theme))
+        const layout = { channels: p.channels, views: p.views, win: p.win, plotW, viewH }
+        const geo = layoutCallouts(p.callouts, layout)
+        flags = flagsBottom(geo)
+        const img = await svgToImage(calloutsSvg(p.callouts, layout, theme, geo))
         if (img) ctx.drawImage(img, 0, 0, plotW * scale, viewsH * scale)
       }
-      if (p.cursors.on) drawCursorReadout(ctx, scale, p, tToX, theme)
+      if (p.cursors.on) drawCursorReadout(ctx, scale, p, tToX, theme, readoutTop(flags))
       return out
     },
   }))
@@ -498,6 +507,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       <CalloutLayer
         ref={svgRef}
         callouts={p.callouts}
+        geo={calloutGeo}
         channels={p.channels}
         views={p.views}
         win={p.win}
@@ -512,7 +522,10 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
         onContextMenu={p.onCalloutMenu}
       />
       {cursorReadout && (
-        <div className="cursor-readout" style={{ left: Math.max(8, Math.min(plotW - 260, (tToX(p.cursors.a) + tToX(p.cursors.b)) / 2 - 130)) }}>
+        <div
+          className="cursor-readout"
+          style={{ left: Math.max(8, Math.min(plotW - 260, (tToX(p.cursors.a) + tToX(p.cursors.b)) / 2 - 130)), top: readoutTop(flagsBottom(calloutGeo)) }}
+        >
           {cursorReadout}
         </div>
       )}
@@ -601,7 +614,7 @@ async function svgToImage(xml: string): Promise<HTMLImageElement | null> {
 }
 
 /** The Δt / Δv box of the cursors, drawn into exported images (on screen it is HTML) */
-function drawCursorReadout(ctx: CanvasRenderingContext2D, scale: number, p: Props, tToX: (t: number) => number, theme: Theme) {
+function drawCursorReadout(ctx: CanvasRenderingContext2D, scale: number, p: Props, tToX: (t: number) => number, theme: Theme, top: number) {
   const dt = p.cursors.b - p.cursors.a
   const src = p.channels.find((c) => c.wave.id === p.cursors.source)
   const unit = src?.wave.yUnit ?? 'V'
@@ -614,9 +627,9 @@ function drawCursorReadout(ctx: CanvasRenderingContext2D, scale: number, p: Prop
   const x = Math.max(8, (tToX(p.cursors.a) + tToX(p.cursors.b)) / 2 - w / 2)
   ctx.fillStyle = theme.readoutBg
   ctx.strokeStyle = theme.readoutBorder
-  ctx.fillRect(x, 22, w, 40)
-  ctx.strokeRect(x + 0.5, 22.5, w, 40)
+  ctx.fillRect(x, top, w, 40)
+  ctx.strokeRect(x + 0.5, top + 0.5, w, 40)
   ctx.fillStyle = theme.text
-  lines.forEach((l, i) => ctx.fillText(l, x + 10, 38 + i * 16))
+  lines.forEach((l, i) => ctx.fillText(l, x + 10, top + 16 + i * 16))
   ctx.restore()
 }
