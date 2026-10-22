@@ -46,7 +46,8 @@ export interface Session {
   channels: Channel[]
   /** Channel ids grouped per stacked view, top to bottom */
   views: string[][]
-  horizontal?: { scale: number; position: number; sampleRate?: number }
+  /** Time base when saved: s/div, trigger position in % of the screen, delay of that point from the trigger */
+  horizontal?: { scale: number; position: number; sampleRate?: number; delay?: number }
   trigger?: { source: string; level?: number; slope?: string }
   cursors?: SessionCursors
   measurements?: { type: string; source: string }[]

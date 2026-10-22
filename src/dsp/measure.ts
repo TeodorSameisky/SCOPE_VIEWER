@@ -93,6 +93,12 @@ export function measure(data: Float32Array, i0: number, i1: number, t0: number, 
     // Only trust the modes if they hold a meaningful share of samples (bi-level signal)
     if (hist[lo] > valid * 0.02) base = min + lo / k
     if (hist[hi] > valid * 0.02) top = min + hi / k
+    // Like the "auto" method of Tektronix scopes: modes that lie close together are not two
+    // signal levels (noise, or a few quantisation steps), so Max/Min are used instead
+    if (top - base < MIN_LEVEL_RATIO * pkpk) {
+      top = max
+      base = min
+    }
   }
   const amplitude = top - base
 
@@ -103,8 +109,8 @@ export function measure(data: Float32Array, i0: number, i1: number, t0: number, 
   let posWidth = nan
   let duty = nan
 
-  // Usable levels for edge detection? Noise either has its histogram modes close together
-  // (small amplitude) or, with min/max as levels, hardly any samples near those levels.
+  // Usable levels for edge detection? With noise only, min/max are the levels and hardly any
+  // samples are near them.
   let levelsOk = amplitude > 0 && amplitude >= MIN_LEVEL_RATIO * pkpk
   if (levelsOk) {
     const lo = base + 0.1 * amplitude

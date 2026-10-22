@@ -46,6 +46,7 @@ export default defineConfig({
             accept: {
               'application/x-tektronix-session': ['.tss'],
               'application/x-tektronix-waveform': ['.wfm'],
+              'application/x-tektronix-isf': ['.isf'],
               'application/x-scopeview': ['.scopeview'],
             },
           },

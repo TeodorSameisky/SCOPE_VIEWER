@@ -72,7 +72,7 @@ export const MEASUREMENT_DEFS: MeasurementDef[] = [
     group: 'amplitude',
     short: 'The upper signal level (the "high" state), ignoring overshoot.',
     method:
-      'The most frequent value (histogram mode) in the upper half of the signal’s range. If there is no distinct level (e.g. a sine or a ramp) Maximum is used instead.',
+      'The most frequent value (histogram mode) in the upper half of the signal’s range. If there are no two distinct levels (a sine, a ramp, or only noise) Maximum is used instead, like the “auto” method of Tektronix scopes.',
   },
   {
     key: 'base',
@@ -81,7 +81,7 @@ export const MEASUREMENT_DEFS: MeasurementDef[] = [
     group: 'amplitude',
     short: 'The lower signal level (the "low" state), ignoring undershoot.',
     method:
-      'The most frequent value (histogram mode) in the lower half of the signal’s range. If there is no distinct level Minimum is used instead.',
+      'The most frequent value (histogram mode) in the lower half of the signal’s range. If there are no two distinct levels Minimum is used instead.',
   },
   {
     key: 'amplitude',
@@ -164,7 +164,7 @@ export const MEASUREMENT_NOTES: { title: string; text: string }[] = [
   },
   {
     title: 'When timing shows “—”',
-    text: 'Timing values need clear signal levels. If the range holds no complete edge, too few edges, or only noise (Amplitude below 20 % of Peak-to-peak) the value is not shown. Zoom out or choose “Whole record”.',
+    text: 'Timing values need clear signal levels. If the range holds no complete edge, too few edges, or only noise (the signal hardly ever stays near a top or base level) the value is not shown. Zoom out or choose “Whole record”.',
   },
 ]
 

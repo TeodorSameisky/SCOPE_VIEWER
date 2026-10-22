@@ -11,6 +11,7 @@ All parsing happens **in the browser** (in a Web Worker). Session files are neve
 | --- | --- |
 | Tektronix session `.tss` (4/5/6-Series MSO) | Zip with `chN.wfm`, a zipped SCPI setup (`.set`), a screenshot and `manifest.json`. Channel labels, V/div, offset/position, stacked view layout, trigger, cursors and measurements are restored from the setup. |
 | Tektronix waveform `.wfm` (WFM#001–#003) | One or more files; drop a matching `.set` file together with them to restore the setup. FastFrame: only the first frame is shown. |
+| Tektronix ISF `.isf` (TDS1000/2000, TPS2000, DPO/MSO2000–4000, MDO3000/4000) | The waveforms saved by the older families ("Save All" writes `tekNNNNCHx.isf`, a `.set` and a screenshot). Open the files together, or a `.zip` of them. Labels, V/div, position, trigger, cursors and measurements come from the `.set`; without it, scale and position are taken from the waveform files. 8/16-bit, float, ASCII and envelope data are read. |
 | Scope Viewer bundle `.scopeview` | A session file together with its analysis (see *Saving*). An analysis file `.scopeview.json` can also be opened together with its session file, or dropped onto an open session. |
 | Rigol | Planned. |
 
@@ -182,7 +183,7 @@ npm run preview   # serve the build (http://localhost:4173), to test the service
 Code layout:
 
 ```
-src/parsers/   file formats (tekWfm, tekSetup, session = .tss/.wfm loader, worker)
+src/parsers/   file formats (tekWfm, tekIsf, tekSetup, session = .tss/.wfm/.isf/.zip loader, worker)
 src/dsp/       min/max pyramid, measurements and their documentation
 src/math/      expression language and signal processing for math channels, FFT and windows
 src/model/     data types, callouts, math, spectra and the workspace (autosave, analysis files)

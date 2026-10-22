@@ -47,6 +47,11 @@ const TEK_MEAS: Record<string, MeasurementKey> = {
   FALLTIME: 'fallTime',
   PWIDTH: 'posWidth',
   PDUTY: 'duty',
+  // names of the older families (TDS, DPO/MSO2000–4000, MDO3000)
+  HIGH: 'top',
+  LOW: 'base',
+  RISE: 'riseTime',
+  FALL: 'fallTime',
 }
 const DEFAULT_MEAS: MeasurementKey[] = ['max', 'min', 'pkpk', 'mean', 'rms', 'frequency', 'riseTime', 'fallTime']
 
@@ -67,7 +72,8 @@ export function scopeWindow(session: Session): TimeWindow {
   const h = session.horizontal
   if (h) {
     const span = h.scale * 10
-    const start = (-h.position / 100) * span
+    // The point at `position` % of the screen is the trigger, or `delay` after it with delay on
+    const start = (h.delay ?? 0) - (h.position / 100) * span
     if (start < record.end && start + span > record.start) return { start, end: start + span }
   }
   return record

@@ -10,7 +10,7 @@ import { installApp, useCanInstall } from './pwa/install'
 import { onLaunchFiles } from './pwa/launch'
 import { MonitorDown } from 'lucide-react'
 
-const ACCEPT = '.tss,.wfm,.set,.scopeview,.json'
+const ACCEPT = '.tss,.wfm,.isf,.set,.zip,.png,.scopeview,.json'
 const isJson = (f: File) => /\.json$/i.test(f.name)
 
 interface Current {
@@ -178,6 +178,10 @@ export default function App() {
               </li>
               <li>
                 <b>Tektronix waveform</b> <code>.wfm</code>, optionally with a <code>.set</code> setup file
+              </li>
+              <li>
+                <b>Older Tektronix scopes</b> <code>.isf</code> (TDS, DPO/MSO2000–4000, MDO3000/4000), with <code>.set</code> and screenshot; or the
+                saved files together in a <code>.zip</code>
               </li>
               <li>
                 <b>Scope Viewer bundle</b> <code>.scopeview</code>: a session with its analysis; or a session file together with its{' '}
