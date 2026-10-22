@@ -112,9 +112,15 @@ Spectra are saved per session file like math channels.
 Everything you change – channel settings and view layout, math channels, spectra, callouts, cursors,
 the time window, the measurement selection and the session **notes** – is saved automatically in the
 browser and restored when the same file is opened again. Files are recognised by a SHA-256 hash of
-their contents, not by their name. The status next to the file name shows whether changes are saved;
-the Session panel lists stored sessions (the 50 most recent are kept) and can reset a session to the
-file defaults.
+their contents, not by their name. The status next to the file name shows whether changes are saved,
+and the Session panel can reset a session to the file defaults.
+
+**Switching sessions:** opened session files are also kept in the browser (IndexedDB), so the Session
+panel and the start page list the sessions known to this browser – click one to switch to it, with its
+saved analysis. Files up to 300 MB each and 1 GB in total are kept (the least recently opened are dropped
+first; their analyses stay and can be reopened with *Locate…*, which asks for the file). Keeping files can
+be switched off in the Session panel, which also deletes the kept files. The 50 most recently changed
+analyses are kept.
 
 To keep or share the work, use the **File** menu:
 

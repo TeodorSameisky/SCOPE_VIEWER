@@ -1,6 +1,10 @@
 import { useState } from 'react'
-import { Archive, FileJson, RotateCcw, Trash2 } from 'lucide-react'
-import { MAX_STORED_SESSIONS, deleteStoredSession, listStoredSessions } from '../model/workspace'
+import { Archive, FileJson, RotateCcw } from 'lucide-react'
+import { MAX_SESSION_BYTES, MAX_TOTAL_BYTES, clearSessionFiles, keepFilesEnabled, setKeepFiles } from '../model/fileStore'
+import { forgetSession, type RecentSession } from '../model/recent'
+import { MAX_STORED_SESSIONS } from '../model/workspace'
+import { formatBytes } from '../util/format'
+import { RecentSessions } from './RecentSessions'
 import type { SaveStatus } from './TopBar'
 
 interface Props {
@@ -11,18 +15,23 @@ interface Props {
   onSaveAnalysis: () => void
   onSaveBundle: () => void
   onReset: () => void
+  /** Switch to another stored session */
+  onOpenStored: (r: RecentSession) => void
+  /** Keep the files of the open session (when keeping files is switched on) */
+  onKeepCurrent: () => Promise<void>
+  /** Changes when files were kept, to refresh the list */
+  filesVersion: number
 }
+
+
 
 /** Session panel section: where the work is kept, saving it to files, managing stored sessions */
 export function StorageSection(p: Props) {
-  // Read when the panel opens and after forgetting sessions (the list lives in localStorage)
-  const [stored, setStored] = useState(listStoredSessions)
-  const forget = (fingerprints: string[]) => {
-    fingerprints.forEach(deleteStoredSession)
-    setStored(listStoredSessions())
-  }
-  const totalBytes = stored.reduce((n, s) => n + s.bytes, 0)
-  const others = stored.filter((s) => s.fingerprint !== p.fingerprint)
+  const [recent, setRecent] = useState<RecentSession[]>([])
+  const [keep, setKeep] = useState(keepFilesEnabled)
+  // Bumped after changes made here (forget all, keep files on/off) to reload the list
+  const [version, setVersion] = useState(0)
+  const others = recent.filter((r) => r.fingerprint !== p.fingerprint)
 
   return (
     <section className="storage">
@@ -47,50 +56,50 @@ export function StorageSection(p: Props) {
         </button>
       </div>
 
-      <h4>
-        Stored in this browser <span className="muted">({stored.length}, {Math.ceil(totalBytes / 1024)} kB)</span>
-      </h4>
-      {stored.length === 0 ? (
-        <p className="hint">Nothing stored yet.</p>
-      ) : (
-        <ul className="stored-list">
-          {stored.map((s) => (
-            <li key={s.fingerprint} className={s.fingerprint === p.fingerprint ? 'current' : ''}>
-              <div>
-                <strong title={s.fileName}>{s.fileName}</strong>
-                <span className="muted">
-                  {s.fingerprint === p.fingerprint ? 'open now · ' : ''}
-                  {new Date(s.savedAt).toLocaleString()} · {Math.ceil(s.bytes / 1024)} kB
-                </span>
-              </div>
-              {s.fingerprint !== p.fingerprint && (
-                <button
-                  type="button"
-                  className="icon-btn"
-                  title="Forget this session"
-                  aria-label={`Forget ${s.fileName}`}
-                  onClick={() => forget([s.fingerprint])}
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      <h4>Sessions in this browser</h4>
+      <p className="hint">Click a session to switch to it; your changes to this one are saved first.</p>
+      <RecentSessions current={p.fingerprint} onOpen={p.onOpenStored} refreshKey={`${p.filesVersion}:${version}`} onLoaded={setRecent} />
+      <label className="check keep-files" title="Keep the session files, so they can be reopened from this list without choosing them again">
+        <input
+          type="checkbox"
+          checked={keep}
+          onChange={async (e) => {
+            if (e.target.checked) {
+              setKeepFiles(true)
+              setKeep(true)
+              await p.onKeepCurrent()
+            } else {
+              const kept = recent.filter((r) => r.fileBytes !== undefined).length
+              if (kept && !confirm(`Stop keeping session files and delete the ${kept} kept file${kept > 1 ? 's' : ''} from this browser? Saved analyses stay.`)) return
+              setKeepFiles(false)
+              setKeep(false)
+              await clearSessionFiles()
+            }
+            setVersion((v) => v + 1)
+          }}
+        />
+        Keep session files in this browser
+      </label>
+      <p className="hint storage-usage">
+        In use: {formatBytes(recent.reduce((n, r) => n + (r.fileBytes ?? 0), 0))} of session files, {formatBytes(recent.reduce((n, r) => n + (r.analysisBytes ?? 0), 0))} of analyses
+      </p>
       {others.length > 1 && (
         <button
           type="button"
           className="text-btn danger"
-          onClick={() => {
-            if (!confirm(`Forget the saved state of ${others.length} other session files?`)) return
-            forget(others.map((s) => s.fingerprint))
+          onClick={async () => {
+            if (!confirm(`Forget ${others.length} other sessions (their analyses and kept files)?`)) return
+            for (const r of others) await forgetSession(r.fingerprint)
+            setVersion((v) => v + 1)
           }}
         >
           Forget all other sessions
         </button>
       )}
-      <p className="hint">Sessions are recognised by the content of the file, not its name. The {MAX_STORED_SESSIONS} most recently used are kept.</p>
+      <p className="hint">
+        Sessions are recognised by the content of the file, not its name. The {MAX_STORED_SESSIONS} most recently changed analyses are kept; files up to{' '}
+        {MAX_SESSION_BYTES / 1024 / 1024} MB each and {MAX_TOTAL_BYTES / 1024 / 1024 / 1024} GB in total, the least recently opened are dropped first.
+      </p>
     </section>
   )
 }

@@ -43,3 +43,11 @@ export function niceStep(raw: number): number {
   const nice = m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10
   return nice * exp
 }
+
+/** File / storage size for display: "512 B", "37 kB", "2.2 MB", "1.05 GB" (binary units) */
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${Math.round(n)} B`
+  if (n < 1024 ** 2) return `${Math.round(n / 1024)} kB`
+  if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MB`
+  return `${(n / 1024 ** 3).toFixed(2)} GB`
+}

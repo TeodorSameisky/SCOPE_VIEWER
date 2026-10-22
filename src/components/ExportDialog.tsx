@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 import { ClipboardCopy, Download, FileSpreadsheet, FileText, Image, Table2, Waves, X } from 'lucide-react'
 import { CSV_FORMATS, type CsvFormatKey } from '../export/csv'
 import type { Appearance } from '../render/theme'
+import { formatBytes } from '../util/format'
 import { usePersistentState } from '../util/usePersistentState'
 import { RANGE_LABEL, type MeasureRange } from './state'
 import { useDismiss } from './ui/useDismiss'
@@ -337,9 +338,3 @@ export function ExportDialog(p: Props) {
   )
 }
 
-function formatBytes(n: number): string {
-  if (n < 1e3) return `${n} B`
-  if (n < 1e6) return `${(n / 1e3).toFixed(0)} kB`
-  if (n < 1e9) return `${(n / 1e6).toFixed(1)} MB`
-  return `${(n / 1e9).toFixed(2)} GB`
-}

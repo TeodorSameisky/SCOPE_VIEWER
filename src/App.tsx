@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Session } from './model/types'
 import { deleteStoredSession, parseAnalysisJson } from './model/workspace'
+import { keepFilesEnabled, keepSessionFiles, loadSessionFiles } from './model/fileStore'
+import type { RecentSession } from './model/recent'
+import { RecentSessions } from './components/RecentSessions'
 import { loadSession } from './parsers/load'
 import { Scope, type InitialState, type ScopeHandle, type SourceFile } from './components/Scope'
 import { Logo } from './components/ui/Logo'
@@ -34,8 +37,17 @@ export default function App() {
    * Open session files. An analysis file (.scopeview.json) can be opened together with
    * its session file, or on its own to apply it to the open session.
    */
+  // Session files are kept in the browser after opening, so stored sessions can be reopened
+  const [filesVersion, setFilesVersion] = useState(0)
+  const keepFiles = useCallback(async (session: Session, sources: SourceFile[]) => {
+    if (!keepFilesEnabled() || !session.fingerprint) return
+    const r = await keepSessionFiles(session.fingerprint, session.fileName, sources)
+    if (r.kept) setFilesVersion((v) => v + 1)
+  }, [])
+
   const open = useCallback(
-    async (files: File[]) => {
+    /** `expected`: the stored session the user is locating (checked against the chosen file) */
+    async (files: File[], expected?: RecentSession) => {
       if (!files.length) return
       const jsons = files.filter(isJson)
       const data = files.filter((f) => !isJson(f))
@@ -63,13 +75,29 @@ export default function App() {
           ? loaded.sources.map((s) => ({ name: s.name, blob: new Blob([s.data]) }))
           : data.map((f) => ({ name: f.name, blob: f }))
         setCurrent((c) => ({ session: loaded.session, sources, initial, generation: (c?.generation ?? 0) + 1 }))
+        if (expected && loaded.session.fingerprint && expected.fingerprint !== loaded.session.fingerprint) {
+          setError(`This is not the stored session “${expected.fileName}” (the content differs), so it was opened on its own.`)
+        }
+        void keepFiles(loaded.session, sources)
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e))
       } finally {
         setBusy(false)
       }
     },
-    [hasSession],
+    [hasSession, keepFiles],
+  )
+
+  /** Switch to a session stored in this browser; without its kept file, ask for the file */
+  const locateRef = useRef<RecentSession | null>(null)
+  const openStored = useCallback(
+    async (r: RecentSession) => {
+      const files = r.fileBytes !== undefined ? await loadSessionFiles(r.fingerprint) : undefined
+      if (files?.length) return open(files)
+      locateRef.current = r
+      inputRef.current?.click()
+    },
+    [open],
   )
 
   /** Remount the open session with another workspace (imported analysis or reset) */
@@ -109,7 +137,16 @@ export default function App() {
   })
   useEffect(() => onLaunchFiles((files) => openRef.current(files)), [])
 
+  // Closing the file dialog without a file ends a "Locate…"
+  useEffect(() => {
+    const input = inputRef.current
+    const cancel = () => (locateRef.current = null)
+    input?.addEventListener('cancel', cancel)
+    return () => input?.removeEventListener('cancel', cancel)
+  }, [])
+
   const canInstall = useCanInstall()
+  const [recentCount, setRecentCount] = useState(0)
 
   const picker = (
     <input
@@ -119,9 +156,11 @@ export default function App() {
       multiple
       hidden
       onChange={(e) => {
-        open(Array.from(e.target.files ?? []))
+        open(Array.from(e.target.files ?? []), locateRef.current ?? undefined)
+        locateRef.current = null
         e.target.value = ''
       }}
+
     />
   )
 
@@ -146,6 +185,9 @@ export default function App() {
             onOpen={() => inputRef.current?.click()}
             onClose={() => setCurrent(null)}
             onReplaceWorkspace={replaceWorkspace}
+            onOpenStored={openStored}
+            onKeepFiles={() => keepFiles(current.session, current.sources)}
+            filesVersion={filesVersion}
           />
         </ErrorBoundary>
       ) : (
@@ -164,6 +206,10 @@ export default function App() {
               )}
             </button>
             {error && <div className="error">{error}</div>}
+            <div className={`recent ${recentCount ? '' : 'hidden'}`}>
+              <h4>Recent sessions</h4>
+              <RecentSessions onOpen={openStored} refreshKey={filesVersion} onLoaded={(l) => setRecentCount(l.length)} limit={8} />
+            </div>
             {canInstall && (
               <div className="install-hint">
                 <button type="button" className="primary" onClick={() => installApp()}>

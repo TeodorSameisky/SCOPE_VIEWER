@@ -27,6 +27,7 @@ import { runExport, waveformRows, type ExportContext } from '../export/sessionEx
 import { downloadBlob, stem } from '../util/download'
 import { channelName } from '../util/names'
 import { usePersistentState } from '../util/usePersistentState'
+import type { RecentSession } from '../model/recent'
 import { CalloutPanel } from './CalloutPanel'
 import { ChannelBar, type MathItem } from './ChannelBar'
 import { CursorPanel } from './CursorPanel'
@@ -106,6 +107,12 @@ interface Props {
   onClose: () => void
   /** Restart the session with another workspace */
   onReplaceWorkspace: (initial: InitialState) => void
+  /** Switch to another session stored in this browser */
+  onOpenStored: (r: RecentSession) => void
+  /** Keep the files of the open session in the browser */
+  onKeepFiles: () => Promise<void>
+  /** Changes when session files were kept (refreshes the stored-session list) */
+  filesVersion: number
 }
 
 function initWorkspace(session: Session, initial: InitialState): { workspace: Workspace; source: LoadSource | 'file' } {
@@ -120,7 +127,7 @@ function initWorkspace(session: Session, initial: InitialState): { workspace: Wo
   }
 }
 
-export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, sources, initial, onOpen, onClose, onReplaceWorkspace }, ref) {
+export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, sources, initial, onOpen, onClose, onReplaceWorkspace, onOpenStored, onKeepFiles, filesVersion }, ref) {
   // Everything the user can change starts from the workspace (saved state, analysis file or file defaults)
   const [boot] = useState(() => initWorkspace(session, initial))
   const ws0 = boot.workspace
@@ -728,6 +735,9 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
                     onSaveAnalysis={saveAnalysis}
                     onSaveBundle={saveBundle}
                     onReset={resetToDefaults}
+                    onOpenStored={onOpenStored}
+                    onKeepCurrent={onKeepFiles}
+                    filesVersion={filesVersion}
                   />
                 }
               />
