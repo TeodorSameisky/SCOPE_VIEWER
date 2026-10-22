@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   Archive,
+  ArrowLeft,
   Check,
   Crosshair,
   Download,
@@ -20,6 +21,7 @@ import {
   Ruler,
   StickyNote,
   Table2,
+  Redo2,
   Undo2,
   Upload,
   Waves,
@@ -56,6 +58,10 @@ interface Props {
   onToggleCursors: () => void
   readoutOn: boolean
   onToggleReadout: () => void
+  canUndo: boolean
+  canRedo: boolean
+  onUndo: () => void
+  onRedo: () => void
   onExport: (kind: ExportKind) => void
   hasSpectra: boolean
 }
@@ -87,6 +93,8 @@ export function TopBar(p: Props) {
         {p.fileName}
       </span>
       <SaveIndicator status={p.saveStatus} onClick={p.onShowStorage} />
+      <IconButton icon={Undo2} label="Undo" shortcut="Ctrl+Z" disabled={!p.canUndo} onClick={p.onUndo} />
+      <IconButton icon={Redo2} label="Redo" shortcut="Ctrl+Y" disabled={!p.canRedo} onClick={p.onRedo} />
 
       <div className="spacer" />
 
@@ -101,7 +109,7 @@ export function TopBar(p: Props) {
       </div>
 
       <div className="sep" />
-      <IconButton icon={Undo2} label="Back" shortcut="Backspace" disabled={!p.canGoBack} onClick={p.onBack} />
+      <IconButton icon={ArrowLeft} label="Back to the previous view" shortcut="Backspace" disabled={!p.canGoBack} onClick={p.onBack} />
       <IconButton icon={Home} label="Saved view" onClick={p.onSavedView} />
       <IconButton icon={Maximize2} label="Full record" shortcut="F" disabled={!p.zoomed} onClick={p.onFullRecord} />
       <div className="sep" />

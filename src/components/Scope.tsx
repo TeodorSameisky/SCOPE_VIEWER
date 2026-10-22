@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import {
+  ArrowLeft,
   AudioLines,
   Copy,
   Eye,
@@ -16,7 +17,6 @@ import {
   SlidersHorizontal,
   StickyNote,
   Trash2,
-  Undo2,
   UnfoldVertical,
   X,
   ZoomIn,
@@ -79,6 +79,8 @@ import {
   type Tool,
 } from './state'
 import { useContextMenu, type MenuEntry } from './ui/menuContext'
+import { UndoHistory } from '../model/undoHistory'
+import { useUndoHistory } from './useUndoHistory'
 
 /** Window + vertical settings, restored by "zoom back" */
 interface ViewState {
@@ -159,6 +161,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
   // Everything the user can change starts from the workspace (saved state, analysis file or file defaults)
   const [boot] = useState(() => initWorkspace(session, initial))
   const ws0 = boot.workspace
+  // Undo history of the analysis (recorded in "undo / redo" below)
+  const [editHistory] = useState(() => new UndoHistory(undoDocOf(ws0)))
 
   const pyramids = useMemo(() => new Map(session.channels.map((c) => [c.wave.id, new MinMaxPyramid(c.wave.data)])), [session])
   const [mathDefs, setMathDefs] = useState<MathDef[]>(ws0.math)
@@ -289,7 +293,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     setCallouts((cs) => cs.filter((x) => x.id !== id))
     if (editing?.id === id) setEditing(null)
     if (selectedCallout === id) setSelectedCallout(undefined)
-    if (c && !silent) offerUndo(`${calloutTitle(c)} deleted`, () => setCallouts((cs) => [...cs, c]))
+    if (c && !silent) offerUndo(`${calloutTitle(c)} deleted`)
   }
   const editCallout = (id: string | null) => {
     if (id) {
@@ -330,18 +334,15 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     setCursors(inView(cursors.a) && inView(cursors.b) ? { ...cursors, on: true } : { ...cursors, on: true, a: win.start + span * 0.3, b: win.start + span * 0.7 })
   }
 
-  // ---------- undo of deletions ----------
-  const [undo, setUndo] = useState<{ message: string; restore: () => void; id: number } | null>(null)
-  const offerUndo = (message: string, restore: () => void) => setUndo({ message, restore, id: Date.now() })
-  const runUndo = () => {
-    undo?.restore()
-    setUndo(null)
-  }
+  // ---------- deletions offer undo in a toast (the undo history is set up below the state) ----------
+  const [undoToast, setUndoToast] = useState<{ message: string; id: number; steps: number } | null>(null)
+  /** Called with the deletion; the toast stays until something else changes */
+  const offerUndo = (message: string) => setUndoToast({ message, id: Date.now(), steps: editHistory.started })
   useEffect(() => {
-    if (!undo) return
-    const t = window.setTimeout(() => setUndo((u) => (u?.id === undo.id ? null : u)), 8000)
+    if (!undoToast) return
+    const t = window.setTimeout(() => setUndoToast((u) => (u?.id === undoToast.id ? null : u)), 8000)
     return () => window.clearTimeout(t)
-  }, [undo])
+  }, [undoToast])
 
   // ---------- short confirmations ("… copied") ----------
   const [notice, setNotice] = useState<{ message: string; id: number } | null>(null)
@@ -354,60 +355,6 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     const ok = await copyText(text)
     setNotice({ message: ok ? `${what} copied` : 'This browser does not allow copying here', id: Date.now() })
   }
-
-  // ---------- keyboard shortcuts ----------
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (exportKind) return
-      const target = e.target as HTMLElement
-      if (target.closest?.('input, textarea, select, [contenteditable="true"]')) return
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && undo) {
-        e.preventDefault()
-        runUndo()
-        return
-      }
-      if (e.ctrlKey || e.metaKey) return
-      const span = win.end - win.start
-      const mid = (win.start + win.end) / 2
-      if (e.key === 'Escape') {
-        setTool('pan')
-        setSelectedCallout(undefined)
-      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedCallout) {
-        deleteCallout(selectedCallout)
-      } else if (e.key === 'Backspace' || (e.altKey && e.key === 'ArrowLeft')) {
-        zoomBack()
-      } else if (e.altKey) {
-        return
-      } else if (e.key === 'Enter' && selectedCallout) {
-        editCallout(selectedCallout)
-      } else {
-        const actions: Record<string, () => void> = {
-          p: () => setTool('pan'),
-          z: () => setTool('zoom'),
-          n: () => setTool('note'),
-          m: () => setTool('marker'),
-          r: () => setTool('region'),
-          f: () => zoomTo(record),
-          c: () => setCursors({ ...cursors, on: !cursors.on }),
-          o: toggleOverview,
-          t: toggleMeasurements,
-          v: toggleReadout,
-          '\\': toggleFocus,
-          '+': () => zoomTo(zoomAround(win, mid, 0.5, minSpan, maxSpan)),
-          '=': () => zoomTo(zoomAround(win, mid, 0.5, minSpan, maxSpan)),
-          '-': () => zoomTo(zoomAround(win, mid, 2, minSpan, maxSpan)),
-          arrowleft: () => navigate({ start: win.start - span * 0.1, end: win.end - span * 0.1 }, 'pan'),
-          arrowright: () => navigate({ start: win.start + span * 0.1, end: win.end + span * 0.1 }, 'pan'),
-        }
-        const action = actions[e.key.toLowerCase()]
-        if (!action) return
-        action()
-      }
-      e.preventDefault()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  })
 
   const onMoveToView = (id: string, view: number) => {
     setViews((vs) => {
@@ -453,25 +400,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     if (patch.expr !== undefined) pendingAutoscale.current.add(id)
   }
   const removeMath = (id: string) => {
-    // Everything needed to put the channel back exactly as it was
-    const def = mathDefs.find((m) => m.id === id)
-    const display = displays.find((d) => d.id === id)
-    const viewIndex = views.findIndex((v) => v.includes(id))
-    const ownView = viewIndex >= 0 && views[viewIndex].length === 1
-    const specs = spectra.filter((s) => s.source === id)
-    if (def && display) {
-      offerUndo(`${channelName(id)} deleted`, () => {
-        setMathDefs((ms) => [...ms, def])
-        setDisplays((ds) => [...ds, display])
-        setViews((vs) => {
-          const next = vs.map((v) => [...v])
-          if (ownView || viewIndex < 0 || viewIndex >= next.length) next.splice(Math.max(0, Math.min(viewIndex, next.length)), 0, [id])
-          else next[viewIndex].push(id)
-          return next
-        })
-        setSpectra((ss) => [...ss, ...specs])
-      })
-    }
+    offerUndo(`${channelName(id)} deleted`)
     setMathDefs((ms) => ms.filter((m) => m.id !== id))
     setDisplays((ds) => ds.filter((d) => d.id !== id))
     setViews((vs) => vs.map((v) => v.filter((x) => x !== id)).filter((v) => v.length > 0))
@@ -524,6 +453,89 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     }),
     [displays, views, mathDefs, spectra, specOptions, callouts, cursors, win, measKeys, measRange, selected, notes],
   )
+
+  // ---------- undo / redo ----------
+  // Every change of the analysis is a step; the time window and the selection are navigation
+  // (Back / Backspace) and not part of it.
+  const undoDoc = useMemo(
+    () => undoDocOf({ channels: displays, views, math: mathDefs, spectra, spectrumOptions: specOptions, callouts, cursors, measurements: { keys: measKeys, range: measRange }, notes }),
+    [displays, views, mathDefs, spectra, specOptions, callouts, cursors, measKeys, measRange, notes],
+  )
+  const edits = useUndoHistory(editHistory, undoDoc, (d) => {
+    setDisplays(d.channels)
+    setViews(d.views)
+    setMathDefs(d.math)
+    setSpectra(d.spectra)
+    setSpecOptions(d.spectrumOptions)
+    setCallouts(d.callouts)
+    setCursors(d.cursors)
+    setMeasKeys(d.measurements.keys)
+    setMeasRange(d.measurements.range)
+    setNotes(d.notes)
+    // Nothing may stay selected or open that the restored state does not have
+    if (selected && !d.channels.some((c) => c.id === selected)) setSelected(session.channels[0].wave.id)
+    if (editing && !d.callouts.some((c) => c.id === editing.id)) setEditing(null)
+    if (selectedCallout && !d.callouts.some((c) => c.id === selectedCallout)) setSelectedCallout(undefined)
+    setUndoToast(null)
+  })
+  // The toast's Undo only applies while the deletion is the latest step
+  const toast = undoToast && edits.steps <= undoToast.steps + 1 ? undoToast : null
+
+  // ---------- keyboard shortcuts ----------
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (exportKind) return
+      const target = e.target as HTMLElement
+      if (target.closest?.('input, textarea, select, [contenteditable="true"]')) return
+      const k = e.key.toLowerCase()
+      if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) {
+        e.preventDefault()
+        if (k === 'y' || e.shiftKey) edits.redo()
+        else edits.undo()
+        return
+      }
+      if (e.ctrlKey || e.metaKey) return
+      const span = win.end - win.start
+      const mid = (win.start + win.end) / 2
+      if (e.key === 'Escape') {
+        setTool('pan')
+        setSelectedCallout(undefined)
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedCallout) {
+        deleteCallout(selectedCallout)
+      } else if (e.key === 'Backspace' || (e.altKey && e.key === 'ArrowLeft')) {
+        zoomBack()
+      } else if (e.altKey) {
+        return
+      } else if (e.key === 'Enter' && selectedCallout) {
+        editCallout(selectedCallout)
+      } else {
+        const actions: Record<string, () => void> = {
+          p: () => setTool('pan'),
+          z: () => setTool('zoom'),
+          n: () => setTool('note'),
+          m: () => setTool('marker'),
+          r: () => setTool('region'),
+          f: () => zoomTo(record),
+          c: () => setCursors({ ...cursors, on: !cursors.on }),
+          o: toggleOverview,
+          t: toggleMeasurements,
+          v: toggleReadout,
+          '\\': toggleFocus,
+          '+': () => zoomTo(zoomAround(win, mid, 0.5, minSpan, maxSpan)),
+          '=': () => zoomTo(zoomAround(win, mid, 0.5, minSpan, maxSpan)),
+          '-': () => zoomTo(zoomAround(win, mid, 2, minSpan, maxSpan)),
+          arrowleft: () => navigate({ start: win.start - span * 0.1, end: win.end - span * 0.1 }, 'pan'),
+          arrowright: () => navigate({ start: win.start + span * 0.1, end: win.end + span * 0.1 }, 'pan'),
+        }
+        const action = actions[e.key.toLowerCase()]
+        if (!action) return
+        action()
+      }
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 
   const [saveStatus, setSaveStatus] = useState<SaveStatus>(() => (boot.source === 'saved' ? { state: 'saved', at: new Date().toISOString() } : { state: 'clean' }))
   // A file that is only opened is not stored: saving starts with the first change. An imported or
@@ -706,7 +718,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
       { kind: 'heading', label: 'Time', detail: si(t, 's', 5) },
       { label: 'Zoom in here', icon: ZoomIn, onClick: () => zoomTo(zoomAround(win, t, 0.5, minSpan, maxSpan)) },
       { label: 'Zoom out here', icon: ZoomOut, onClick: () => zoomTo(zoomAround(win, t, 2, minSpan, maxSpan)) },
-      { label: 'Back', icon: Undo2, hint: 'Backspace', disabled: !history.length, onClick: zoomBack },
+      { label: 'Back', icon: ArrowLeft, hint: 'Backspace', disabled: !history.length, onClick: zoomBack },
       { label: 'Full record', icon: Maximize2, hint: 'F', disabled: !zoomed, onClick: () => zoomTo(record) },
       '-',
       {
@@ -762,7 +774,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
   }
 
   const viewItems: MenuEntry[] = [
-    { label: 'Back', icon: Undo2, hint: 'Backspace', disabled: !history.length, onClick: zoomBack },
+    { label: 'Back', icon: ArrowLeft, hint: 'Backspace', disabled: !history.length, onClick: zoomBack },
     { label: 'Full record', icon: Maximize2, hint: 'F', disabled: !zoomed, onClick: () => zoomTo(record) },
     { label: 'Saved view', icon: Home, title: 'The view the scope showed when the session was saved', onClick: () => zoomTo(initialWin) },
   ]
@@ -800,6 +812,10 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
         onToggleCursors={() => setCursors({ ...cursors, on: !cursors.on })}
         readoutOn={layout.readout}
         onToggleReadout={toggleReadout}
+        canUndo={edits.canUndo}
+        canRedo={edits.canRedo}
+        onUndo={edits.undo}
+        onRedo={edits.redo}
         onExport={openExport}
         hasSpectra={spectra.some((s) => s.visible)}
       />
@@ -915,11 +931,11 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
                 onJump={jumpToCallout}
                 onContextMenu={calloutMenu}
                 onClear={() => {
-                  const all = callouts
+                  const n = callouts.length
                   setCallouts([])
                   setEditing(null)
                   setSelectedCallout(undefined)
-                  offerUndo(`${all.length} callouts deleted`, () => setCallouts(all))
+                  offerUndo(`${n} callouts deleted`)
                 }}
               />
             )}
@@ -999,13 +1015,13 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
             {notice.message}
           </div>
         )}
-        {undo && (
+        {toast && (
           <div className="undo-toast" role="status">
-            <span>{undo.message}</span>
-            <button type="button" className="text-btn" onClick={runUndo}>
+            <span>{toast.message}</span>
+            <button type="button" className="text-btn" onClick={edits.undo}>
               Undo <kbd>Ctrl+Z</kbd>
             </button>
-            <button type="button" className="icon-btn" aria-label="Dismiss" onClick={() => setUndo(null)}>
+            <button type="button" className="icon-btn" aria-label="Dismiss" onClick={() => setUndoToast(null)}>
               <X size={14} />
             </button>
           </div>
@@ -1031,6 +1047,24 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     </div>
   )
 })
+
+/** The part of the workspace that undo/redo restores: everything but the view (window, selection) */
+type UndoDoc = Omit<Workspace, 'version' | 'window' | 'selected'>
+
+/** Always the same keys in the same order, so snapshots can be compared as JSON */
+function undoDocOf(w: UndoDoc): UndoDoc {
+  return {
+    channels: w.channels,
+    views: w.views,
+    math: w.math,
+    spectra: w.spectra,
+    spectrumOptions: w.spectrumOptions,
+    callouts: w.callouts,
+    cursors: w.cursors,
+    measurements: { keys: w.measurements.keys, range: w.measurements.range },
+    notes: w.notes,
+  }
+}
 
 /** V/div and offset that fit the whole waveform into ~8 divisions */
 function autoscalePatch(pyramid: MinMaxPyramid, n: number): DisplayPatch {

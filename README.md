@@ -42,6 +42,11 @@ Which panels are open is remembered in the browser.
 - **Math channels** and **Spectrum (FFT)** (see below)
 - Instrument screenshot and searchable instrument setup
 - Saving in the browser, analysis files and bundles; exports to image, report and CSV (see below)
+- **Undo / redo** (Ctrl+Z, Ctrl+Y or Ctrl+Shift+Z, or the arrows next to the save status) for every change
+  of the analysis: channel settings and views, math channels, spectra, callouts, cursors, the measurement
+  selection and the notes. A drag, a wheel gesture or a burst of typing is one step. Zooming and panning
+  are not undo steps – **Back** (Backspace) returns to the previous view. The history lasts while the session
+  is open; in text fields Ctrl+Z undoes the typing as usual
 
 ### Right-click menus
 
@@ -71,7 +76,7 @@ The **middle mouse button** pans the plot with any tool.
 | **Zoom** tool, click / Alt+click | Zoom in / out 2× |
 | Shift+drag, or drag along the time axis | Zoom to the marked time range |
 | Overview strip | Drag to mark a range, drag the box to move it, drag its edges to resize, click to centre |
-| **↶ Back** (Backspace) | Step back through previous views, including vertical zoom |
+| **← Back** (Backspace) | Step back through previous views, including vertical zoom |
 | Full record (F, double-click) / Saved view | Whole record / the view saved on the scope |
 
 ### Callouts
@@ -176,7 +181,7 @@ or tab separated.
 ### Keyboard
 
 `P` pan · `Z` zoom tool · `N` note · `M` marker · `R` region · `Esc` back to pan ·
-`F` full record · `+`/`-` zoom · `←`/`→` pan · `Backspace` zoom back · `C` cursors ·
+`Ctrl+Z` undo · `Ctrl+Y` redo · `F` full record · `+`/`-` zoom · `←`/`→` pan · `Backspace` zoom back · `C` cursors ·
 `V` values at the pointer · `O` overview · `T` measurements · `\` focus mode ·
 `Enter` edit / `Delete` delete the selected callout
 

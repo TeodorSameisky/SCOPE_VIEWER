@@ -55,7 +55,7 @@ const SHORTCUTS: [string[], string][] = [
   [['+  −  ←  →'], 'Zoom / pan'],
   [['Backspace'], 'Back to previous view'],
   [['Enter / Delete'], 'Edit / delete selected callout'],
-  [['Ctrl + Z'], 'Undo deleting a callout or math channel'],
+  [['Ctrl + Z', 'Ctrl + Y'], 'Undo / redo changes (Ctrl + Shift + Z also redoes)'],
   [['O  T  \\'], 'Overview / measurements / focus mode'],
   [['Wheel', 'Drag'], 'In the spectrum: zoom / pan frequency (Ctrl + wheel: level)'],
   [['Esc'], 'Cancel, back to Pan'],
