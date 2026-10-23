@@ -1,4 +1,5 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { edgeLevels, nearestEdge, type EdgeLevels } from '../dsp/edges'
 import { calloutSpan, type Callout } from '../model/callouts'
 import { calloutsSvg, flagsBottom, layoutCallouts } from '../render/callouts'
 import { AXIS_GUTTER, DIVS_Y, divToValue, drawTimeAxis, drawView, valueAt, valueToDiv } from '../render/draw'
@@ -23,6 +24,8 @@ const AXIS_H = 24
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 const GRAB_PX = 8
 const MIN_BOX_PX = 5
+/** Markers and region edges snap to an edge of the selected trace this close to the pointer */
+const SNAP_PX = 8
 /** Top of the cursor readout box: below the cursor labels, and below the marker flags if there are any */
 const readoutTop = (flags: number) => Math.max(22, flags + 6)
 
@@ -35,6 +38,8 @@ export interface PlotPoint {
   channel?: string
   /** The note the Note tool would add at this point */
   note?: NewCallout
+  /** Time of an edge of the selected trace next to the pointer (not with Alt) */
+  edgeT?: number
 }
 
 export interface NewCallout {
@@ -108,7 +113,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   const svgRef = useRef<SVGSVGElement>(null)
   const [size, setSize] = useState({ w: 800, h: 600 })
   /** Pointer position over the plot (CSS pixels) */
-  const [hover, setHover] = useState<{ x: number; y: number } | undefined>()
+  const [hover, setHover] = useState<{ x: number; y: number; alt: boolean } | undefined>()
   const [drag, setDrag] = useState<Drag | null>(null)
   const dragMoved = useRef(false)
 
@@ -121,7 +126,32 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   const maxSpan = (p.record.end - p.record.start) * 4
   const xToT = useCallback((x: number) => p.win.start + (x / plotW) * span, [p.win.start, plotW, span])
   const tToX = useCallback((t: number) => ((t - p.win.start) / span) * plotW, [p.win.start, plotW, span])
-  const hoverT = hover && hover.x >= 0 && hover.x <= plotW ? xToT(hover.x) : undefined
+  /**
+   * Time of the edge of the selected trace nearest to t (within SNAP_PX), or undefined. The
+   * reference levels come from the samples on screen and are worked out on first use.
+   */
+  const edgeNear = useMemo(() => {
+    const ch = p.channels.find((c) => c.wave.id === p.selected && c.display.visible)
+    if (!ch) return () => undefined
+    const w = ch.wave
+    const i0 = Math.max(0, Math.floor((p.win.start - w.t0) / w.dt))
+    const i1 = Math.min(w.data.length, Math.ceil((p.win.end - w.t0) / w.dt) + 1)
+    const maxN = (SNAP_PX * (p.win.end - p.win.start)) / Math.max(1, plotW) / w.dt
+    let levels: EdgeLevels | undefined | null = null
+    return (t: number): number | undefined => {
+      if (levels === null) levels = edgeLevels(w.data, i0, i1)
+      if (!levels) return undefined
+      const x = nearestEdge(w.data, (t - w.t0) / w.dt, maxN, levels, i0, i1)
+      return x === undefined ? undefined : w.t0 + x * w.dt
+    }
+  }, [p.channels, p.selected, p.win, plotW])
+  /** Markers and region edges snap to edges; Alt places them freely */
+  const snapT = (t: number, alt: boolean) => (alt ? t : (edgeNear(t) ?? t))
+  const snapX = (x: number, alt: boolean) => tToX(snapT(xToT(x), alt))
+
+  const pointerT = hover && hover.x >= 0 && hover.x <= plotW ? xToT(hover.x) : undefined
+  // With the Marker and Region tools the hover line shows where a click would put the edge
+  const hoverT = pointerT !== undefined && (p.tool === 'marker' || p.tool === 'region') ? snapT(pointerT, hover!.alt) : pointerT
   // Callout geometry (formulas render asynchronously: lay out again when one is ready)
   useTexVersion()
   const calloutGeo = layoutCallouts(p.callouts, { channels: p.channels, views: p.views, win: p.win, plotW, viewH })
@@ -334,13 +364,16 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     else if (p.tool === 'zoom') {
       const view = Math.min(nViews - 1, Math.floor(y / viewH))
       setDrag({ kind: 'rect', view, x0: x, y0: y, x1: x, y1: y })
-    } else if (p.tool === 'region') setDrag({ kind: 'region', x0: x, x1: x })
+    } else if (p.tool === 'region') {
+      const xs = snapX(clampX(x), e.altKey)
+      setDrag({ kind: 'region', x0: xs, x1: xs })
+    }
     else setDrag({ kind: 'click', x0: x, y0: y })
   }
 
   const onPointerMove = (e: React.PointerEvent) => {
     const { x, y } = local(e)
-    setHover({ x, y })
+    setHover({ x, y, alt: e.altKey })
     if (!drag) return
     if (drag.kind === 'click') {
       if (Math.hypot(x - drag.x0, y - drag.y0) > 3) dragMoved.current = true
@@ -357,8 +390,10 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
         p.setCursors({ ...p.cursors, [drag.which]: xToT(clampX(x)) })
         break
       case 'band':
-      case 'region':
         setDrag({ ...drag, x1: clampX(x) })
+        break
+      case 'region':
+        setDrag({ ...drag, x1: snapX(clampX(x), e.altKey) })
         break
       case 'rect':
         setDrag({ ...drag, x1: clampX(x), y1: clampY(y, drag.view) })
@@ -398,7 +433,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       p.onZoomTo(zoomAround(p.win, xToT(clampX(x)), e.altKey ? 2 : 0.5, p.minSpan, maxSpan))
     } else if (d.kind === 'click' && !dragMoved.current) {
       if (p.tool === 'marker') {
-        p.onAddCallout({ type: 'marker', t: xToT(clampX(x)) })
+        p.onAddCallout({ type: 'marker', t: snapT(xToT(clampX(x)), e.altKey) })
       } else if (p.tool === 'note') {
         addNote(clampX(x), Math.min(viewsH - 1, Math.max(0, y)))
       }
@@ -435,7 +470,13 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     const y = e.clientY - r.top
     const onAxis = y > viewsH
     const yIn = Math.min(viewsH - 1, Math.max(0, y))
-    p.onContextMenu(e, { t: xToT(x), onAxis, channel: onAxis ? undefined : nearestTrace(x, yIn, 24), note: onAxis ? undefined : noteAt(x, yIn) })
+    p.onContextMenu(e, {
+      t: xToT(x),
+      onAxis,
+      channel: onAxis ? undefined : nearestTrace(x, yIn, 24),
+      note: onAxis ? undefined : noteAt(x, yIn),
+      edgeT: e.altKey ? undefined : edgeNear(xToT(x)),
+    })
   }
 
   const nearestTrace = (x: number, y: number, maxPx = 20): string | undefined => {
@@ -529,6 +570,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
         ref={svgRef}
         callouts={p.callouts}
         geo={calloutGeo}
+        snap={edgeNear}
         channels={p.channels}
         views={p.views}
         win={p.win}

@@ -21,6 +21,9 @@ const NOTE_LINE = [12, 4] as const
 const FLAG_LINE = [13, 5] as const
 const PAD = 6
 export const FLAG_Y = 18
+/** Arrowhead of a note's leader line: length and half width */
+const ARROW_L = 9
+const ARROW_W = 3.5
 
 /** What places the callouts on the plot */
 export interface CalloutLayout {
@@ -269,11 +272,23 @@ export function calloutShapes(
     if (!g) return null
 
     if (g.type === 'note') {
+      // Leader line from the box to the anchor, ending in an arrowhead (a dot when the box is on top of it)
       const lx = Math.min(Math.max(g.ax, g.bx), g.bx + g.bw)
       const ly = Math.min(Math.max(g.ay, g.by), g.by + g.bh)
+      const len = Math.hypot(g.ax - lx, g.ay - ly)
+      const arrow = len > ARROW_L + 4
+      const ux = (g.ax - lx) / len
+      const uy = (g.ay - ly) / len
+      const baseX = g.ax - ux * ARROW_L
+      const baseY = g.ay - uy * ARROW_L
       return (
         <g key={c.id}>
-          <line x1={g.ax} y1={g.ay} x2={lx} y2={ly} stroke={ink} strokeWidth={1.2} />
+          <line x1={lx} y1={ly} x2={arrow ? baseX : g.ax} y2={arrow ? baseY : g.ay} stroke={ink} strokeWidth={1.2} />
+          {arrow ? (
+            <polygon points={`${g.ax},${g.ay} ${baseX - uy * ARROW_W},${baseY + ux * ARROW_W} ${baseX + uy * ARROW_W},${baseY - ux * ARROW_W}`} fill={ink} />
+          ) : (
+            <circle cx={g.ax} cy={g.ay} r={selected ? 5 : 4} fill={ink} stroke="#000" strokeWidth={1} />
+          )}
           <rect x={g.bx} y={g.by} width={g.bw} height={g.bh} rx={4} fill={theme.noteBox} stroke={ink} strokeWidth={1.2} {...handlers('box')} />
           {selected && <rect x={g.bx - 3} y={g.by - 3} width={g.bw + 6} height={g.bh + 6} rx={6} fill="none" stroke={theme.selection} strokeDasharray="3 3" />}
           {g.lines.map((l, i) => {
@@ -281,7 +296,8 @@ export function calloutShapes(
             return <g key={i}>{lineElements(l, g.bx + PAD, top + l.ascent, c.text ? theme.noteText : theme.notePlaceholder)}</g>
           })}
           {g.value && lineElements(g.value, g.bx + PAD, g.by + g.bh - PAD / 2 - g.value.descent, ink)}
-          <circle cx={g.ax} cy={g.ay} r={selected ? 5 : 4} fill={ink} stroke="#000" strokeWidth={1} {...handlers('anchor')} />
+          {/* The anchor is dragged at a larger invisible handle */}
+          {interact && <circle cx={g.ax} cy={g.ay} r={7} fill="transparent" {...handlers('anchor')} />}
         </g>
       )
     }

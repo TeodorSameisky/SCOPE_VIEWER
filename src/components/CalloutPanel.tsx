@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import { CALLOUT_COLORS, CALLOUT_ICON, calloutTitle, type Callout } from '../model/callouts'
+import { useEffect, useRef, useState } from 'react'
+import { CALLOUT_COLORS, CALLOUT_ICON, calloutSpan, calloutTitle, type Callout } from '../model/callouts'
 import { si } from '../util/format'
 import { CalloutValueEditor } from './CalloutValueEditor'
 import type { LiveChannel, Tool } from './state'
@@ -18,8 +18,15 @@ interface Props {
   onContextMenu?: (e: React.MouseEvent, c: Callout) => void
 }
 
+const TYPE_NAME: Record<Callout['type'], string> = { note: 'note', marker: 'marker', region: 'region' }
+
 export function CalloutPanel(p: Props) {
-  const sorted = [...p.callouts].sort((a, b) => a.t - b.t)
+  // Search in the text, the title and the type ("marker" lists all markers)
+  const [query, setQuery] = useState('')
+  const q = query.trim().toLowerCase()
+  const sorted = [...p.callouts]
+    .filter((c) => !q || `${calloutTitle(c)} ${c.text} ${TYPE_NAME[c.type]}`.toLowerCase().includes(q))
+    .sort((a, b) => calloutSpan(a)[0] - calloutSpan(b)[0])
   // A callout selected in the plot is scrolled into view in the list
   const listRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -44,7 +51,18 @@ export function CalloutPanel(p: Props) {
               : 'Pick a callout type, then click (or drag, for a region) in the plot. Double-click a callout to edit it. Write TeX math between $…$.'}
       </p>
 
-      {sorted.length === 0 && <div className="empty">No callouts yet.</div>}
+      {p.callouts.length > 1 && (
+        <div className="callout-search">
+          <input type="search" value={query} placeholder="Search callouts" aria-label="Search callouts" onChange={(e) => setQuery(e.target.value)} />
+          {q && (
+            <span className="muted">
+              {sorted.length} of {p.callouts.length}
+            </span>
+          )}
+        </div>
+      )}
+      {p.callouts.length === 0 && <div className="empty">No callouts yet.</div>}
+      {p.callouts.length > 0 && sorted.length === 0 && <div className="empty">No callout matches “{query.trim()}”.</div>}
       {sorted.map((c) => {
         const ch = c.channel ? p.channels.find((x) => x.wave.id === c.channel) : undefined
         return (

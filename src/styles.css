@@ -1223,6 +1223,18 @@ button.pill.active {
 .swatch:hover:not(:disabled) {
   border-color: #fff;
 }
+.callout-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.callout-search input {
+  flex: 1;
+}
+.callout-search .muted {
+  font-size: 12px;
+  white-space: nowrap;
+}
 .callout-tools {
   display: flex;
   gap: 6px;

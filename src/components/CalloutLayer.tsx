@@ -9,6 +9,8 @@ interface Props extends CalloutLayout {
   callouts: Callout[]
   /** Screen geometry of the callouts (layoutCallouts) */
   geo: Map<string, CalloutGeo>
+  /** Time of an edge of the selected trace near t: markers and region edges snap to it */
+  snap?: (t: number) => number | undefined
   selectedId?: string
   editingId?: string
   onSelect: (id: string | undefined) => void
@@ -56,6 +58,8 @@ export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLay
       const y = e.clientY - r.top
       const dT = ((x - drag.x0) / p.plotW) * span
       const o = drag.orig
+      // Markers and region edges snap to edges of the selected trace; Alt moves them freely
+      const snapped = (t: number) => (e.altKey ? t : (p.snap?.(t) ?? t))
       switch (drag.part) {
         case 'box': {
           // The box stays inside the plot, so the stored offset never runs past the edge either
@@ -76,13 +80,11 @@ export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLay
           break
         }
         case 'marker':
-          p.onUpdate(o.id, { t: o.t + dT })
-          break
         case 'start':
-          p.onUpdate(o.id, { t: o.t + dT })
+          p.onUpdate(o.id, { t: snapped(o.t + dT) })
           break
         case 'end':
-          p.onUpdate(o.id, { t2: (o.t2 ?? o.t) + dT })
+          p.onUpdate(o.id, { t2: snapped((o.t2 ?? o.t) + dT) })
           break
         case 'region':
           p.onUpdate(o.id, { t: o.t + dT, t2: (o.t2 ?? o.t) + dT })

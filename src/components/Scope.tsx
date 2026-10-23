@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   AudioLines,
   Copy,
+  CopyPlus,
   Eye,
   EyeOff,
   Flag,
@@ -48,7 +49,7 @@ import {
 } from '../model/workspace'
 import { buildBundle } from '../export/bundle'
 import { runExport, waveformRows, type ExportContext } from '../export/sessionExport'
-import { valueAt } from '../render/draw'
+import { AXIS_GUTTER, valueAt } from '../render/draw'
 import { copyText } from '../util/clipboard'
 import { downloadBlob, stem } from '../util/download'
 import { si } from '../util/format'
@@ -94,8 +95,8 @@ interface ViewState {
 const TOOL_HINT: Partial<Record<Tool, string>> = {
   zoom: 'Drag a rectangle to zoom time + vertical · Shift+drag: time only · Click: zoom in · Alt+click: out · Esc: done',
   note: 'Click on a trace to attach a note · Esc: cancel',
-  marker: 'Click to place a marker · Esc: cancel',
-  region: 'Drag to mark a time region · Esc: cancel',
+  marker: 'Click to place a marker · snaps to edges of the selected channel (Alt: free) · Esc: cancel',
+  region: 'Drag to mark a time region · snaps to edges of the selected channel (Alt: free) · Esc: cancel',
 }
 
 const PANEL_TITLE: Record<PanelId, string> = { cursors: 'Cursors', callouts: 'Callouts', info: 'Session', reference: 'Reference' }
@@ -320,6 +321,19 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     }
     setSelectedCallout(c.id)
   }
+  /** A copy of a callout, a little later in time, selected */
+  const duplicateCallout = (c: Callout) => {
+    const shift = (win.end - win.start) * 0.03
+    const copy: Callout = { ...c, id: newCalloutId(), n: nextCalloutNumber(callouts), t: c.t + shift, ...(c.t2 !== undefined ? { t2: c.t2 + shift } : {}) }
+    setCallouts([...callouts, copy])
+    setSelectedCallout(copy.id)
+  }
+  /** Move a callout by one pixel of the current view */
+  const nudgeCallout = (id: string, dir: -1 | 1) => {
+    const plotW = Math.max(1, (plotRef.current?.size().w ?? 1000) - AXIS_GUTTER)
+    const dt = (dir * (win.end - win.start)) / plotW
+    setCallouts((cs) => cs.map((c) => (c.id === id ? { ...c, t: c.t + dt, ...(c.t2 !== undefined ? { t2: c.t2 + dt } : {}) } : c)))
+  }
   /** Go to the previous / next callout in time: from the selected one, else from the middle of the view */
   const stepCallout = (dir: -1 | 1) => {
     const sorted = [...callouts].sort((a, b) => calloutSpan(a)[0] - calloutSpan(b)[0])
@@ -517,6 +531,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
         zoomBack()
       } else if (e.altKey) {
         return
+      } else if (e.shiftKey && selectedCallout && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        nudgeCallout(selectedCallout, e.key === 'ArrowLeft' ? -1 : 1)
       } else if (e.key === 'Enter' && selectedCallout) {
         editCallout(selectedCallout)
       } else {
@@ -724,7 +740,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     ].join('\n')
 
   const plotMenu = (e: React.MouseEvent, at: PlotPoint) => {
-    const { t, note } = at
+    const { t, note, edgeT } = at
     const ch = at.channel ? channels.find((c) => c.wave.id === at.channel) : undefined
     if (ch) setSelected(ch.wave.id)
     openMenu(e, [
@@ -743,7 +759,9 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
         ],
       },
       note && { label: 'Add note here', icon: StickyNote, onClick: () => addCallout(note) },
-      { label: 'Add marker here', icon: Flag, onClick: () => addCallout({ type: 'marker', t }) },
+      edgeT !== undefined
+        ? { label: 'Add marker at the edge', icon: Flag, title: 'At the 50 % crossing of the selected channel next to the pointer (Alt+right-click: exactly here)', onClick: () => addCallout({ type: 'marker', t: edgeT }) }
+        : { label: 'Add marker here', icon: Flag, onClick: () => addCallout({ type: 'marker', t }) },
       cursors.on && {
         label: 'Mark region between cursors',
         icon: MoveHorizontal,
@@ -786,6 +804,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
       },
       c.type === 'region' && { label: c.measure ? 'Change measurements…' : 'Measure in this region…', icon: Activity, onClick: () => editCallout(c.id) },
       { label: c.type === 'region' ? 'Zoom to region' : 'Go to', icon: LocateFixed, onClick: () => jumpToCallout(c) },
+      { label: 'Duplicate', icon: CopyPlus, onClick: () => duplicateCallout(c) },
       c.type === 'region'
         ? { label: 'Set cursors to region', icon: Ruler, onClick: () => setCursors({ ...cursors, on: true, a: Math.min(c.t, t2), b: Math.max(c.t, t2) }) }
         : {

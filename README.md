@@ -100,6 +100,15 @@ measure a channel over its time span: choose the channel and the measurements (m
 frequency, rise time, …) and they appear in its label next to Δt, e.g. `Startup  Δt 2.30 ms` /
 `Ch 2: rise 120.0 µs · pk-pk 3.20 V`. The values are part of image and report exports.
 
+**Snapping to edges:** markers and the edges of regions snap to the nearest edge of the **selected
+channel** (its 50 % crossing, within 8 px of the pointer) when you place or drag them – with the Marker and
+Region tools the pointer line already shows where it will land. Only real edges count (from below 10 % to
+above 90 % of the amplitude), not noise around the middle. Hold **Alt** to place them freely. *Add marker at
+the edge* in the right-click menu does the same.
+
+**More:** right-click a callout to *Duplicate* it; `Shift+←` / `Shift+→` move the selected callout by one pixel;
+the Callouts panel has a search box (text, title or type, e.g. "marker").
+
 **Finding callouts:** the overview strip marks every callout along its bottom edge (click one to go there);
 counters in the top corners of the plot show how many callouts lie before or after the view (click to go
 to the nearest); `,` and `.` step to the previous / next callout.
@@ -198,7 +207,8 @@ or tab separated.
 `P` pan · `Z` zoom tool · `N` note · `M` marker · `R` region · `Esc` back to pan ·
 `Ctrl+Z` undo · `Ctrl+Y` redo · `F` full record · `+`/`-` zoom · `←`/`→` pan · `Backspace` zoom back · `C` cursors ·
 `V` values at the pointer · `O` overview · `T` measurements · `\` focus mode ·
-`Enter` edit / `Delete` delete the selected callout · `,` / `.` previous / next callout
+`Enter` edit / `Delete` delete the selected callout · `,` / `.` previous / next callout ·
+`Shift+←`/`→` move the selected callout · `Alt` while placing a marker or region: no snapping
 
 The **?** button at the bottom of the rail shows all mouse and keyboard controls.
 

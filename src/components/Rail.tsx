@@ -56,6 +56,8 @@ const SHORTCUTS: [string[], string][] = [
   [['Backspace'], 'Back to previous view'],
   [['Enter / Delete'], 'Edit / delete selected callout'],
   [[',  .'], 'Previous / next callout'],
+  [['Shift + ←  →'], 'Move the selected callout by one pixel'],
+  [['Alt'], 'Hold while placing or dragging a marker or region edge: no snapping to edges'],
   [['Ctrl + Z', 'Ctrl + Y'], 'Undo / redo changes (Ctrl + Shift + Z also redoes)'],
   [['O  T  \\'], 'Overview / measurements / focus mode'],
   [['Wheel', 'Drag'], 'In the spectrum: zoom / pan frequency (Ctrl + wheel: level)'],
