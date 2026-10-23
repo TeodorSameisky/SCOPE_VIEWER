@@ -7,6 +7,7 @@ import { formatBytes } from '../util/format'
 import { usePersistentState } from '../util/usePersistentState'
 import { MEASURE_RANGES, RANGE_LABEL, type MeasureRange } from '../model/view'
 import { useDismiss } from './ui/useDismiss'
+import { useTheme } from './ui/themeContext'
 
 const DEFAULT_PREFS: ExportPrefs = {
   csv: 'intl',
@@ -26,7 +27,7 @@ const KINDS: { key: ExportKind; label: string; icon: typeof Image; hint: string 
 const STEPS = [1, 2, 5, 10, 20, 50, 100, 1000]
 
 const APPEARANCES: { key: Appearance; label: string; note: string }[] = [
-  { key: 'dark', label: 'Dark', note: 'as on screen' },
+  { key: 'dark', label: 'Dark', note: 'dark background, trace colours as set' },
   { key: 'light', label: 'Light', note: 'for print: white background, pale trace colours darkened' },
 ]
 
@@ -67,6 +68,7 @@ export function ExportDialog(p: Props) {
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
+  const screen = useTheme().appearance
   const close = useCallback(() => !busy && p.onClose(), [busy, p])
   useDismiss(ref, true, close)
 
@@ -103,7 +105,9 @@ export function ExportDialog(p: Props) {
           </button>
         ))}
       </div>
-      <span className="muted">{APPEARANCES.find((a) => a.key === value)?.note}</span>
+      <span className="muted">
+        {value === screen ? 'as on screen' : APPEARANCES.find((a) => a.key === value)?.note}
+      </span>
     </fieldset>
   )
   const formatSelect = (

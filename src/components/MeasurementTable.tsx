@@ -9,6 +9,7 @@ import { MeasureInfo } from './MeasureInfo'
 import { MEASURE_RANGES, RANGE_LABEL, sampleRange, type CursorState, type LiveChannel, type MeasureRange, type TimeWindow } from '../model/view'
 import { useContextMenu, type MenuEntry } from './ui/menuContext'
 import { useDismiss } from './ui/useDismiss'
+import { useTheme } from './ui/themeContext'
 
 interface Props {
   channels: LiveChannel[]
@@ -43,6 +44,7 @@ export function MeasurementTable(p: Props) {
   const win = useDeferredValue(p.win)
   const cursors = useDeferredValue(p.cursors)
   const visible = p.channels.filter((c) => c.display.visible)
+  const { ink } = useTheme().theme
 
   // Results are cached per waveform and sample range, so changing a colour or label
   // (which creates new channel objects) does not recompute anything.
@@ -309,7 +311,7 @@ export function MeasurementTable(p: Props) {
               return (
                 <tr key={c.wave.id}>
                   <td onContextMenu={(e) => rowMenu(e, c)}>
-                    <span className="dot" style={{ background: c.display.color }} />
+                    <span className="dot" style={{ background: ink(c.display.color) }} />
                     {channelName(c.wave.id)}
                     {c.display.label && <span className="muted"> {c.display.label}</span>}
                   </td>

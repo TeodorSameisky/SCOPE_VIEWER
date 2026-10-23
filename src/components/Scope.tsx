@@ -1,33 +1,56 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import {
   Activity,
+  Archive,
   ArrowLeft,
+  ArrowRight,
   AudioLines,
+  BookOpen,
   Copy,
   CopyPlus,
+  Crosshair,
   Eye,
   EyeOff,
+  FileJson,
+  FileSpreadsheet,
+  FileText,
   Flag,
+  Focus,
+  FolderOpen,
+  GalleryHorizontal,
+  Hand,
   Hash,
   Home,
   Image,
+  Info,
   LocateFixed,
   Maximize2,
+  MonitorDown,
   MoveHorizontal,
+  Palette,
   Pencil,
+  Plus,
+  Redo2,
+  RotateCcw,
   Ruler,
   ScanEye,
   SlidersHorizontal,
   StickyNote,
+  Table2,
   Trash2,
+  Undo2,
   UnfoldVertical,
+  Upload,
+  Waves,
   X,
   ZoomIn,
   ZoomOut,
+  type LucideIcon,
 } from 'lucide-react'
 import type { ChannelDisplay, Session } from '../model/types'
 import type { MeasurementKey } from '../dsp/measure'
-import { CALLOUT_COLORS, DEFAULT_CALLOUT_COLOR, calloutSpan, calloutTitle, newCalloutId, nextCalloutNumber, type Callout } from '../model/callouts'
+import { CALLOUT_COLORS, DEFAULT_CALLOUT_COLOR, calloutName, calloutSpan, calloutTitle, newCalloutId, nextCalloutNumber, type Callout } from '../model/callouts'
+import { MEASUREMENT_DEFS } from '../dsp/measureDefs'
 import { MinMaxPyramid } from '../dsp/minmax'
 import { evaluateMath } from '../math/expr'
 import { MATH_COLORS, MAX_MATH, nextMathId, type MathDef } from '../model/math'
@@ -56,7 +79,9 @@ import { niceStep, si } from '../util/format'
 import { channelName } from '../util/names'
 import { usePersistentState } from '../util/usePersistentState'
 import type { RecentSession } from '../model/recent'
+import { installApp, useCanInstall } from '../pwa/install'
 import { CalloutPanel } from './CalloutPanel'
+import { CommandPalette } from './CommandPalette'
 import { ChannelBar, type ChannelBarHandle, type MathItem } from './ChannelBar'
 import { CursorPanel } from './CursorPanel'
 import { ExportDialog } from './ExportDialog'
@@ -70,6 +95,8 @@ import { SpectrumView, type SpectrumViewHandle } from './SpectrumView'
 import { StorageSection } from './StorageSection'
 import { TopBar } from './TopBar'
 import {
+  MEASURE_RANGES,
+  RANGE_LABEL,
   sampleRange,
   timeTicks,
   zoomAround,
@@ -81,7 +108,9 @@ import {
   type TimeWindow,
   type Tool,
 } from '../model/view'
+import type { Command } from './ui/commandSearch'
 import { useContextMenu, type MenuEntry } from './ui/menuContext'
+import { THEME_LABEL, THEME_PREFERENCES, useTheme } from './ui/themeContext'
 import { UndoHistory } from '../model/undoHistory'
 import { useAutosave } from './useAutosave'
 import { useUndoHistory } from './useUndoHistory'
@@ -351,6 +380,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     setExportPlotSize(plotRef.current?.size() ?? { w: 0, h: 0 })
     setExportKind(kind)
   }
+  // The command palette (Ctrl+K) also has the keyboard while it is open
+  const [paletteOpen, setPaletteOpen] = useState(false)
 
   /** "Between cursors" needs visible cursors: turn them on, in the current view if they are off-screen */
   const showCursors = () => {
@@ -511,9 +542,16 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (exportKind) return
+      const k = e.key.toLowerCase()
+      // The command palette opens (and closes) from anywhere, text fields included
+      if ((e.ctrlKey || e.metaKey) && (k === 'k' || (e.shiftKey && k === 'p'))) {
+        e.preventDefault()
+        setPaletteOpen((o) => !o)
+        return
+      }
+      if (paletteOpen) return
       const target = e.target as HTMLElement
       if (target.closest?.('input, textarea, select, [contenteditable="true"]')) return
-      const k = e.key.toLowerCase()
       if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) {
         e.preventDefault()
         if (k === 'y' || e.shiftKey) edits.redo()
@@ -805,6 +843,134 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     ])
   }
 
+  // ---------- command palette (Ctrl+K) ----------
+  const { preference: themePreference, setPreference: setThemePreference } = useTheme()
+  const canInstall = useCanInstall()
+  /** Everything the palette offers, built when it opens; unavailable commands are left out */
+  const paletteCommands = (): Command[] => {
+    const span = win.end - win.start
+    const mid = (win.start + win.end) / 2
+    const tools: [Tool, string, string, LucideIcon][] = [
+      ['pan', 'Pan', 'P', Hand],
+      ['zoom', 'Zoom', 'Z', ZoomIn],
+      ['note', 'Note', 'N', StickyNote],
+      ['marker', 'Marker', 'M', Flag],
+      ['region', 'Region', 'R', MoveHorizontal],
+    ]
+    const exports: [ExportKind, string, LucideIcon][] = [
+      ['image', 'Image (PNG)…', Image],
+      ['report', 'Report (HTML, PDF)…', FileText],
+      ['waveforms', 'Waveform data (CSV)…', Waves],
+      ['measurements', 'Measurements (CSV)…', Table2],
+      ['spectra', 'Spectra (CSV)…', FileSpreadsheet],
+    ]
+    const hasSpectra = spectra.some((s) => s.visible)
+    const entries: (Command | false)[] = [
+      ...tools.map(([t, label, hint, icon]): Command => ({ id: `tool:${t}`, group: 'Tool', label: `${label} tool`, hint, icon, checked: tool === t, run: () => setTool(t) })),
+
+      { id: 'view:full', group: 'View', label: 'Full record', hint: 'F', icon: Maximize2, run: () => zoomTo(record) },
+      history.length > 0 && { id: 'view:back', group: 'View', label: 'Back to the previous view', hint: 'Backspace', icon: ArrowLeft, run: zoomBack },
+      { id: 'view:saved', group: 'View', label: 'Saved view', keywords: 'as on the scope home', icon: Home, run: () => zoomTo(initialWin) },
+      { id: 'view:in', group: 'View', label: 'Zoom in', hint: '+', icon: ZoomIn, run: () => zoomTo(zoomAround(win, mid, 0.5, minSpan, maxSpan)) },
+      { id: 'view:out', group: 'View', label: 'Zoom out', hint: '−', icon: ZoomOut, run: () => zoomTo(zoomAround(win, mid, 2, minSpan, maxSpan)) },
+      { id: 'view:cursors', group: 'View', label: 'Cursors', hint: 'C', icon: Ruler, checked: cursors.on, run: () => setCursors({ ...cursors, on: !cursors.on }) },
+      { id: 'view:cursors-here', group: 'View', label: 'Bring the cursors into the view', icon: Ruler, run: () => setCursors({ ...cursors, on: true, a: win.start + span * 0.3, b: win.start + span * 0.7 }) },
+      { id: 'view:readout', group: 'View', label: 'Values at the pointer', hint: 'V', icon: Crosshair, checked: layout.readout, run: toggleReadout },
+      { id: 'view:overview', group: 'View', label: 'Overview strip', hint: 'O', icon: GalleryHorizontal, checked: layout.overview, run: toggleOverview },
+      { id: 'view:measurements', group: 'View', label: 'Measurement table', hint: 'T', icon: Table2, checked: layout.measurements, run: toggleMeasurements },
+      { id: 'view:focus', group: 'View', label: 'Focus mode: hide all panels', hint: '\\', icon: Focus, checked: focusMode, run: toggleFocus },
+
+      { id: 'panel:cursors', group: 'Panel', label: 'Cursor readouts', icon: Ruler, checked: layout.panel === 'cursors', run: () => setPanel(layout.panel === 'cursors' ? null : 'cursors') },
+      { id: 'panel:callouts', group: 'Panel', label: 'Callouts', icon: StickyNote, checked: layout.panel === 'callouts', run: () => setPanel(layout.panel === 'callouts' ? null : 'callouts') },
+      { id: 'panel:info', group: 'Panel', label: 'Session info, notes and setup', icon: Info, checked: layout.panel === 'info', run: () => setPanel(layout.panel === 'info' ? null : 'info') },
+      { id: 'help:measurements', group: 'Reference', label: 'How measurements work', icon: BookOpen, run: () => openReference('measurements') },
+      { id: 'help:math', group: 'Reference', label: 'Math functions', icon: BookOpen, run: () => openReference('math') },
+      { id: 'help:spectrum', group: 'Reference', label: 'Spectrum, windows and dB', keywords: 'fft', icon: BookOpen, run: () => openReference('spectrum') },
+
+      edits.canUndo && { id: 'edit:undo', group: 'Edit', label: 'Undo', hint: 'Ctrl+Z', icon: Undo2, run: edits.undo },
+      edits.canRedo && { id: 'edit:redo', group: 'Edit', label: 'Redo', hint: 'Ctrl+Y', icon: Redo2, run: edits.redo },
+      mathDefs.length < MAX_MATH && {
+        id: 'edit:math',
+        group: 'Edit',
+        label: 'Add math channel',
+        keywords: 'expression difference power',
+        icon: Plus,
+        run: () => {
+          const id = addMath()
+          // Open its editor once its badge is there
+          if (id) requestAnimationFrame(() => channelBarRef.current?.openSettings(id))
+        },
+      },
+      spectra.length < MAX_SPECTRA && { id: 'edit:fft', group: 'Edit', label: `Add spectrum (FFT) of ${channelName(selected ?? session.channels[0].wave.id)}`, keywords: 'frequency', icon: AudioLines, run: () => addSpectrum() },
+      callouts.length > 0 && { id: 'callout:prev', group: 'Callout', label: 'Previous callout', hint: ',', icon: ArrowLeft, run: () => stepCallout(-1) },
+      callouts.length > 0 && { id: 'callout:next', group: 'Callout', label: 'Next callout', hint: '.', icon: ArrowRight, run: () => stepCallout(1) },
+      ...[...callouts]
+        .sort((a, b) => calloutSpan(a)[0] - calloutSpan(b)[0])
+        .map((c): Command => ({ id: `callout:${c.id}`, group: 'Callout', label: `Go to ${calloutTitle(c)}`, keywords: `${calloutName(c)} ${c.text}`, color: c.color, run: () => jumpToCallout(c) })),
+
+      ...MEASURE_RANGES.map((r): Command => ({
+        id: `meas:range:${r}`,
+        group: 'Measurements',
+        label: `Measure ${RANGE_LABEL[r].toLowerCase()}`,
+        icon: Activity,
+        checked: measRange === r,
+        run: () => {
+          setMeasRange(r)
+          if (r === 'cursors') showCursors()
+        },
+      })),
+      ...MEASUREMENT_DEFS.map(
+        (d): Command =>
+          measKeys.includes(d.key)
+            ? { id: `meas:remove:${d.key}`, group: 'Measurements', label: `Remove measurement: ${d.label}`, icon: X, run: () => setMeasKeys(measKeys.filter((k) => k !== d.key)) }
+            : {
+                id: `meas:add:${d.key}`,
+                group: 'Measurements',
+                label: `Add measurement: ${d.label}`,
+                keywords: d.short,
+                icon: Plus,
+                run: () => {
+                  setMeasKeys([...measKeys, d.key])
+                  if (!layout.measurements) toggleMeasurements()
+                },
+              },
+      ),
+
+      ...displays.flatMap((d): (Command | false)[] => {
+        const name = `${channelName(d.id)}${d.label ? ` · ${d.label}` : ''}`
+        const hasWave = channels.some((c) => c.wave.id === d.id)
+        return [
+          { id: `ch:select:${d.id}`, group: 'Channel', label: `Select ${name}`, keywords: d.id, color: d.color, checked: selected === d.id, run: () => setSelected(d.id) },
+          { id: `ch:settings:${d.id}`, group: 'Channel', label: `Settings of ${name}…`, keywords: d.id, icon: SlidersHorizontal, run: () => channelBarRef.current?.openSettings(d.id) },
+          { id: `ch:visible:${d.id}`, group: 'Channel', label: `${d.visible ? 'Hide' : 'Show'} ${name}`, keywords: d.id, icon: d.visible ? EyeOff : Eye, run: () => onAdjust(d.id, { visible: !d.visible }) },
+          { id: `ch:only:${d.id}`, group: 'Channel', label: `Show only ${name}`, keywords: d.id, icon: ScanEye, run: () => setDisplays((ds) => ds.map((x) => ({ ...x, visible: x.id === d.id }))) },
+          hasWave && { id: `ch:autoscale:${d.id}`, group: 'Channel', label: `Autoscale ${name}`, keywords: d.id, icon: UnfoldVertical, run: () => onAutoscale(d.id) },
+        ]
+      }),
+      displays.some((d) => !d.visible) && { id: 'ch:all', group: 'Channel', label: 'Show all channels', icon: Eye, run: () => setDisplays((ds) => ds.map((x) => ({ ...x, visible: true }))) },
+
+      { id: 'file:open', group: 'File', label: 'Open session file…', icon: FolderOpen, run: onOpen },
+      { id: 'file:open-analysis', group: 'File', label: 'Open analysis file…', icon: Upload, run: () => analysisInput.current?.click() },
+      { id: 'file:save-analysis', group: 'File', label: 'Save analysis file', icon: FileJson, run: saveAnalysis },
+      { id: 'file:save-bundle', group: 'File', label: 'Save session with analysis', keywords: 'bundle scopeview', icon: Archive, run: saveBundle },
+      { id: 'file:reset', group: 'File', label: 'Reset to file defaults…', icon: RotateCcw, run: resetToDefaults },
+      canInstall && { id: 'file:install', group: 'File', label: 'Install Scope Viewer…', keywords: 'app offline', icon: MonitorDown, run: () => void installApp() },
+      { id: 'file:close', group: 'File', label: 'Close session', icon: X, run: onClose },
+      ...exports.map(([kind, label, icon]) => (kind !== 'spectra' || hasSpectra) && { id: `export:${kind}`, group: 'Export', label: `Export ${label}`, icon, run: () => openExport(kind) }),
+
+      ...THEME_PREFERENCES.map((t): Command => ({
+        id: `theme:${t}`,
+        group: 'Appearance',
+        label: `Appearance: ${THEME_LABEL[t]}`,
+        keywords: 'theme colours mode',
+        icon: Palette,
+        checked: themePreference === t,
+        run: () => setThemePreference(t),
+      })),
+    ]
+    return entries.filter((c): c is Command => !!c)
+  }
+
   return (
     <div className="scope">
       <TopBar
@@ -834,6 +1000,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
         onRedo={edits.redo}
         onExport={openExport}
         hasSpectra={spectra.some((s) => s.visible)}
+        onCommands={() => setPaletteOpen(true)}
       />
       <input
         ref={analysisInput}
@@ -1055,6 +1222,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
           </div>
         )}
       </div>
+
+      {paletteOpen && <CommandPalette getCommands={paletteCommands} onClose={() => setPaletteOpen(false)} />}
 
       {exportKind && (
         <ExportDialog

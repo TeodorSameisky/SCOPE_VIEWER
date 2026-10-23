@@ -17,7 +17,8 @@ All parsing happens **in the browser** (in a Web Worker). Session files are neve
 
 ## Layout
 
-- **Top bar** – File menu, save status, mouse tools (Pan, Zoom, Note, Marker, Region), view navigation, cursors, Export
+- **Top bar** – File menu, save status, mouse tools (Pan, Zoom, Note, Marker, Region), view navigation, cursors,
+  command palette, Export
 - **Plot** – with the optional overview strip above and the measurements table below
 - **Right rail** – opens the side panels (Cursor readouts, Callouts, Session info & setup) and shows/hides
   the overview strip and measurements; *Focus* (`\`) hides everything except the plot
@@ -202,9 +203,25 @@ for a contrast of 3:1, keeping their hue, so each channel stays recognisable.
 CSV files can be written comma separated, **semicolon separated with decimal comma (Excel in DE/EU)**
 or tab separated.
 
+### Command palette
+
+`Ctrl+K` (`⌘K` on a Mac, also `Ctrl+Shift+P`) or the search button in the top bar opens a search over every
+command: tools, views and panels, channels (select, show/hide, show only, autoscale, settings), callouts
+(*Go to …* by their text), measurements (add, remove, range), files, exports and the appearance. Type a
+few letters of any word (`rise`, `ch2`, `hide pulse`), choose with ↑ ↓ and run with Enter. Recently used
+commands are listed first.
+
+### Appearance
+
+The whole app – plots, overview, spectrum, panels and dialogs – comes in a **dark** (default) and a **light**
+appearance, or follows the operating system. Switch with the sun/moon button at the bottom of the rail
+(or on the start page) or with *Appearance* in the command palette; the choice is remembered in the browser.
+In the light appearance pale trace and callout colours are darkened for contrast, as in light exports.
+Exports keep their own Dark / Light option.
+
 ### Keyboard
 
-`P` pan · `Z` zoom tool · `N` note · `M` marker · `R` region · `Esc` back to pan ·
+`Ctrl+K` command palette · `P` pan · `Z` zoom tool · `N` note · `M` marker · `R` region · `Esc` back to pan ·
 `Ctrl+Z` undo · `Ctrl+Y` redo · `F` full record · `+`/`-` zoom · `←`/`→` pan · `Backspace` zoom back · `C` cursors ·
 `V` values at the pointer · `O` overview · `T` measurements · `\` focus mode ·
 `Enter` edit / `Delete` delete the selected callout · `,` / `.` previous / next callout ·

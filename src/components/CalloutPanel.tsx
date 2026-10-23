@@ -3,6 +3,7 @@ import { CALLOUT_COLORS, CALLOUT_ICON, CALLOUT_TYPE_LABEL, calloutName, calloutS
 import { si } from '../util/format'
 import { channelName } from '../util/names'
 import { CalloutValueEditor } from './CalloutValueEditor'
+import { useTheme } from './ui/themeContext'
 import type { LiveChannel, Tool } from '../model/view'
 
 interface Props {
@@ -23,6 +24,7 @@ export function CalloutPanel(p: Props) {
   // Search in the text, the title and the type ("marker" lists all markers)
   const [query, setQuery] = useState('')
   const q = query.trim().toLowerCase()
+  const { ink } = useTheme().theme
   const sorted = [...p.callouts]
     .filter((c) => !q || `${calloutTitle(c)} ${c.text} ${CALLOUT_TYPE_LABEL[c.type]}`.toLowerCase().includes(q))
     .sort((a, b) => calloutSpan(a)[0] - calloutSpan(b)[0])
@@ -69,7 +71,7 @@ export function CalloutPanel(p: Props) {
             key={c.id}
             data-id={c.id}
             className={`callout-card ${c.id === p.selectedId ? 'selected' : ''}`}
-            style={{ ['--co' as string]: c.color }}
+            style={{ ['--co' as string]: ink(c.color) }}
             onClick={() => p.onSelect(c.id)}
             onContextMenu={(e) => {
               if (!p.onContextMenu || (e.target as HTMLElement).closest('textarea')) return
@@ -82,7 +84,7 @@ export function CalloutPanel(p: Props) {
               <span className="mono">{si(c.t, 's', 5)}</span>
               {c.type === 'region' && c.t2 !== undefined && <span className="mono muted">Δt {si(Math.abs(c.t2 - c.t), 's')}</span>}
               {ch && (
-                <span className="chip" style={{ ['--ch' as string]: ch.display.color }}>
+                <span className="chip" style={{ ['--ch' as string]: ink(ch.display.color) }}>
                   {channelName(ch.wave.id)}
                 </span>
               )}

@@ -10,6 +10,7 @@ import { ChannelSettings } from './ChannelSettings'
 import { MathEditor } from './MathEditor'
 import type { DisplayPatch, LiveChannel, TimeWindow } from '../model/view'
 import { useDismiss } from './ui/useDismiss'
+import { useTheme } from './ui/themeContext'
 
 export interface MathItem {
   def: MathDef
@@ -138,6 +139,9 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
   }))
 
   const sources = [...p.channels.map((c) => c.wave.id), ...p.math.map((m) => m.def.id)]
+  // Trace colours as shown on the current background (pale ones are darkened on light)
+  const { ink } = useTheme().theme
+  const triggerColor = p.channels.find((c) => c.wave.id === p.trigger?.source)?.display.color
 
   const badge = (id: string, d: ChannelDisplay, unit: string, sub: string, popover: React.ReactNode, error?: string) => {
     const isOpen = open?.id === id
@@ -146,7 +150,7 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
         key={id}
         data-id={id}
         className={`ch-badge ${p.selected === id ? 'selected' : ''} ${d.visible ? '' : 'off'} ${error ? 'error' : ''}`}
-        style={{ ['--ch' as string]: d.color }}
+        style={{ ['--ch' as string]: ink(d.color) }}
         onContextMenu={(e) => {
           if (!p.onChannelMenu || (e.target as HTMLElement).closest('.popover')) return
           p.setSelected(id)
@@ -291,7 +295,7 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
         <div className="info-box trigger" onContextMenu={p.onTimebaseMenu}>
           <span className="info-title">Trigger</span>
           {/* In the colour of the source channel; orange (CSS) for sources without a trace, e.g. AUX */}
-          <span className="info-main mono" style={{ color: p.channels.find((c) => c.wave.id === p.trigger?.source)?.display.color }}>
+          <span className="info-main mono" style={{ color: triggerColor && ink(triggerColor) }}>
             {channelName(p.trigger.source)} {slopeSymbol(p.trigger.slope)}
           </span>
           <span className="info-sub mono">{p.trigger.level !== undefined ? si(p.trigger.level, sourceUnit(p.channels, p.trigger.source), 3) : ''}</span>

@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
 import { toDb, windowCoefficients, windowGain, type WindowKind } from '../math/fft'
+import { useTheme } from './ui/themeContext'
 
-const HL = '#3fb6ff'
+const ACCENT = '#3fb6ff'
 const GUIDE = 'rgba(160, 170, 185, 0.55)'
 const GRID = 'rgba(160, 170, 185, 0.16)'
 
@@ -20,6 +21,8 @@ const ry = (db: number) => TOP + (Math.max(DB_MIN, db) / DB_MIN) * (BOT - TOP)
 
 /** Shape of a window over the samples and its response to a tone (main lobe, side lobes) in dB. */
 export function WindowFigure({ kind }: { kind: WindowKind }) {
+  // Darkened on a light background, like the traces
+  const HL = useTheme().theme.ink(ACCENT)
   const { shape, resp } = useMemo(() => {
     const n = 64
     const w = windowCoefficients(kind, n)

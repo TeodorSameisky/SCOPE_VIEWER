@@ -1,9 +1,12 @@
 import { printColor, textOn } from './color'
 
-/** Colour scheme of exported images: as on screen, or light for paper and light documents */
+/** Colour scheme of the app and of exported images */
 export type Appearance = 'dark' | 'light'
 
-/** Colours of the plots, the composed export image around them and the callouts */
+/**
+ * Colours of the plots, the composed export image around them and the callouts. The app draws
+ * with the theme of its appearance; exports choose theirs. The CSS tokens in styles.css match.
+ */
 export interface Theme {
   bg: string
   grid: string
@@ -19,6 +22,13 @@ export interface Theme {
   triggerLevel: string
   hover: string
   selection: string
+  /** Rectangle of the visible window in the overview, and its edge */
+  windowBox: string
+  /** Overview: the record outside the visible window */
+  shade: string
+  overviewBg: string
+  /** Text in the rubber band of a zoom or a new region */
+  bandText: string
 
   /** Background of the export image around the plots */
   page: string
@@ -58,6 +68,10 @@ export const DARK_THEME: Theme = {
   triggerLevel: 'rgba(255, 157, 46, 0.35)',
   hover: 'rgba(255,255,255,0.25)',
   selection: '#fff',
+  windowBox: '#3fb6ff',
+  shade: 'rgba(0, 0, 0, 0.55)',
+  overviewBg: '#0a0d12',
+  bandText: '#cfe6ff',
 
   page: '#0b0e13',
   panel: '#12161d',
@@ -92,6 +106,10 @@ export const LIGHT_THEME: Theme = {
   triggerLevel: 'rgba(196, 105, 26, 0.5)',
   hover: 'rgba(0,0,0,0.25)',
   selection: '#000',
+  windowBox: '#1673b8',
+  shade: 'rgba(238, 241, 245, 0.7)',
+  overviewBg: '#f6f7f9',
+  bandText: '#164f80',
 
   page: '#ffffff',
   panel: '#f2f4f7',

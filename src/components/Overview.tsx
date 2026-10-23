@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { calloutSpan, calloutTitle, type Callout } from '../model/callouts'
 import { AXIS_GUTTER, DIVS_Y, PLOT_FONT, valueToDiv } from '../render/draw'
-import { DARK_THEME } from '../render/theme'
+import { useTheme } from './ui/themeContext'
 import { zoomAround, type LiveChannel, type NavKind, type TimeWindow } from '../model/view'
 
 const HEIGHT = 46
@@ -45,6 +45,7 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
   const [hoverPart, setHoverPart] = useState<'move' | 'edge' | null>(null)
   const [hoverCallout, setHoverCallout] = useState<Callout | null>(null)
   const moved = useRef(false)
+  const { theme } = useTheme()
 
   const plotW = Math.max(1, width - AXIS_GUTTER)
   const recSpan = record.end - record.start || 1
@@ -69,7 +70,7 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
     cv.height = Math.round(HEIGHT * dpr)
     const ctx = cv.getContext('2d')!
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.fillStyle = '#0a0d12'
+    ctx.fillStyle = theme.overviewBg
     ctx.fillRect(0, 0, width, HEIGHT)
     const nViews = Math.max(1, views.length)
     const laneH = HEIGHT / nViews
@@ -78,7 +79,7 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
     views.forEach((ids, vi) => {
       const top = vi * laneH
       if (vi > 0) {
-        ctx.fillStyle = DARK_THEME.grid
+        ctx.fillStyle = theme.grid
         ctx.fillRect(0, Math.round(top), plotW, 1)
       }
       ctx.save()
@@ -90,7 +91,7 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
         if (!c || !c.display.visible) continue
         const { wave, display: d } = c
         const yOf = (v: number) => top + laneH / 2 - valueToDiv(v, d) * (laneH / DIVS_Y)
-        ctx.strokeStyle = d.color
+        ctx.strokeStyle = theme.ink(d.color)
         ctx.globalAlpha = 0.85
         ctx.lineWidth = 1
         ctx.beginPath()
@@ -112,7 +113,7 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
       ctx.restore()
     })
     ctx.globalAlpha = 1
-  }, [channels, views, width, plotW, record.start, recSpan])
+  }, [channels, views, width, plotW, record.start, recSpan, theme])
 
   // Window box on top of the cached traces
   useEffect(() => {
@@ -126,16 +127,16 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     const x0 = Math.max(0, tToX(win.start))
     const x1 = Math.min(plotW, tToX(win.end))
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)'
+    ctx.fillStyle = theme.shade
     ctx.fillRect(0, 0, Math.max(0, x0), HEIGHT)
     ctx.fillRect(x1, 0, Math.max(0, plotW - x1), HEIGHT)
-    ctx.strokeStyle = '#3fb6ff'
+    ctx.strokeStyle = theme.windowBox
     ctx.lineWidth = 1.5
     ctx.strokeRect(x0 + 0.75, 0.75, Math.max(2, x1 - x0 - 1.5), HEIGHT - 1.5)
     // trigger position
     const xt = tToX(0)
     if (xt >= 0 && xt <= plotW) {
-      ctx.fillStyle = DARK_THEME.trigger
+      ctx.fillStyle = theme.trigger
       ctx.beginPath()
       ctx.moveTo(xt - 4, 0)
       ctx.lineTo(xt + 4, 0)
@@ -154,8 +155,8 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
     for (const c of callouts) {
       const [ta, tb] = calloutSpan(c)
       const selected = c.id === selectedCallout
-      ctx.fillStyle = c.color
-      ctx.strokeStyle = c.color
+      ctx.fillStyle = theme.ink(c.color)
+      ctx.strokeStyle = theme.ink(c.color)
       if (c.type === 'region') {
         const xa = tToX(ta)
         ctx.globalAlpha = selected ? 0.9 : 0.6
@@ -177,7 +178,7 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
       }
       if (selected) {
         ctx.globalAlpha = 1
-        ctx.strokeStyle = '#fff'
+        ctx.strokeStyle = theme.selection
         ctx.lineWidth = 1
         const xa = tToX(ta)
         ctx.strokeRect(Math.round(xa - 4) + 0.5, HEIGHT - BAND - 0.5, Math.max(8, tToX(tb) - xa + 8), BAND)
@@ -185,7 +186,7 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
     }
     ctx.globalAlpha = 1
     // Label in the gutter
-    ctx.fillStyle = DARK_THEME.axisText
+    ctx.fillStyle = theme.axisText
     ctx.font = PLOT_FONT
     ctx.textBaseline = 'middle'
     ctx.textAlign = 'left'

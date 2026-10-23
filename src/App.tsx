@@ -10,6 +10,7 @@ import { Scope, type InitialState, type ScopeHandle, type SourceFile } from './c
 import { Logo } from './components/ui/Logo'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ContextMenuProvider } from './components/ui/ContextMenu'
+import { ThemeButton, ThemeProvider } from './components/ui/ThemeProvider'
 import { PwaStatus } from './components/PwaStatus'
 import { installApp, useCanInstall } from './pwa/install'
 import { onLaunchFiles } from './pwa/launch'
@@ -202,105 +203,110 @@ export default function App() {
   )
 
   return (
-    <ContextMenuProvider>
-      {picker}
-      {current ? (
-        <ErrorBoundary
-          key={current.generation}
-          onClose={() => setCurrent(null)}
-          onReset={() => {
-            // A broken saved state must not make the file unusable: forget it and show the file defaults
-            if (current.session.fingerprint) deleteStoredSession(current.session.fingerprint)
-            replaceWorkspace({ kind: 'defaults' })
-          }}
-        >
-          <Scope
-            ref={scopeRef}
-            session={current.session}
-            sources={current.sources}
-            initial={current.initial}
-            onOpen={() => inputRef.current?.click()}
+    <ThemeProvider>
+      <ContextMenuProvider>
+        {picker}
+        {current ? (
+          <ErrorBoundary
+            key={current.generation}
             onClose={() => setCurrent(null)}
-            onReplaceWorkspace={replaceWorkspace}
-            onOpenStored={openStored}
-            onKeepFiles={() => keepFiles(current.session, current.sources)}
-            filesVersion={filesVersion}
-          />
-        </ErrorBoundary>
-      ) : restoring && toRestore ? (
-        <div className="landing">
-          <div className="landing-card">
-            <div className="brand big">
-              <Logo size={30} /> Scope Viewer
-            </div>
-            <p>Reopening {toRestore.fileName}…</p>
-          </div>
-        </div>
-      ) : (
-        <div className="landing">
-          <div className="landing-card">
-            <div className="brand big">
-              <Logo size={30} /> Scope Viewer
-            </div>
-            <p>View and analyse oscilloscope session files in your browser. Files are processed locally and never uploaded.</p>
-            <button className="drop-target" onClick={() => inputRef.current?.click()} disabled={busy}>
-              {busy ? 'Reading file…' : (
-                <>
-                  <strong>Drop a session file here</strong>
-                  <span>or click to choose a file</span>
-                </>
-              )}
-            </button>
-            {error && <div className="error">{error}</div>}
-            <div className={`recent ${recentCount ? '' : 'hidden'}`}>
-              <h4>Recent sessions</h4>
-              <RecentSessions onOpen={openStored} refreshKey={filesVersion} onLoaded={(l) => setRecentCount(l.length)} limit={8} />
-            </div>
-            {canInstall && (
-              <div className="install-hint">
-                <button type="button" className="primary" onClick={() => installApp()}>
-                  <MonitorDown size={16} aria-hidden /> Install Scope Viewer
-                </button>
-                <span>Runs in its own window, works offline and opens .tss files from the file explorer.</span>
+            onReset={() => {
+              // A broken saved state must not make the file unusable: forget it and show the file defaults
+              if (current.session.fingerprint) deleteStoredSession(current.session.fingerprint)
+              replaceWorkspace({ kind: 'defaults' })
+            }}
+          >
+            <Scope
+              ref={scopeRef}
+              session={current.session}
+              sources={current.sources}
+              initial={current.initial}
+              onOpen={() => inputRef.current?.click()}
+              onClose={() => setCurrent(null)}
+              onReplaceWorkspace={replaceWorkspace}
+              onOpenStored={openStored}
+              onKeepFiles={() => keepFiles(current.session, current.sources)}
+              filesVersion={filesVersion}
+            />
+          </ErrorBoundary>
+        ) : restoring && toRestore ? (
+          <div className="landing">
+            <div className="landing-card">
+              <div className="brand big">
+                <Logo size={30} /> Scope Viewer
               </div>
-            )}
-            <ul className="formats">
-              <li>
-                <b>Tektronix session</b> <code>.tss</code> (4/5/6-Series MSO)
-              </li>
-              <li>
-                <b>Tektronix waveform</b> <code>.wfm</code>, optionally with a <code>.set</code> setup file
-              </li>
-              <li>
-                <b>Older Tektronix scopes</b> <code>.isf</code> (TDS, DPO/MSO2000–4000, MDO3000/4000), with <code>.set</code> and screenshot; or the
-                saved files together in a <code>.zip</code>
-              </li>
-              <li>
-                <b>Scope Viewer bundle</b> <code>.scopeview</code>: a session with its analysis; or a session file together with its{' '}
-                <code>.scopeview.json</code> analysis
-              </li>
-              <li className="muted">
-                <b>Rigol</b>: coming soon
-              </li>
-            </ul>
-            <p className="legal">
-              MIT License ·{' '}
-              <a href={`${import.meta.env.BASE_URL}third-party-licenses.txt`} target="_blank" rel="noreferrer">
-                Licenses of the software used
-              </a>
-            </p>
+              <p>Reopening {toRestore.fileName}…</p>
+            </div>
           </div>
-        </div>
-      )}
-      {busy && current && <div className="busy-overlay">Reading file…</div>}
-      {error && current && (
-        <div className="toast" onClick={() => setError(null)}>
-          {error}
-        </div>
-      )}
-      {dragOver && <div className="drop-overlay">Drop to open</div>}
-      <PwaStatus />
-    </ContextMenuProvider>
+        ) : (
+          <div className="landing">
+            <div className="landing-card">
+              <div className="brand big">
+                <Logo size={30} /> Scope Viewer
+              </div>
+              <p>View and analyse oscilloscope session files in your browser. Files are processed locally and never uploaded.</p>
+              <button className="drop-target" onClick={() => inputRef.current?.click()} disabled={busy}>
+                {busy ? 'Reading file…' : (
+                  <>
+                    <strong>Drop a session file here</strong>
+                    <span>or click to choose a file</span>
+                  </>
+                )}
+              </button>
+              {error && <div className="error">{error}</div>}
+              <div className={`recent ${recentCount ? '' : 'hidden'}`}>
+                <h4>Recent sessions</h4>
+                <RecentSessions onOpen={openStored} refreshKey={filesVersion} onLoaded={(l) => setRecentCount(l.length)} limit={8} />
+              </div>
+              {canInstall && (
+                <div className="install-hint">
+                  <button type="button" className="primary" onClick={() => installApp()}>
+                    <MonitorDown size={16} aria-hidden /> Install Scope Viewer
+                  </button>
+                  <span>Runs in its own window, works offline and opens .tss files from the file explorer.</span>
+                </div>
+              )}
+              <ul className="formats">
+                <li>
+                  <b>Tektronix session</b> <code>.tss</code> (4/5/6-Series MSO)
+                </li>
+                <li>
+                  <b>Tektronix waveform</b> <code>.wfm</code>, optionally with a <code>.set</code> setup file
+                </li>
+                <li>
+                  <b>Older Tektronix scopes</b> <code>.isf</code> (TDS, DPO/MSO2000–4000, MDO3000/4000), with <code>.set</code> and screenshot; or the
+                  saved files together in a <code>.zip</code>
+                </li>
+                <li>
+                  <b>Scope Viewer bundle</b> <code>.scopeview</code>: a session with its analysis; or a session file together with its{' '}
+                  <code>.scopeview.json</code> analysis
+                </li>
+                <li className="muted">
+                  <b>Rigol</b>: coming soon
+                </li>
+              </ul>
+              <div className="landing-foot">
+                <p className="legal">
+                  MIT License ·{' '}
+                  <a href={`${import.meta.env.BASE_URL}third-party-licenses.txt`} target="_blank" rel="noreferrer">
+                    Licenses of the software used
+                  </a>
+                </p>
+                <ThemeButton />
+              </div>
+            </div>
+          </div>
+        )}
+        {busy && current && <div className="busy-overlay">Reading file…</div>}
+        {error && current && (
+          <div className="toast" onClick={() => setError(null)}>
+            {error}
+          </div>
+        )}
+        {dragOver && <div className="drop-overlay">Drop to open</div>}
+        <PwaStatus />
+      </ContextMenuProvider>
+    </ThemeProvider>
   )
 }
 

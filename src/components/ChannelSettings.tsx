@@ -3,6 +3,7 @@ import type { ChannelDisplay } from '../model/types'
 import { si } from '../util/format'
 import { channelName } from '../util/names'
 import { stepScale, type DisplayPatch } from '../model/view'
+import { useTheme } from './ui/themeContext'
 
 interface Props {
   display: ChannelDisplay
@@ -25,8 +26,9 @@ const round = (v: number) => Math.round(v * 100) / 100
 export function ChannelSettings({ display: d, unit, views, onAdjust, onMoveToView, onAutoscale, hasSpectrum, canAddSpectrum, onToggleSpectrum, children }: Props) {
   const id = d.id
   const view = views.findIndex((v) => v.includes(id))
+  const { ink } = useTheme().theme
   return (
-    <div className="channel-settings" style={{ ['--ch' as string]: d.color }}>
+    <div className="channel-settings" style={{ ['--ch' as string]: ink(d.color) }}>
       <div className="channel-head">
         <span className="chip">{channelName(id)}</span>
         <input className="label-input" value={d.label} placeholder="Label" aria-label="Label" onChange={(e) => onAdjust(id, { label: e.target.value })} />

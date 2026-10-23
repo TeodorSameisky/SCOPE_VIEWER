@@ -1,5 +1,6 @@
 import { useId } from 'react'
 import type { MeasurementKey } from '../dsp/measure'
+import { useTheme } from './ui/themeContext'
 
 // Geometry of the example pulse train (SVG units). Levels: top 30, base 90.
 const TOP = 30
@@ -13,11 +14,16 @@ const RISE = { p10: 42, p50: 50, p90: 58 }
 const FALL = { p90: 112, p50: 120, p10: 128 }
 const RISE2 = { p50: 180 }
 
-const HL = '#3fb6ff'
+const ACCENT = '#3fb6ff'
+/** The example signal, in the colour of CH1 */
+const SIGNAL = '#f2e32c'
 const GUIDE = 'rgba(160, 170, 185, 0.55)'
 
 /** Small schematic that shows what a measurement measures on an example pulse train. */
 export function MeasureFigure({ highlight }: { highlight: MeasurementKey }) {
+  // Darkened on a light background, like the traces
+  const { ink } = useTheme().theme
+  const HL = ink(ACCENT)
   const uid = useId().replace(/:/g, '')
   const arrow = `url(#arr-${uid})`
 
@@ -107,7 +113,7 @@ export function MeasureFigure({ highlight }: { highlight: MeasurementKey }) {
           <path d="M0 1 L10 5 L0 9 z" fill={HL} />
         </marker>
       </defs>
-      <path d={WAVE} fill="none" stroke="#f2e32c" strokeWidth="2" strokeLinejoin="round" />
+      <path d={WAVE} fill="none" stroke={ink(SIGNAL)} strokeWidth="2" strokeLinejoin="round" />
       {parts}
     </svg>
   )

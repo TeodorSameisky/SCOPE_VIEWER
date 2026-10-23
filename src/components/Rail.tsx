@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { BookOpen, CircleHelp, Focus, GalleryHorizontal, Info, Ruler, StickyNote, Table2 } from 'lucide-react'
 import { IconButton } from './ui/IconButton'
+import { ThemeButton } from './ui/ThemeProvider'
 import { useDismiss } from './ui/useDismiss'
 
 export type PanelId = 'cursors' | 'callouts' | 'info' | 'reference'
@@ -31,6 +32,7 @@ export function Rail(p: Props) {
       <IconButton icon={Table2} label="Measurements" shortcut="T" active={p.measurements} onClick={p.toggleMeasurements} />
       <IconButton icon={Focus} label="Focus: hide all panels" shortcut="\" active={p.focusMode} onClick={p.toggleFocus} />
       <div className="spacer" />
+      <ThemeButton />
       <HelpButton />
     </nav>
   )
@@ -38,6 +40,7 @@ export function Rail(p: Props) {
 
 /** Keys or gestures (alternatives as separate chips) and what they do */
 const SHORTCUTS: [string[], string][] = [
+  [['Ctrl + K'], 'Command palette: find any command, channel, callout or measurement by name'],
   [['Wheel'], 'Zoom time around the pointer'],
   [['Shift + wheel'], 'Pan'],
   [['Right-click'], 'Commands for the point, trace, callout, channel or table cell under the pointer'],

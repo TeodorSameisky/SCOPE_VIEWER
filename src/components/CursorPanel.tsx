@@ -1,6 +1,7 @@
 import { valueAt } from '../render/draw'
 import { parseTime, si } from '../util/format'
 import { channelName } from '../util/names'
+import { useTheme } from './ui/themeContext'
 import type { CursorState, LiveChannel, TimeWindow } from '../model/view'
 
 interface Props {
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function CursorPanel({ channels, cursors, setCursors, win }: Props) {
+  const { ink } = useTheme().theme
   const dt = cursors.b - cursors.a
   const center = () => {
     const s = win.end - win.start
@@ -65,7 +67,7 @@ export function CursorPanel({ channels, cursors, setCursors, win }: Props) {
               return (
                 <tr key={c.wave.id}>
                   <td>
-                    <span className="dot" style={{ background: c.display.color }} />
+                    <span className="dot" style={{ background: ink(c.display.color) }} />
                     {channelName(c.wave.id)}
                   </td>
                   <td className="mono">{si(a, c.wave.yUnit)}</td>

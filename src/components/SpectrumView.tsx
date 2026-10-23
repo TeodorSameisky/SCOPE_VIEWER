@@ -6,11 +6,12 @@ import type { Waveform } from '../model/types'
 import type { SpectrumSource } from '../export/sessionExport'
 import { AXIS_GUTTER } from '../render/draw'
 import { FREQ_AXIS_H, drawSpectrum, levelValue, readLevel, xToF, type FreqMap, type FreqRange } from '../render/spectrum'
-import { DARK_THEME, type Theme } from '../render/theme'
+import type { Theme } from '../render/theme'
 import { niceStep, si } from '../util/format'
 import { channelName } from '../util/names'
 import { MEASURE_RANGES, RANGE_LABEL, type CursorState, type LiveChannel, type TimeWindow } from '../model/view'
 import { useContextMenu, type MenuEntry } from './ui/menuContext'
+import { useTheme } from './ui/themeContext'
 
 interface Props {
   defs: SpectrumDef[]
@@ -54,6 +55,8 @@ const MIN_BAND_PX = 5
 export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function SpectrumView(p, ref) {
   // Deferred so panning the time views stays smooth while the spectra follow
   const win = useDeferredValue(p.win)
+  // Named apart from the `theme` of exports (renderImage)
+  const { theme: screenTheme } = useTheme()
   const cursors = useDeferredValue(p.cursors)
   const { range, scale, axis } = p.options
 
@@ -148,11 +151,11 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
         traces: shown.map((r) => ({ spec: r.spec, color: r.channel.display.color, peaks: peaks.get(r.def.id) ?? [] })),
         hoverF: drag ? undefined : hoverF,
         band: drag?.kind === 'band' ? drag : undefined,
-        theme: DARK_THEME,
+        theme: screenTheme,
       })
     })
     return () => cancelAnimationFrame(id)
-  }, [shown, peaks, size, axis, fr.lo, fr.hi, plotW, scale, yr, unit, hoverF, drag])
+  }, [shown, peaks, size, axis, fr.lo, fr.hi, plotW, scale, yr, unit, hoverF, drag, screenTheme])
 
   useImperativeHandle(ref, () => ({
     renderImage: (k: number, theme: Theme) => {
@@ -312,7 +315,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
   }
 
   const sources = p.channels.map((c) => c.wave.id)
-  const colorOf = (id: string) => p.channels.find((c) => c.wave.id === id)?.display.color ?? '#888'
+  const colorOf = (id: string) => screenTheme.ink(p.channels.find((c) => c.wave.id === id)?.display.color ?? '#888')
   const lvl = (rms: number) => (scale === 'db' ? `${levelValue('db', rms).toFixed(1)} ${levelUnit('db', unit)}` : si(rms, unit))
   const hoverLevels =
     hoverF === undefined || drag
@@ -529,7 +532,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
               <div className="mono">{si(hoverF, 'Hz', 5)}</div>
               {hoverLevels.map(({ r, v }) => (
                 <div key={r.def.id} className="mono">
-                  <span className="dot" style={{ background: r.channel.display.color }} />
+                  <span className="dot" style={{ background: screenTheme.ink(r.channel.display.color) }} />
                   {lvl(v.rms)}
                 </div>
               ))}

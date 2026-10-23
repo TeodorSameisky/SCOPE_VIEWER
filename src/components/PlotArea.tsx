@@ -5,10 +5,11 @@ import { calloutSpan, type Callout } from '../model/callouts'
 import { calloutsSvg, flagsBottom, layoutCallouts } from '../render/callouts'
 import { AXIS_GUTTER, DIVS_Y, PLOT_FONT, divToValue, drawTimeAxis, drawView, valueAt, valueToDiv, type ViewDrawOptions } from '../render/draw'
 import { loadTex, useTexVersion } from '../render/tex'
-import { DARK_THEME, type Theme } from '../render/theme'
+import type { Theme } from '../render/theme'
 import { si } from '../util/format'
 import { channelName } from '../util/names'
 import { CalloutLayer } from './CalloutLayer'
+import { useTheme } from './ui/themeContext'
 import {
   stepScale,
   timeTicks,
@@ -153,6 +154,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   const hoverT = pointerT !== undefined && (p.tool === 'marker' || p.tool === 'region') ? snapT(pointerT, hover!.alt) : pointerT
   // Callout geometry (formulas render asynchronously: lay out again when one is ready)
   useTexVersion()
+  const { theme } = useTheme()
   const calloutGeo = layoutCallouts(p.callouts, { channels: p.channels, views: p.views, win: p.win, plotW, viewH })
 
   useLayoutEffect(() => {
@@ -192,16 +194,16 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       p.views.forEach((_, vi) => {
         const ctx = canvasRefs.current[vi]?.getContext('2d')
         if (!ctx) return
-        drawView(ctx, { ...viewOptions(vi, byId, dpr, DARK_THEME), selectedId: p.selected, hoverT: drag ? undefined : hoverT, hoverDots: p.readout })
+        drawView(ctx, { ...viewOptions(vi, byId, dpr, theme), selectedId: p.selected, hoverT: drag ? undefined : hoverT, hoverDots: p.readout })
         drawDragPreview(ctx, dpr, vi)
       })
       const ax = axisRef.current?.getContext('2d')
-      if (ax) drawTimeAxis(ax, size.w, AXIS_H, dpr, p.win.start, p.win.end, ticks, DARK_THEME)
+      if (ax) drawTimeAxis(ax, size.w, AXIS_H, dpr, p.win.start, p.win.end, ticks, theme)
     })
     return () => cancelAnimationFrame(id)
     // viewOptions and drawDragPreview only read the props and state listed here
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.channels, p.views, p.win, p.cursors, p.selected, p.trigger, p.readout, size, viewH, hoverT, drag])
+  }, [p.channels, p.views, p.win, p.cursors, p.selected, p.trigger, p.readout, size, viewH, hoverT, drag, theme])
 
   /** Rubber band for zoom / region selection */
   const drawDragPreview = (ctx: CanvasRenderingContext2D, dpr: number, vi: number) => {
@@ -226,7 +228,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     if (vi === 0 || drag.kind === 'rect') {
       ctx.setLineDash([])
       ctx.font = '11px system-ui, sans-serif'
-      ctx.fillStyle = '#cfe6ff'
+      ctx.fillStyle = theme.bandText
       ctx.textBaseline = 'top'
       ctx.fillText(si(Math.abs(xToT(drag.x1) - xToT(drag.x0)), 's'), x0 + 4, y0 + 4)
     }
@@ -477,7 +479,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     return best
   }
 
-  const cursorReadout = p.cursors.on ? cursorSummary(p) : null
+  const cursorReadout = p.cursors.on ? cursorSummary(p, theme) : null
   // Callouts outside the view: counted in the top corners, a click goes to the nearest
   const before = p.callouts.filter((c) => calloutSpan(c)[1] < p.win.start)
   const after = p.callouts.filter((c) => calloutSpan(c)[0] > p.win.end)
@@ -595,6 +597,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
  * with room). The channel whose trace is under the pointer is highlighted.
  */
 function HoverReadout(p: { t: number; x: number; y: number; channels: LiveChannel[]; views: string[][]; near?: string; width: number; height: number }) {
+  const { ink } = useTheme().theme
   const byId = new Map(p.channels.map((c) => [c.wave.id, c]))
   const rows = p.views.flat().flatMap((id) => {
     const c = byId.get(id)
@@ -610,7 +613,7 @@ function HoverReadout(p: { t: number; x: number; y: number; channels: LiveChanne
       <span className="hr-time mono">{si(p.t, 's', 5)}</span>
       {rows.map((c) => (
         <div key={c.wave.id} className={`hr-row ${c.wave.id === p.near ? 'near' : ''}`}>
-          <span className="dot" style={{ background: c.display.color }} />
+          <span className="dot" style={{ background: ink(c.display.color) }} />
           <span className="hr-name">
             {channelName(c.wave.id)}
             {c.display.label && <span className="hr-label">{c.display.label}</span>}
@@ -630,14 +633,14 @@ function cursorDeltas(p: Props) {
   return { dt, dv, src, unit: src?.wave.yUnit ?? 'V', name: src ? channelName(src.wave.id) : '?' }
 }
 
-function cursorSummary(p: Props) {
+function cursorSummary(p: Props, theme: Theme) {
   const { dt, dv, src, unit, name } = cursorDeltas(p)
   return (
     <>
       <span>Δt: {si(dt, 's')}</span>
       <span>1/Δt: {si(1 / Math.abs(dt), 'Hz')}</span>
       <span>
-        Δv: {si(dv, unit)} <small style={{ color: src?.display.color }}>{src && name}</small>
+        Δv: {si(dv, unit)} <small style={{ color: src && theme.ink(src.display.color) }}>{src && name}</small>
       </span>
       <span>Δv/Δt: {si(dv / dt, `${unit}/s`)}</span>
     </>

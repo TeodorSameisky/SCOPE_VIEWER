@@ -19,6 +19,7 @@ import {
   MoveHorizontal,
   RotateCcw,
   Ruler,
+  Search,
   StickyNote,
   Table2,
   Redo2,
@@ -64,6 +65,8 @@ interface Props {
   onRedo: () => void
   onExport: (kind: ExportKind) => void
   hasSpectra: boolean
+  /** Open the command palette */
+  onCommands: () => void
 }
 
 export function TopBar(p: Props) {
@@ -118,6 +121,7 @@ export function TopBar(p: Props) {
 
       <div className="spacer" />
 
+      <IconButton icon={Search} label="Commands" shortcut="Ctrl+K" onClick={p.onCommands} />
       <Menu
         icon={Download}
         label="Export"

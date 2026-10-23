@@ -3,7 +3,7 @@ import { CALLOUT_COLORS, type Callout } from '../model/callouts'
 import { calloutShapes, type CalloutGeo, type CalloutLayout, type CalloutPart } from '../render/callouts'
 import { CalloutValueEditor } from './CalloutValueEditor'
 import { DIVS_Y } from '../render/draw'
-import { DARK_THEME } from '../render/theme'
+import { useTheme } from './ui/themeContext'
 
 interface Props extends CalloutLayout {
   callouts: Callout[]
@@ -44,6 +44,7 @@ function editorPosition(g: CalloutGeo | undefined): { left: number; top: number;
  */
 export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLayer(p, ref) {
   const [drag, setDrag] = useState<Drag | null>(null)
+  const { theme } = useTheme()
   const span = p.win.end - p.win.start
   const totalH = p.viewH * Math.max(1, p.views.length)
 
@@ -123,7 +124,7 @@ export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLay
   const items = calloutShapes(
     p.callouts,
     p,
-    DARK_THEME,
+    theme,
     p.selectedId,
     (c, part) => ({
       onPointerDown: startDrag(c, part),

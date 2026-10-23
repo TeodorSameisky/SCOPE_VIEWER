@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Check } from 'lucide-react'
 import { MenuContext, normalizeMenu, type MenuItem, type OpenMenu } from './menuContext'
 import { useDismiss } from './useDismiss'
+import { useTheme } from './themeContext'
 
 /** Text fields keep the browser's own menu (copy, paste, spelling) */
 const NATIVE = 'input, textarea, select, [contenteditable="true"]'
@@ -30,6 +31,7 @@ export function ContextMenuProvider({ children }: { children: React.ReactNode })
 function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: (MenuItem | '-')[]; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+  const { ink } = useTheme().theme
   useDismiss(ref, true, onClose)
 
   // Keep the menu inside the window: open to the left / upwards when there is no room
@@ -95,7 +97,7 @@ function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: (M
         if (it.kind === 'heading') {
           return (
             <div key={i} className="cm-heading">
-              {it.color && <span className="dot" style={{ background: it.color }} />}
+              {it.color && <span className="dot" style={{ background: ink(it.color) }} />}
               <span className="cm-heading-label">{it.label}</span>
               {it.detail && <small className="mono">{it.detail}</small>}
             </div>
