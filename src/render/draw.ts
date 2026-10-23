@@ -25,8 +25,8 @@ export interface ViewDrawOptions {
   tEnd: number
   timeTicks: number[]
   traces: TraceInput[]
-  /** Channel whose vertical scale is labelled on the right axis */
-  axisChannel?: ChannelDisplay
+  /** Channel whose vertical scale is labelled on the right axis (in its unit) */
+  axisChannel?: TraceInput
   cursors?: { a: number; b: number; sourceId?: string; showLabels: boolean }
   trigger?: { sourceId?: string; level?: number; showMarker: boolean }
   selectedId?: string
@@ -96,7 +96,8 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
 
   // Right axis labels for the selected/first channel of this view, at round multiples of V/div
   if (o.axisChannel) {
-    const d = o.axisChannel
+    const d = o.axisChannel.display
+    const unit = o.axisChannel.wave.yUnit
     ctx.font = PLOT_FONT
     ctx.fillStyle = theme.ink(d.color)
     ctx.textAlign = 'left'
@@ -108,7 +109,7 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
       const v = k * d.scale
       const y = H / 2 - valueToDiv(v, d) * divH
       if (y < 5 || y > H - 5) continue
-      ctx.fillText(siTick(v, 'V', d.scale), plotW + 6, y)
+      ctx.fillText(siTick(v, unit, d.scale), plotW + 6, y)
       ctx.fillRect(plotW, Math.round(y), 4, 1)
     }
   }

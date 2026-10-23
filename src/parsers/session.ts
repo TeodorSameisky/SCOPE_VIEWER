@@ -1,5 +1,6 @@
 import { unzipSync, strFromU8 } from 'fflate'
 import type { Channel, ChannelDisplay, Session, Waveform } from '../model/types'
+import { niceStep } from '../util/format'
 import { isTekWfm, parseTekWfm } from './tekWfm'
 import { isTekIsf, parseTekIsf, type IsfDisplayHints } from './tekIsf'
 import { parseTekSetup, setupNumber, setupString } from './tekSetup'
@@ -73,11 +74,7 @@ function autoScale(w: Waveform): { scale: number; offset: number } {
     if (v > max) max = v
   }
   if (!Number.isFinite(min)) return { scale: 1, offset: 0 }
-  const span = Math.max(max - min, 1e-9)
-  const raw = span / 8
-  const exp = Math.pow(10, Math.floor(Math.log10(raw)))
-  const scale = [1, 2, 5, 10].map((m) => m * exp).find((s) => s >= raw) ?? 10 * exp
-  return { scale, offset: (max + min) / 2 }
+  return { scale: niceStep(Math.max(max - min, 1e-9) / 8), offset: (max + min) / 2 }
 }
 
 interface BuildOptions {

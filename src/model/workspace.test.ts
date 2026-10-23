@@ -14,7 +14,10 @@ import {
 /** In-memory localStorage with an optional size limit (in characters) */
 class MemoryStorage {
   data = new Map<string, string>()
-  constructor(public limit = Infinity) {}
+  limit: number
+  constructor(limit = Infinity) {
+    this.limit = limit
+  }
   get length() {
     return this.data.size
   }

@@ -23,8 +23,6 @@ interface Props {
   filesVersion: number
 }
 
-
-
 /** Session panel section: where the work is kept, saving it to files, managing stored sessions */
 export function StorageSection(p: Props) {
   const [recent, setRecent] = useState<RecentSession[]>([])

@@ -26,7 +26,7 @@ export default defineConfig({
         id: '/',
         name: 'Scope Viewer',
         short_name: 'Scope Viewer',
-        description: 'View and analyse oscilloscope session files (Tektronix .tss / .wfm) – everything stays on your computer.',
+        description: 'View and analyse oscilloscope session files (Tektronix .tss / .wfm / .isf) – everything stays on your computer.',
         start_url: '/',
         scope: '/',
         display: 'standalone',

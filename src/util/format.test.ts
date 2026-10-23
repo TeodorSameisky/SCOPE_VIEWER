@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { si, siTick } from './format'
-import { stepScale, timeTicks } from '../components/state'
+import { niceStep, parseTime, si, siTick } from './format'
+import { stepScale, timeTicks } from '../model/view'
 
 describe('format', () => {
   it('formats SI values', () => {
@@ -24,5 +24,26 @@ describe('format', () => {
     expect(stepScale(1, -1)).toBeCloseTo(0.5)
     expect(stepScale(0.2, -1)).toBeCloseTo(0.1)
     expect(stepScale(3, 1)).toBe(5)
+  })
+
+  it('rounds a scale up to 1-2-5', () => {
+    expect(niceStep(0.13)).toBeCloseTo(0.2)
+    expect(niceStep(4)).toBe(5)
+    expect(niceStep(5)).toBe(5)
+    expect(niceStep(6)).toBe(10)
+  })
+
+  it('reads typed times with SI prefixes in any case', () => {
+    expect(parseTime('-5.5m')).toBeCloseTo(-5.5e-3)
+    expect(parseTime('25 µs')).toBeCloseTo(25e-6)
+    expect(parseTime('5U')).toBeCloseTo(5e-6)
+    expect(parseTime('2K')).toBe(2000)
+    expect(parseTime('3N')).toBeCloseTo(3e-9)
+    // In a time, M can only mean milli
+    expect(parseTime('3M')).toBeCloseTo(3e-3)
+    expect(parseTime('1.5e-3')).toBeCloseTo(1.5e-3)
+    expect(parseTime('.5 s')).toBe(0.5)
+    expect(parseTime('abc')).toBeUndefined()
+    expect(parseTime('5 x')).toBeUndefined()
   })
 })

@@ -2,7 +2,7 @@ import { AudioLines, Eye, EyeOff } from 'lucide-react'
 import type { ChannelDisplay } from '../model/types'
 import { si } from '../util/format'
 import { channelName } from '../util/names'
-import { stepScale, type DisplayPatch } from './state'
+import { stepScale, type DisplayPatch } from '../model/view'
 
 interface Props {
   display: ChannelDisplay

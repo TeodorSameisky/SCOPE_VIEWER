@@ -1,14 +1,15 @@
 import { forwardRef, useDeferredValue, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, ClipboardList, Copy, Eye, EyeOff, Maximize2, Plus, X, ZoomIn, ZoomOut } from 'lucide-react'
-import { MIN_FFT_SAMPLES, WINDOW_DEFS, computeSpectrum, findPeaks, windowDef, type Peak, type Spectrum, type WindowKind } from '../math/fft'
+import { MIN_FFT_SAMPLES, WINDOW_DEFS, computeSpectrum, findPeaks, toDb, windowDef, type Peak, type Spectrum, type WindowKind } from '../math/fft'
 import { MAX_SPECTRA, PEAK_COUNTS, levelUnit, type FreqAxis, type SpectrumDef, type SpectrumOptions, type SpectrumScale } from '../model/spectrum'
 import type { Waveform } from '../model/types'
+import type { SpectrumSource } from '../export/sessionExport'
 import { AXIS_GUTTER } from '../render/draw'
 import { FREQ_AXIS_H, drawSpectrum, levelValue, readLevel, xToF, type FreqMap, type FreqRange } from '../render/spectrum'
 import { DARK_THEME, type Theme } from '../render/theme'
 import { niceStep, si } from '../util/format'
 import { channelName } from '../util/names'
-import { RANGE_LABEL, type CursorState, type LiveChannel, type TimeWindow } from './state'
+import { MEASURE_RANGES, RANGE_LABEL, type CursorState, type LiveChannel, type TimeWindow } from '../model/view'
 import { useContextMenu, type MenuEntry } from './ui/menuContext'
 
 interface Props {
@@ -40,19 +41,7 @@ interface Result {
 }
 type Shown = Result & { channel: LiveChannel; spec: Spectrum }
 
-export interface SpectrumExport {
-  scale: SpectrumScale
-  /** Unit of the level values, e.g. dBV or V RMS */
-  levelUnit: string
-  items: { name: string; color: string; window: string; spec: Spectrum; peaks: Peak[] }[]
-}
-
-export interface SpectrumViewHandle {
-  /** The spectrum plot with a caption line, at `scale` × the screen size */
-  renderImage: (scale: number, theme: Theme) => HTMLCanvasElement | null
-  /** The visible spectra with their peaks (in the current frequency view) */
-  getData: () => SpectrumExport
-}
+export type SpectrumViewHandle = SpectrumSource
 
 type Drag = { kind: 'pan'; x0: number; y0: number; f: FreqRange; y: FreqRange } | { kind: 'band'; x0: number; x1: number }
 
@@ -360,7 +349,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
     {
       kind: 'choices',
       label: 'Range',
-      options: (['screen', 'cursors', 'record'] as const).map((r) => ({
+      options: MEASURE_RANGES.map((r) => ({
         label: r === 'screen' ? 'Screen' : r === 'cursors' ? 'Cursors' : 'Record',
         title: RANGE_LABEL[r],
         checked: range === r,
@@ -641,8 +630,8 @@ function autoLevelRange(shown: Shown[], scale: SpectrumScale, withDc: boolean): 
   }
   sample.sort((x, y) => x - y)
   // Top: 10 dB steps with a little headroom; bottom: below the median (the noise floor), 60…140 dB in all
-  const top = Math.ceil((20 * Math.log10(max) + 3) / 10) * 10
-  const floor = 20 * Math.log10(Math.max(sample[Math.floor(sample.length / 2)], max * 1e-12))
+  const top = Math.ceil((toDb(max) + 3) / 10) * 10
+  const floor = toDb(Math.max(sample[Math.floor(sample.length / 2)], max * 1e-12))
   const bottom = Math.floor((floor - 15) / 10) * 10
   return { lo: Math.min(top - 60, Math.max(top - 140, bottom)), hi: top }
 }

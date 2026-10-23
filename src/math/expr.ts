@@ -266,14 +266,14 @@ const FUNCTIONS: Record<string, { impl: FnImpl; doc: FunctionDoc }> = {
   min: {
     impl: (c) => {
       arity(c, 'min', 2)
-      return binary('min', c.args[0], c.args[1], c.pos)
+      return binary('min', c.args[0], c.args[1])
     },
     doc: { name: 'min', signature: 'min(a, b)', description: 'Smaller of two values, sample by sample.', example: 'min(CH1, CH2)' },
   },
   max: {
     impl: (c) => {
       arity(c, 'max', 2)
-      return binary('max', c.args[0], c.args[1], c.pos)
+      return binary('max', c.args[0], c.args[1])
     },
     doc: { name: 'max', signature: 'max(a, b)', description: 'Larger of two values, sample by sample.', example: 'max(CH1, 0)' },
   },
@@ -375,7 +375,7 @@ export const OPERATOR_DOCS: { op: string; description: string }[] = [
 
 // ---------- evaluation ----------
 
-function binary(op: '+' | '-' | '*' | '/' | '^' | 'min' | 'max', a: Value, b: Value, pos: number): Value {
+function binary(op: '+' | '-' | '*' | '/' | '^' | 'min' | 'max', a: Value, b: Value): Value {
   const f: (x: number, y: number) => number =
     op === '+'
       ? (x, y) => x + y
@@ -417,7 +417,6 @@ function binary(op: '+' | '-' | '*' | '/' | '^' | 'min' | 'max', a: Value, b: Va
   if (sa.t0 !== sb.t0 || sa.dt !== sb.dt || sa.data.length !== sb.data.length) {
     sb = { ...sb, data: resample(sb.data, sb.t0, sb.dt, sa.data.length, sa.t0, sa.dt), t0: sa.t0, dt: sa.dt }
   }
-  void pos
   const data = new Float32Array(sa.data.length)
   for (let i = 0; i < data.length; i++) data[i] = f(sa.data[i], sb.data[i])
   return { ...sa, data, unit }
@@ -441,10 +440,10 @@ function evaluate(node: Node, env: Map<string, Waveform>, timeBase: Waveform): V
     }
     case 'neg': {
       const a = evaluate(node.arg, env, timeBase)
-      return binary('*', a, { kind: 'num', value: -1, unit: '' }, node.pos)
+      return binary('*', a, { kind: 'num', value: -1, unit: '' })
     }
     case 'bin':
-      return binary(node.op, evaluate(node.left, env, timeBase), evaluate(node.right, env, timeBase), node.pos)
+      return binary(node.op, evaluate(node.left, env, timeBase), evaluate(node.right, env, timeBase))
     case 'call': {
       const f = FUNCTIONS[node.fn]
       if (!f) throw new ExprError(`Unknown function "${node.fn}()"`, node.pos)

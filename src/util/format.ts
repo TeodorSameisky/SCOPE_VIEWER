@@ -36,6 +36,18 @@ export function siTick(value: number, unit = '', step?: number): string {
   return `${scaled} ${prefix}${unit}`.trim()
 }
 
+const INPUT_PREFIXES: Record<string, number> = { p: 1e-12, n: 1e-9, u: 1e-6, µ: 1e-6, m: 1e-3, k: 1e3 }
+
+/**
+ * A time as typed, with an optional SI prefix and unit: "-5.5m", "25 µs", "2K", "1.2e-3". The
+ * prefix is not case sensitive (in a time "M" is milli); undefined when it is not a number.
+ */
+export function parseTime(text: string): number | undefined {
+  const m = /^([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)\s*([pnuµmk]?)\s*s?$/i.exec(text.trim())
+  if (!m) return undefined
+  return parseFloat(m[1]) * (m[2] ? INPUT_PREFIXES[m[2].toLowerCase()] : 1)
+}
+
 /** Round a step up to the 1-2-5 sequence. */
 export function niceStep(raw: number): number {
   const exp = Math.pow(10, Math.floor(Math.log10(raw)))

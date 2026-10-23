@@ -35,6 +35,7 @@ import { MAX_SPECTRA, newSpectrum, type SpectrumDef, type SpectrumOptions } from
 import {
   ANALYSIS_EXT,
   BUNDLE_EXT,
+  WORKSPACE_VERSION,
   analysisToJson,
   defaultWorkspace,
   deleteStoredSession,
@@ -42,24 +43,23 @@ import {
   parseAnalysisJson,
   recordWindow,
   sanitizeWorkspace,
-  saveWorkspace,
   scopeWindow,
   type LoadSource,
   type Workspace,
 } from '../model/workspace'
 import { buildBundle } from '../export/bundle'
-import { runExport, waveformRows, type ExportContext } from '../export/sessionExport'
+import { runExport, waveformRows, type ExportContext, type ExportKind } from '../export/sessionExport'
 import { AXIS_GUTTER, valueAt } from '../render/draw'
 import { copyText } from '../util/clipboard'
 import { downloadBlob, stem } from '../util/download'
-import { si } from '../util/format'
+import { niceStep, si } from '../util/format'
 import { channelName } from '../util/names'
 import { usePersistentState } from '../util/usePersistentState'
 import type { RecentSession } from '../model/recent'
 import { CalloutPanel } from './CalloutPanel'
 import { ChannelBar, type ChannelBarHandle, type MathItem } from './ChannelBar'
 import { CursorPanel } from './CursorPanel'
-import { ExportDialog, type ExportKind } from './ExportDialog'
+import { ExportDialog } from './ExportDialog'
 import { InfoPanel } from './InfoPanel'
 import { MeasurementTable } from './MeasurementTable'
 import { Overview } from './Overview'
@@ -68,7 +68,7 @@ import { ReferencePanel, type ReferenceSection } from './ReferencePanel'
 import { Rail, type PanelId } from './Rail'
 import { SpectrumView, type SpectrumViewHandle } from './SpectrumView'
 import { StorageSection } from './StorageSection'
-import { TopBar, type SaveStatus } from './TopBar'
+import { TopBar } from './TopBar'
 import {
   sampleRange,
   timeTicks,
@@ -80,9 +80,10 @@ import {
   type NavKind,
   type TimeWindow,
   type Tool,
-} from './state'
+} from '../model/view'
 import { useContextMenu, type MenuEntry } from './ui/menuContext'
 import { UndoHistory } from '../model/undoHistory'
+import { useAutosave } from './useAutosave'
 import { useUndoHistory } from './useUndoHistory'
 
 /** Window + vertical settings, restored by "zoom back" */
@@ -463,7 +464,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
   // ---------- workspace: autosave, analysis files, reset ----------
   const workspace: Workspace = useMemo(
     () => ({
-      version: 1,
+      version: WORKSPACE_VERSION,
       channels: displays,
       views,
       math: mathDefs,
@@ -566,37 +567,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     return () => window.removeEventListener('keydown', onKey)
   })
 
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>(() => (boot.source === 'saved' ? { state: 'saved', at: new Date().toISOString() } : { state: 'clean' }))
-  // A file that is only opened is not stored: saving starts with the first change. An imported or
-  // migrated workspace is not in storage yet, so it is saved right away. Comparing with the initial
-  // state (instead of skipping the first effect run) also holds when effects run twice in development.
-  const [initialJson] = useState(() => (boot.source === 'saved' || boot.source === 'default' ? JSON.stringify(boot.workspace) : null))
-  const changed = useRef(initialJson === null)
-  const latest = useRef(workspace)
-  const timer = useRef<number | undefined>(undefined)
-  const flush = useCallback(() => {
-    window.clearTimeout(timer.current)
-    timer.current = undefined
-    const res = saveWorkspace(session, latest.current)
-    setSaveStatus(res.ok ? { state: 'saved', at: res.savedAt } : { state: 'error', error: res.error })
-  }, [session])
-  useEffect(() => {
-    latest.current = workspace
-    // Once something changed, every state is saved (also a change back to the initial one)
-    if (!changed.current && JSON.stringify(workspace) === initialJson) return
-    changed.current = true
-    window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(flush, 400)
-  }, [workspace, flush, initialJson])
-  // Save pending changes when the page is closed or the session is left
-  useEffect(() => {
-    const onHide = () => timer.current !== undefined && flush()
-    window.addEventListener('pagehide', onHide)
-    return () => {
-      window.removeEventListener('pagehide', onHide)
-      onHide()
-    }
-  }, [flush])
+  const { status: saveStatus, cancel: cancelSave } = useAutosave(session, workspace, boot)
 
   const saveAnalysis = () => {
     downloadBlob(new Blob([analysisToJson(session, workspace)], { type: 'application/json' }), `${stem(session.fileName)}${ANALYSIS_EXT}`)
@@ -611,8 +582,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
   }
   const resetToDefaults = () => {
     if (!confirm('Discard all your changes to this session (channel settings, math channels, spectra, callouts, notes) and show it as saved on the scope?')) return
-    window.clearTimeout(timer.current)
-    timer.current = undefined
+    cancelSave()
     if (session.fingerprint) deleteStoredSession(session.fingerprint)
     onReplaceWorkspace({ kind: 'defaults' })
   }
@@ -631,8 +601,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
         ? `This analysis was saved for ${parsed.sessionFile ?? 'a different file'}. Apply it to ${session.fileName} anyway? It replaces your current changes.`
         : 'Replace your current changes with the analysis from the file?'
       if (!confirm(msg)) return
-      window.clearTimeout(timer.current)
-      timer.current = undefined
+      cancelSave()
       onReplaceWorkspace({ kind: 'analysis', workspace: parsed.workspace })
     } catch (e) {
       alert(`Could not open the analysis file: ${e instanceof Error ? e.message : String(e)}`)
@@ -1130,10 +1099,7 @@ function autoscalePatch(pyramid: MinMaxPyramid, n: number): DisplayPatch {
   const mm: [number, number] = [0, 0]
   pyramid.range(0, n, mm)
   if (!Number.isFinite(mm[0]) || !Number.isFinite(mm[1])) return {}
-  const spanV = Math.max(mm[1] - mm[0], Math.abs(mm[0]) * 1e-3, 1e-12)
-  const raw = spanV / 8
-  const exp = Math.pow(10, Math.floor(Math.log10(raw)))
-  const scale = [1, 2, 5, 10].map((m) => m * exp).find((s) => s >= raw) ?? 10 * exp
+  const scale = niceStep(Math.max(mm[1] - mm[0], Math.abs(mm[0]) * 1e-3, 1e-12) / 8)
   // Round the offset to a tenth of a division so it reads nicely
   const offset = Math.round((mm[0] + mm[1]) / 2 / (scale / 10)) * (scale / 10)
   return { scale: parseFloat(scale.toPrecision(6)), offset: parseFloat(offset.toPrecision(6)), position: 0 }

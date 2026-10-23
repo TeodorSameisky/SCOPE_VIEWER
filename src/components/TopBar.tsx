@@ -29,11 +29,11 @@ import {
   ZoomIn,
 } from 'lucide-react'
 import { installApp, useCanInstall } from '../pwa/install'
-import type { ExportKind } from './ExportDialog'
+import type { ExportKind } from '../export/sessionExport'
 import { IconButton } from './ui/IconButton'
 import { Logo } from './ui/Logo'
 import { Menu } from './ui/Menu'
-import type { Tool } from './state'
+import type { Tool } from '../model/view'
 
 export type SaveStatus = { state: 'clean' } | { state: 'saved'; at: string } | { state: 'error'; error: string }
 
@@ -79,7 +79,7 @@ export function TopBar(p: Props) {
         label="File"
         align="left"
         items={[
-          { label: 'Open session file…', hint: '.tss .wfm .scopeview', icon: FolderOpen, onClick: p.onOpen },
+          { label: 'Open session file…', hint: '.tss .wfm .isf .scopeview', icon: FolderOpen, onClick: p.onOpen },
           { label: 'Open analysis file…', hint: '.scopeview.json', icon: Upload, onClick: p.onOpenAnalysis },
           { label: 'Save analysis file', hint: 'settings, math, callouts', icon: FileJson, divider: true, onClick: p.onSaveAnalysis },
           { label: 'Save session with analysis', hint: '.scopeview', icon: Archive, onClick: p.onSaveBundle },

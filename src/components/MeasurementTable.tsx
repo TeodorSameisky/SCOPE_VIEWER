@@ -6,7 +6,7 @@ import type { Waveform } from '../model/types'
 import { channelName } from '../util/names'
 import { measurementTable } from '../export/measureRows'
 import { MeasureInfo } from './MeasureInfo'
-import { RANGE_LABEL, sampleRange, type CursorState, type LiveChannel, type MeasureRange, type TimeWindow } from './state'
+import { MEASURE_RANGES, RANGE_LABEL, sampleRange, type CursorState, type LiveChannel, type MeasureRange, type TimeWindow } from '../model/view'
 import { useContextMenu, type MenuEntry } from './ui/menuContext'
 import { useDismiss } from './ui/useDismiss'
 
@@ -171,7 +171,7 @@ export function MeasurementTable(p: Props) {
       {
         kind: 'choices',
         label: 'Range',
-        options: (['screen', 'cursors', 'record'] as const).map((r) => ({
+        options: MEASURE_RANGES.map((r) => ({
           label: r === 'screen' ? 'Screen' : r === 'cursors' ? 'Cursors' : 'Record',
           title: RANGE_LABEL[r],
           checked: p.range === r,
@@ -250,9 +250,9 @@ export function MeasurementTable(p: Props) {
       <div className="measure-bar">
         <span className="section-title">Measurements</span>
         <div className="segmented">
-          {(['screen', 'cursors', 'record'] as const).map((r) => (
+          {MEASURE_RANGES.map((r) => (
             <button key={r} className={p.range === r ? 'active' : ''} onClick={() => p.setRange(r)}>
-              {r === 'screen' ? 'On screen' : r === 'cursors' ? 'Between cursors' : 'Whole record'}
+              {RANGE_LABEL[r]}
             </button>
           ))}
         </div>

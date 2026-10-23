@@ -1,8 +1,9 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { edgeLevels, nearestEdge, type EdgeLevels } from '../dsp/edges'
+import type { PlotImageSource } from '../export/sessionExport'
 import { calloutSpan, type Callout } from '../model/callouts'
 import { calloutsSvg, flagsBottom, layoutCallouts } from '../render/callouts'
-import { AXIS_GUTTER, DIVS_Y, divToValue, drawTimeAxis, drawView, valueAt, valueToDiv } from '../render/draw'
+import { AXIS_GUTTER, DIVS_Y, PLOT_FONT, divToValue, drawTimeAxis, drawView, valueAt, valueToDiv, type ViewDrawOptions } from '../render/draw'
 import { loadTex, useTexVersion } from '../render/tex'
 import { DARK_THEME, type Theme } from '../render/theme'
 import { si } from '../util/format'
@@ -18,7 +19,7 @@ import {
   type NavKind,
   type TimeWindow,
   type Tool,
-} from './state'
+} from '../model/view'
 
 const AXIS_H = 24
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
@@ -87,9 +88,7 @@ interface Props {
   onJumpToCallout: (c: Callout) => void
 }
 
-export interface PlotAreaHandle {
-  /** Draw all views, callouts and the time axis at `scale` × the screen size (CSS pixels) */
-  renderImage: (scale: number, theme: Theme) => Promise<HTMLCanvasElement>
+export interface PlotAreaHandle extends PlotImageSource {
   /** Current size of the plot (CSS pixels) */
   size: () => { w: number; h: number }
 }
@@ -165,45 +164,42 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     return () => ro.disconnect()
   }, [])
 
+  const ticks = timeTicks(p.win)
+  /** Drawing options of view `vi` that are the same on screen and in exports */
+  const viewOptions = (vi: number, byId: Map<string, LiveChannel>, dpr: number, theme: Theme): ViewDrawOptions => {
+    const traces = p.views[vi].map((id) => byId.get(id)).filter((c): c is LiveChannel => !!c && c.display.visible)
+    return {
+      width: size.w,
+      height: viewH,
+      dpr,
+      tStart: p.win.start,
+      tEnd: p.win.end,
+      timeTicks: ticks,
+      traces,
+      // The right axis is labelled for the selected channel, else the first one of the view
+      axisChannel: traces.find((t) => t.display.id === p.selected) ?? traces[0],
+      cursors: p.cursors.on ? { a: p.cursors.a, b: p.cursors.b, sourceId: p.cursors.source, showLabels: vi === 0 } : undefined,
+      trigger: { sourceId: p.trigger?.source, level: p.trigger?.level, showMarker: true },
+      theme,
+    }
+  }
+
   // Draw everything on the next animation frame whenever inputs change
   useEffect(() => {
     const id = requestAnimationFrame(() => {
       const dpr = window.devicePixelRatio || 1
-      const ticks = timeTicks(p.win)
       const byId = new Map(p.channels.map((c) => [c.wave.id, c]))
-      p.views.forEach((ids, vi) => {
-        const cv = canvasRefs.current[vi]
-        if (!cv) return
-        const ctx = cv.getContext('2d')
+      p.views.forEach((_, vi) => {
+        const ctx = canvasRefs.current[vi]?.getContext('2d')
         if (!ctx) return
-        const traces = ids
-          .map((id) => byId.get(id))
-          .filter((c): c is LiveChannel => !!c && c.display.visible)
-          .map((c) => ({ display: c.display, wave: c.wave, pyramid: c.pyramid }))
-        const axisChannel = traces.find((t) => t.display.id === p.selected)?.display ?? traces[0]?.display
-        drawView(ctx, {
-          width: size.w,
-          height: viewH,
-          dpr,
-          tStart: p.win.start,
-          tEnd: p.win.end,
-          timeTicks: ticks,
-          traces,
-          axisChannel,
-          selectedId: p.selected,
-          cursors: p.cursors.on ? { a: p.cursors.a, b: p.cursors.b, sourceId: p.cursors.source, showLabels: vi === 0 } : undefined,
-          trigger: { sourceId: p.trigger?.source, level: p.trigger?.level, showMarker: true },
-          hoverT: drag ? undefined : hoverT,
-          hoverDots: p.readout,
-          theme: DARK_THEME,
-        })
+        drawView(ctx, { ...viewOptions(vi, byId, dpr, DARK_THEME), selectedId: p.selected, hoverT: drag ? undefined : hoverT, hoverDots: p.readout })
         drawDragPreview(ctx, dpr, vi)
       })
       const ax = axisRef.current?.getContext('2d')
       if (ax) drawTimeAxis(ax, size.w, AXIS_H, dpr, p.win.start, p.win.end, ticks, DARK_THEME)
     })
     return () => cancelAnimationFrame(id)
-    // drawDragPreview only reads `drag`, `viewH`
+    // viewOptions and drawDragPreview only read the props and state listed here
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.channels, p.views, p.win, p.cursors, p.selected, p.trigger, p.readout, size, viewH, hoverT, drag])
 
@@ -244,30 +240,13 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       out.width = Math.round(size.w * scale)
       out.height = Math.round((viewsH + AXIS_H) * scale)
       const ctx = out.getContext('2d')!
-      const ticks = timeTicks(p.win)
       const byId = new Map(p.channels.map((c) => [c.wave.id, c]))
       // Redraw each view at the export resolution (no hover line or rubber band)
-      p.views.forEach((ids, vi) => {
+      p.views.forEach((_, vi) => {
         const cv = document.createElement('canvas')
         cv.width = out.width
         cv.height = Math.round(viewH * scale)
-        const traces = ids
-          .map((id) => byId.get(id))
-          .filter((c): c is LiveChannel => !!c && c.display.visible)
-          .map((c) => ({ display: c.display, wave: c.wave, pyramid: c.pyramid }))
-        drawView(cv.getContext('2d')!, {
-          width: size.w,
-          height: viewH,
-          dpr: scale,
-          tStart: p.win.start,
-          tEnd: p.win.end,
-          timeTicks: ticks,
-          traces,
-          axisChannel: traces.find((t) => t.display.id === p.selected)?.display ?? traces[0]?.display,
-          cursors: p.cursors.on ? { a: p.cursors.a, b: p.cursors.b, sourceId: p.cursors.source, showLabels: vi === 0 } : undefined,
-          trigger: { sourceId: p.trigger?.source, level: p.trigger?.level, showMarker: true },
-          theme,
-        })
+        drawView(cv.getContext('2d')!, viewOptions(vi, byId, scale, theme))
         ctx.drawImage(cv, 0, Math.round(vi * viewH * scale))
       })
       const ax = document.createElement('canvas')
@@ -367,8 +346,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     } else if (p.tool === 'region') {
       const xs = snapX(clampX(x), e.altKey)
       setDrag({ kind: 'region', x0: xs, x1: xs })
-    }
-    else setDrag({ kind: 'click', x0: x, y0: y })
+    } else setDrag({ kind: 'click', x0: x, y0: y })
   }
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -644,19 +622,22 @@ function HoverReadout(p: { t: number; x: number; y: number; channels: LiveChanne
   )
 }
 
-function cursorSummary(p: Props) {
+/** Δt between the cursors and Δv of their source channel */
+function cursorDeltas(p: Props) {
   const dt = p.cursors.b - p.cursors.a
   const src = p.channels.find((c) => c.wave.id === p.cursors.source)
-  const va = src ? valueAt(src.wave, p.cursors.a) : NaN
-  const vb = src ? valueAt(src.wave, p.cursors.b) : NaN
-  const dv = vb - va
-  const unit = src?.wave.yUnit ?? 'V'
+  const dv = src ? valueAt(src.wave, p.cursors.b) - valueAt(src.wave, p.cursors.a) : NaN
+  return { dt, dv, src, unit: src?.wave.yUnit ?? 'V', name: src ? channelName(src.wave.id) : '?' }
+}
+
+function cursorSummary(p: Props) {
+  const { dt, dv, src, unit, name } = cursorDeltas(p)
   return (
     <>
       <span>Δt: {si(dt, 's')}</span>
       <span>1/Δt: {si(1 / Math.abs(dt), 'Hz')}</span>
       <span>
-        Δv: {si(dv, unit)} <small style={{ color: src?.display.color }}>{src?.wave.id}</small>
+        Δv: {si(dv, unit)} <small style={{ color: src?.display.color }}>{src && name}</small>
       </span>
       <span>Δv/Δt: {si(dv / dt, `${unit}/s`)}</span>
     </>
@@ -680,14 +661,11 @@ async function svgToImage(xml: string): Promise<HTMLImageElement | null> {
 
 /** The Δt / Δv box of the cursors, drawn into exported images (on screen it is HTML) */
 function drawCursorReadout(ctx: CanvasRenderingContext2D, scale: number, p: Props, tToX: (t: number) => number, theme: Theme, top: number) {
-  const dt = p.cursors.b - p.cursors.a
-  const src = p.channels.find((c) => c.wave.id === p.cursors.source)
-  const unit = src?.wave.yUnit ?? 'V'
-  const dv = src ? valueAt(src.wave, p.cursors.b) - valueAt(src.wave, p.cursors.a) : NaN
-  const lines = [`Δt: ${si(dt, 's')}   1/Δt: ${si(1 / Math.abs(dt), 'Hz')}`, `Δv: ${si(dv, unit)} (${src?.wave.id ?? '?'})   Δv/Δt: ${si(dv / dt, `${unit}/s`)}`]
+  const { dt, dv, unit, name } = cursorDeltas(p)
+  const lines = [`Δt: ${si(dt, 's')}   1/Δt: ${si(1 / Math.abs(dt), 'Hz')}`, `Δv: ${si(dv, unit)} (${name})   Δv/Δt: ${si(dv / dt, `${unit}/s`)}`]
   ctx.save()
   ctx.setTransform(scale, 0, 0, scale, 0, 0)
-  ctx.font = '11px "JetBrains Mono", ui-monospace, Consolas, monospace'
+  ctx.font = PLOT_FONT
   const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 20
   const x = Math.max(8, (tToX(p.cursors.a) + tToX(p.cursors.b)) / 2 - w / 2)
   ctx.fillStyle = theme.readoutBg

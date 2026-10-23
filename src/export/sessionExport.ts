@@ -1,25 +1,83 @@
 import type { MeasurementKey } from '../dsp/measure'
 import { measurementDef } from '../dsp/measureDefs'
 import type { MathResult } from '../math/expr'
-import { calloutTitle, type Callout } from '../model/callouts'
+import { toDb, type Peak, type Spectrum } from '../math/fft'
+import { calloutName, calloutTitle, type Callout } from '../model/callouts'
 import { calloutValueText } from '../model/calloutValues'
 import type { MathDef } from '../model/math'
-import type { SpectrumDef, SpectrumOptions } from '../model/spectrum'
+import type { SpectrumDef, SpectrumOptions, SpectrumScale } from '../model/spectrum'
 import type { ChannelDisplay, Session } from '../model/types'
 import { valueAt } from '../render/draw'
 import { loadTex, texHtml } from '../render/tex'
-import { THEMES, type Appearance } from '../render/theme'
+import { THEMES, type Appearance, type Theme } from '../render/theme'
 import { downloadBlob, stem } from '../util/download'
 import { si } from '../util/format'
-import { channelName } from '../util/names'
-import type { ExportKind, ExportPrefs, WaveformOptions } from '../components/ExportDialog'
-import type { PlotAreaHandle } from '../components/PlotArea'
-import type { SpectrumViewHandle } from '../components/SpectrumView'
-import { RANGE_LABEL, type CursorState, type LiveChannel, type MeasureRange, type TimeWindow } from '../components/state'
-import { buildMeasurementsCsv, buildSpectrumCsv, buildWaveformCsv, csvFormat, waveformRowCount } from './csv'
+import { escapeHtml } from '../util/html'
+import { channelName, triggerText } from '../util/names'
+import { RANGE_LABEL, type CursorState, type LiveChannel, type MeasureRange, type TimeWindow } from '../model/view'
+import { buildMeasurementsCsv, buildSpectrumCsv, buildWaveformCsv, csvFormat, waveformRowCount, type CsvFormatKey } from './csv'
 import { canvasToBlob, composeImage } from './image'
 import { measureChannels, measurementTable } from './measureRows'
-import { blobToDataUrl, buildReport, esc, type ReportTable } from './report'
+import { blobToDataUrl, buildReport, type ReportTable } from './report'
+
+export type ExportKind = 'image' | 'report' | 'waveforms' | 'measurements' | 'spectra'
+
+export interface ImageOptions {
+  header: boolean
+  legend: boolean
+  spectrum: boolean
+  table: boolean
+  scale: 1 | 2 | 3
+  appearance: Appearance
+}
+
+export interface ReportOptions {
+  image: boolean
+  channels: boolean
+  math: boolean
+  measurements: boolean
+  cursors: boolean
+  callouts: boolean
+  spectra: boolean
+  /** Colours of the report's image (its other options come from the image options) */
+  appearance: Appearance
+}
+
+export interface WaveformOptions {
+  range: MeasureRange
+  channels: 'visible' | 'all'
+  step: number
+}
+
+/** The options of the export dialog (remembered in the browser) */
+export interface ExportPrefs {
+  csv: CsvFormatKey
+  image: ImageOptions
+  report: ReportOptions
+  waveforms: WaveformOptions
+}
+
+/** The visible spectra as the spectrum view shows them */
+export interface SpectrumExport {
+  scale: SpectrumScale
+  /** Unit of the level values, e.g. dBV or V RMS */
+  levelUnit: string
+  items: { name: string; color: string; window: string; spec: Spectrum; peaks: Peak[] }[]
+}
+
+/** The plot as an image (implemented by PlotArea) */
+export interface PlotImageSource {
+  /** Draw all views, callouts and the time axis at `scale` × the screen size (CSS pixels) */
+  renderImage: (scale: number, theme: Theme) => Promise<HTMLCanvasElement>
+}
+
+/** The spectrum view as an image and as data (implemented by SpectrumView) */
+export interface SpectrumSource {
+  /** The spectrum plot with a caption line, at `scale` × the screen size; null without visible spectra */
+  renderImage: (scale: number, theme: Theme) => HTMLCanvasElement | null
+  /** The visible spectra with their peaks (in the current frequency view) */
+  getData: () => SpectrumExport
+}
 
 /** What an export needs to know about the open session and its view */
 export interface ExportContext {
@@ -38,8 +96,8 @@ export interface ExportContext {
   spectra: SpectrumDef[]
   specOptions: SpectrumOptions
   notes: string
-  plot: PlotAreaHandle | null
-  spectrum: SpectrumViewHandle | null
+  plot: PlotImageSource | null
+  spectrum: SpectrumSource | null
 }
 
 const visible = (ctx: ExportContext) => ctx.channels.filter((c) => c.display.visible)
@@ -61,11 +119,9 @@ export function waveformRows(ctx: ExportContext, o: WaveformOptions): { rows: nu
 function infoLines(ctx: ExportContext): string[] {
   const { session, record, win, cursors } = ctx
   const first = session.channels[0].wave
-  const trig = session.trigger
   const lines = [
     `${session.format} · ${first.data.length.toLocaleString()} pts · ${si(1 / ctx.minDt, 'S/s', 3)} · record ${si(record.start, 's')} … ${si(record.end, 's')}`,
-    `${si(ctx.timePerDiv, 's/div', 3)} · shown ${si(win.start, 's')} … ${si(win.end, 's')}` +
-      (trig ? ` · trigger ${trig.source} ${trig.slope === 'FALL' ? '↘' : '↗'} ${trig.level !== undefined ? si(trig.level, 'V', 3) : ''}` : ''),
+    `${si(ctx.timePerDiv, 's/div', 3)} · shown ${si(win.start, 's')} … ${si(win.end, 's')}` + (session.trigger ? ` · trigger ${triggerText(session)}` : ''),
   ]
   if (cursors.on) {
     const dt = cursors.b - cursors.a
@@ -152,7 +208,7 @@ function reportTables(ctx: ExportContext, prefs: ExportPrefs): ReportTable[] {
     /** The value line of a callout below its text */
     const valueHtml = (c: Callout) => {
       const v = calloutValueText(c, waves)
-      return v ? `<br><small>${esc(v)}</small>` : ''
+      return v ? `<br><small>${escapeHtml(v)}</small>` : ''
     }
     tables.push({
       title: 'Callouts',
@@ -162,7 +218,7 @@ function reportTables(ctx: ExportContext, prefs: ExportPrefs): ReportTable[] {
         .map((c) => ({
           color: c.color,
           cells: [
-            `${c.type === 'note' ? 'Note' : c.type === 'marker' ? 'Marker' : 'Region'} ${c.n}`,
+            calloutName(c),
             si(c.type === 'region' ? Math.min(c.t, c.t2 ?? c.t) : c.t, 's', 5),
             c.type === 'region' && c.t2 !== undefined ? si(Math.abs(c.t2 - c.t), 's') : '',
             c.channel ? channelName(c.channel) : '',
@@ -185,7 +241,7 @@ function reportTables(ctx: ExportContext, prefs: ExportPrefs): ReportTable[] {
               `${it.name} (${it.window})`,
               String(i + 1),
               si(pk.freq, 'Hz', 5),
-              data.scale === 'db' ? `${(20 * Math.log10(pk.rms)).toFixed(1)} ${data.levelUnit}` : si(pk.rms, data.levelUnit),
+              data.scale === 'db' ? `${toDb(pk.rms).toFixed(1)} ${data.levelUnit}` : si(pk.rms, data.levelUnit),
             ],
           })),
         ),
@@ -215,13 +271,12 @@ export async function runExport(ctx: ExportContext, kind: ExportKind, prefs: Exp
     // Colour dots of the tables as in the image (pale trace colours darkened in a light one)
     const { ink } = THEMES[prefs.report.appearance]
     const first = session.channels[0].wave
-    const trig = session.trigger
     const meta: [string, string][] = [
       ['File', session.fileName],
       ['Format', session.format],
       ['Record', `${first.data.length.toLocaleString()} points, ${si(1 / ctx.minDt, 'S/s', 4)}, ${si(ctx.record.start, 's')} … ${si(ctx.record.end, 's')}`],
     ]
-    if (trig) meta.push(['Trigger', `${trig.source} ${trig.slope?.toLowerCase() ?? ''} ${trig.level !== undefined ? si(trig.level, 'V', 4) : ''}`])
+    if (session.trigger) meta.push(['Trigger', triggerText(session, 4)])
     meta.push(['Shown', `${si(ctx.win.start, 's')} … ${si(ctx.win.end, 's')} (${si(ctx.timePerDiv, 's/div', 3)})`])
     meta.push(['Report created', new Date().toLocaleString()])
     if (session.fingerprint) meta.push(['File SHA-256', session.fingerprint])
@@ -265,7 +320,7 @@ export async function runExport(ctx: ExportContext, kind: ExportKind, prefs: Exp
   downloadBlob(
     buildSpectrumCsv(
       data.levelUnit,
-      data.items.map((it) => ({ name: `${it.name} ${it.window}`, df: it.spec.df, values: db ? Array.from(it.spec.rms, (v) => 20 * Math.log10(v)) : it.spec.rms })),
+      data.items.map((it) => ({ name: `${it.name} ${it.window}`, df: it.spec.df, values: db ? Array.from(it.spec.rms, toDb) : it.spec.rms })),
       format,
     ),
     `${fileStem}-spectra.csv`,

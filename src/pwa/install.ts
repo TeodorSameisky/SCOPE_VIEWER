@@ -27,11 +27,6 @@ export function listenForInstallPrompt(): void {
   })
 }
 
-/** True when the app runs installed (in its own window) */
-export function isInstalled(): boolean {
-  return window.matchMedia('(display-mode: standalone)').matches || (navigator as { standalone?: boolean }).standalone === true
-}
-
 export async function installApp(): Promise<boolean> {
   if (!deferred) return false
   const e = deferred

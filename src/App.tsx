@@ -5,6 +5,7 @@ import { keepFilesEnabled, keepSessionFiles, loadSessionFiles } from './model/fi
 import type { RecentSession } from './model/recent'
 import { RecentSessions } from './components/RecentSessions'
 import { loadSession } from './parsers/load'
+import { isBundleName } from './export/bundle'
 import { Scope, type InitialState, type ScopeHandle, type SourceFile } from './components/Scope'
 import { Logo } from './components/ui/Logo'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -14,7 +15,8 @@ import { installApp, useCanInstall } from './pwa/install'
 import { onLaunchFiles } from './pwa/launch'
 import { MonitorDown } from 'lucide-react'
 
-const ACCEPT = '.tss,.wfm,.isf,.set,.zip,.png,.scopeview,.json'
+/** Everything loadFiles reads (screenshots included), bundles and analysis files */
+const ACCEPT = '.tss,.wfm,.isf,.set,.zip,.png,.jpg,.jpeg,.bmp,.scopeview,.json'
 const isJson = (f: File) => /\.json$/i.test(f.name)
 
 interface Current {
@@ -34,10 +36,6 @@ export default function App() {
   const scopeRef = useRef<ScopeHandle>(null)
   const hasSession = current !== null
 
-  /**
-   * Open session files. An analysis file (.scopeview.json) can be opened together with
-   * its session file, or on its own to apply it to the open session.
-   */
   // Session files are kept in the browser after opening, so stored sessions can be reopened
   const [filesVersion, setFilesVersion] = useState(0)
   const keepFiles = useCallback(async (session: Session, sources: SourceFile[]) => {
@@ -46,8 +44,12 @@ export default function App() {
     if (r.kept) setFilesVersion((v) => v + 1)
   }, [])
 
+  /**
+   * Open session files. An analysis file (.scopeview.json) can be opened together with
+   * its session file, or on its own to apply it to the open session. `expected`: the stored
+   * session the user is locating (checked against the chosen file).
+   */
   const open = useCallback(
-    /** `expected`: the stored session the user is locating (checked against the chosen file) */
     async (files: File[], expected?: RecentSession) => {
       if (!files.length) return
       const jsons = files.filter(isJson)
@@ -55,7 +57,7 @@ export default function App() {
       setError(null)
       if (!data.length) {
         if (hasSession) await scopeRef.current?.importAnalysisFile(jsons[0])
-        else setError('Open the session file (.tss, .wfm or .scopeview) together with the analysis file.')
+        else setError('Open the session file (.tss, .wfm, .isf or .scopeview) together with the analysis file.')
         return
       }
       setBusy(true)
@@ -72,7 +74,7 @@ export default function App() {
           }
         }
         // Keep the session files for "Save bundle": the dropped files, or the files inside a bundle
-        const sources: SourceFile[] = loaded.analysis !== undefined || /\.scopeview$/i.test(data[0].name)
+        const sources: SourceFile[] = loaded.analysis !== undefined || isBundleName(data[0].name)
           ? loaded.sources.map((s) => ({ name: s.name, blob: new Blob([s.data]) }))
           : data.map((f) => ({ name: f.name, blob: f }))
         setCurrent((c) => ({ session: loaded.session, sources, initial, generation: (c?.generation ?? 0) + 1 }))
@@ -156,8 +158,9 @@ export default function App() {
     let cancelled = false
     ;(async () => {
       const files = await loadSessionFiles(toRestore.fingerprint)
+      if (cancelled) return
       // A file launched from the operating system takes precedence
-      if (cancelled || launched.current) return
+      if (launched.current) return setRestoring(false)
       if (files?.length) await openRef.current(files)
       else setError(`“${toRestore.fileName}” could not be reopened after reloading, because its file is not kept in this browser. Open it again.`)
       setRestoring(false)
@@ -195,7 +198,6 @@ export default function App() {
         locateRef.current = null
         e.target.value = ''
       }}
-
     />
   )
 

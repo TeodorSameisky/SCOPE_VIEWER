@@ -5,10 +5,10 @@ import type { MathResult } from '../math/expr'
 import { MAX_MATH, type MathDef } from '../model/math'
 import type { ChannelDisplay, Session } from '../model/types'
 import { si } from '../util/format'
-import { channelName } from '../util/names'
+import { channelName, slopeSymbol, sourceUnit } from '../util/names'
 import { ChannelSettings } from './ChannelSettings'
 import { MathEditor } from './MathEditor'
-import type { DisplayPatch, LiveChannel, TimeWindow } from './state'
+import type { DisplayPatch, LiveChannel, TimeWindow } from '../model/view'
 import { useDismiss } from './ui/useDismiss'
 
 export interface MathItem {
@@ -292,9 +292,9 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
           <span className="info-title">Trigger</span>
           {/* In the colour of the source channel; orange (CSS) for sources without a trace, e.g. AUX */}
           <span className="info-main mono" style={{ color: p.channels.find((c) => c.wave.id === p.trigger?.source)?.display.color }}>
-            {p.trigger.source} {p.trigger.slope === 'FALL' ? '↘' : '↗'}
+            {channelName(p.trigger.source)} {slopeSymbol(p.trigger.slope)}
           </span>
-          <span className="info-sub mono">{p.trigger.level !== undefined ? si(p.trigger.level, 'V', 3) : ''}</span>
+          <span className="info-sub mono">{p.trigger.level !== undefined ? si(p.trigger.level, sourceUnit(p.channels, p.trigger.source), 3) : ''}</span>
         </div>
       )}
     </footer>

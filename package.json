@@ -10,6 +10,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "typecheck": "tsc -b",
+    "check": "tsc -b && oxlint && vitest run",
     "preview": "vite preview"
   },
   "dependencies": {

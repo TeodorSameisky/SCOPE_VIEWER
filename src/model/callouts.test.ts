@@ -1,12 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { nextCalloutNumber, sanitizeCallouts, type Callout } from './callouts'
-import { zoomAround } from '../components/state'
+import { calloutName, calloutTitle, nextCalloutNumber, sanitizeCallouts, type Callout } from './callouts'
+import { zoomAround } from './view'
 
 const sample: Callout[] = [
   { id: 'a', n: 1, type: 'note', t: -5e-3, channel: 'CH2', dx: 24, dy: -46, text: 'STO drops', color: '#22c8e6' },
   { id: 'b', n: 2, type: 'marker', t: 0, text: '', color: '#e6e9ee' },
   { id: 'c', n: 3, type: 'region', t: -5e-3, t2: -1e-4, text: 'fault window', color: '#3fb6ff' },
 ]
+
+describe('callout names', () => {
+  it('uses the first line of the text, else type and number', () => {
+    expect(calloutTitle(sample[0])).toBe('STO drops')
+    expect(calloutTitle(sample[1])).toBe('Marker 2')
+    expect(calloutTitle({ ...sample[2], text: '  \nsecond line' })).toBe('Region 3')
+    expect(calloutName(sample[0])).toBe('Note 1')
+  })
+})
 
 describe('callout validation', () => {
   it('keeps valid callouts through JSON', () => {

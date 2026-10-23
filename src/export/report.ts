@@ -3,6 +3,7 @@
  * settings, measurements, cursors, callouts and spectrum peaks. Light and print-friendly,
  * so it can be printed to PDF from the browser.
  */
+import { escapeHtml } from '../util/html'
 
 export interface ReportTable {
   title: string
@@ -22,23 +23,21 @@ export interface ReportContent {
   generatedBy: string
 }
 
-export const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-
 export function buildReport(r: ReportContent): string {
   const table = (t: ReportTable) => `
   <section>
-    <h2>${esc(t.title)}</h2>
-    ${t.note ? `<p class="note">${esc(t.note)}</p>` : ''}
+    <h2>${escapeHtml(t.title)}</h2>
+    ${t.note ? `<p class="note">${escapeHtml(t.note)}</p>` : ''}
     <table>
-      <thead><tr>${t.columns.map((c, i) => `<th${i ? ' class="num"' : ''}>${esc(c)}</th>`).join('')}</tr></thead>
+      <thead><tr>${t.columns.map((c, i) => `<th${i ? ' class="num"' : ''}>${escapeHtml(c)}</th>`).join('')}</tr></thead>
       <tbody>
         ${t.rows
           .map(
             (row) =>
               `<tr>${row.cells
                 .map((c, i) => {
-                  const html = typeof c === 'string' ? esc(c) : c.html
-                  return i === 0 ? `<td>${row.color ? `<span class="dot" style="background:${esc(row.color)}"></span>` : ''}${html}</td>` : `<td class="num">${html}</td>`
+                  const html = typeof c === 'string' ? escapeHtml(c) : c.html
+                  return i === 0 ? `<td>${row.color ? `<span class="dot" style="background:${escapeHtml(row.color)}"></span>` : ''}${html}</td>` : `<td class="num">${html}</td>`
                 })
                 .join('')}</tr>`,
           )
@@ -52,7 +51,7 @@ export function buildReport(r: ReportContent): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(r.title)}</title>
+<title>${escapeHtml(r.title)}</title>
 <style>
   :root { color-scheme: light; }
   body { font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #1d2430; background: #fff; margin: 0; }
@@ -83,18 +82,18 @@ export function buildReport(r: ReportContent): string {
 </head>
 <body>
 <main>
-  <h1>${esc(r.title)}</h1>
+  <h1>${escapeHtml(r.title)}</h1>
   <p class="sub">Oscilloscope session report</p>
-  ${r.notes.trim() ? `<div class="notes">${esc(r.notes.trim())}</div>` : ''}
+  ${r.notes.trim() ? `<div class="notes">${escapeHtml(r.notes.trim())}</div>` : ''}
   <section>
     <h2>Session</h2>
     <dl class="meta">
-      ${r.meta.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('\n      ')}
+      ${r.meta.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join('\n      ')}
     </dl>
   </section>
   ${r.image ? `<figure><img src="${r.image}" alt="Waveforms"></figure>` : ''}
   ${r.tables.filter((t) => t.rows.length).map(table).join('\n')}
-  <footer>${esc(r.generatedBy)}</footer>
+  <footer>${escapeHtml(r.generatedBy)}</footer>
 </main>
 </body>
 </html>

@@ -1,8 +1,8 @@
-import type { CursorState, MeasureRange, TimeWindow } from '../components/state'
+import { isMeasureRange, type CursorState, type MeasureRange, type TimeWindow } from './view'
 import type { MeasurementKey } from '../dsp/measure'
 import { MEASUREMENT_DEFS } from '../dsp/measureDefs'
 import { loadCallouts, sanitizeCallouts, type Callout } from './callouts'
-import { loadMath, type MathDef } from './math'
+import { MATH_COLORS, loadMath, type MathDef } from './math'
 import { DEFAULT_SPECTRUM_OPTIONS, loadSpectra, parseStoredSpectra, type SpectrumDef, type SpectrumOptions } from './spectrum'
 import type { ChannelDisplay, Session } from './types'
 
@@ -135,7 +135,7 @@ export function sanitizeWorkspace(raw: unknown, session: Session): Workspace {
   const stored = new Map<string, Partial<ChannelDisplay>>()
   for (const d of Array.isArray(r.channels) ? r.channels : []) if (d && typeof d.id === 'string') stored.set(d.id, d)
   const channels: ChannelDisplay[] = ids.map((id) => {
-    const base = def.channels.find((d) => d.id === id) ?? { id, label: '', color: '#ff6ec7', visible: true, scale: 1, position: 0, offset: 0 }
+    const base = def.channels.find((d) => d.id === id) ?? { id, label: '', color: MATH_COLORS[0], visible: true, scale: 1, position: 0, offset: 0 }
     const s = stored.get(id) ?? {}
     return {
       id,
@@ -184,7 +184,7 @@ export function sanitizeWorkspace(raw: unknown, session: Session): Workspace {
   const m = (r.measurements ?? {}) as { keys?: unknown; range?: unknown }
   const known = new Set(MEASUREMENT_DEFS.map((d) => d.key))
   const keys = Array.isArray(m.keys) ? [...new Set(m.keys.filter((k): k is MeasurementKey => known.has(k)))] : def.measurements.keys
-  const range = m.range === 'screen' || m.range === 'cursors' || m.range === 'record' ? m.range : def.measurements.range
+  const range = isMeasureRange(m.range) ? m.range : def.measurements.range
 
   return {
     version: WORKSPACE_VERSION,

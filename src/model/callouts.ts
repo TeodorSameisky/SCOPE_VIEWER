@@ -48,10 +48,16 @@ export const DEFAULT_CALLOUT_COLOR: Record<CalloutType, string> = {
 
 export const CALLOUT_ICON: Record<CalloutType, string> = { note: '✎', marker: '⚑', region: '↔' }
 
+export const CALLOUT_TYPE_LABEL: Record<CalloutType, string> = { note: 'Note', marker: 'Marker', region: 'Region' }
+
+/** Type and running number, e.g. "Marker 3" */
+export function calloutName(c: Callout): string {
+  return `${CALLOUT_TYPE_LABEL[c.type]} ${c.n}`
+}
+
+/** The first line of the text, or the name when there is none */
 export function calloutTitle(c: Callout): string {
-  const first = c.text.split('\n')[0].trim()
-  if (first) return first
-  return `${c.type === 'note' ? 'Note' : c.type === 'marker' ? 'Marker' : 'Region'} ${c.n}`
+  return c.text.split('\n')[0].trim() || calloutName(c)
 }
 
 /** Time span of a callout: a point for notes and markers */

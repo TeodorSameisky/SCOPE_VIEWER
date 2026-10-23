@@ -1,6 +1,7 @@
 import { valueAt } from '../render/draw'
-import { si } from '../util/format'
-import type { CursorState, LiveChannel, TimeWindow } from './state'
+import { parseTime, si } from '../util/format'
+import { channelName } from '../util/names'
+import type { CursorState, LiveChannel, TimeWindow } from '../model/view'
 
 interface Props {
   channels: LiveChannel[]
@@ -31,7 +32,7 @@ export function CursorPanel({ channels, cursors, setCursors, win }: Props) {
         <select value={cursors.source} onChange={(e) => setCursors({ ...cursors, source: e.target.value })}>
           {channels.map((c) => (
             <option key={c.wave.id} value={c.wave.id}>
-              {c.wave.id} {c.display.label}
+              {channelName(c.wave.id)} {c.display.label}
             </option>
           ))}
         </select>
@@ -65,7 +66,7 @@ export function CursorPanel({ channels, cursors, setCursors, win }: Props) {
                 <tr key={c.wave.id}>
                   <td>
                     <span className="dot" style={{ background: c.display.color }} />
-                    {c.wave.id}
+                    {channelName(c.wave.id)}
                   </td>
                   <td className="mono">{si(a, c.wave.yUnit)}</td>
                   <td className="mono">{si(b, c.wave.yUnit)}</td>
@@ -88,20 +89,11 @@ function TimeInput({ value, onChange }: { value: number; onChange: (v: number) =
       key={value}
       defaultValue={si(value, 's', 6)}
       onBlur={(e) => {
-        const v = parseEng(e.target.value)
+        const v = parseTime(e.target.value)
         if (v !== undefined) onChange(v)
         else e.target.value = si(value, 's', 6)
       }}
       onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
     />
   )
-}
-
-const MULT: Record<string, number> = { p: 1e-12, n: 1e-9, u: 1e-6, µ: 1e-6, m: 1e-3, '': 1, k: 1e3 }
-
-function parseEng(text: string): number | undefined {
-  const m = text.trim().match(/^([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s*([pnuµmk]?)\s*s?$/i)
-  if (!m) return undefined
-  const prefix = m[2] === 'M' ? 'm' : m[2]
-  return parseFloat(m[1]) * (MULT[prefix] ?? 1)
 }

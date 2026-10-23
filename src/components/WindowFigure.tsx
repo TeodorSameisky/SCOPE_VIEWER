@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { windowCoefficients, windowGain, type WindowKind } from '../math/fft'
+import { toDb, windowCoefficients, windowGain, type WindowKind } from '../math/fft'
 
 const HL = '#3fb6ff'
 const GUIDE = 'rgba(160, 170, 185, 0.55)'
@@ -27,7 +27,7 @@ export function WindowFigure({ kind }: { kind: WindowKind }) {
     const pts: string[] = []
     for (let i = 0; i <= 400; i++) {
       const d = -BINS + (i / 400) * 2 * BINS
-      pts.push(`${i ? 'L' : 'M'}${rx(d).toFixed(1)} ${ry(20 * Math.log10(Math.max(1e-12, windowGain(kind, d)))).toFixed(1)}`)
+      pts.push(`${i ? 'L' : 'M'}${rx(d).toFixed(1)} ${ry(toDb(Math.max(1e-12, windowGain(kind, d)))).toFixed(1)}`)
     }
     return { shape, resp: pts.join(' ') }
   }, [kind])

@@ -4,6 +4,7 @@
  * rendered, and when it has an error, its source is shown as text.
  */
 import { useSyncExternalStore } from 'react'
+import { escapeHtml } from '../util/html'
 
 export type TextPart = { text: string } | { tex: string; display: boolean }
 
@@ -117,8 +118,6 @@ export async function loadTex(texts: string[]): Promise<void> {
   await Promise.all(jobs)
 }
 
-const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-
 /** HTML of a text with its formulas as inline SVG (report tables); render them with loadTex first */
 export function texHtml(s: string): string {
   const em = (v: number) => `${+(v * MATH_SCALE).toFixed(3)}em`
@@ -127,10 +126,10 @@ export function texHtml(s: string): string {
     .map((line) =>
       splitTex(line)
         .map((p) => {
-          if (!('tex' in p)) return escHtml(p.text)
+          if (!('tex' in p)) return escapeHtml(p.text)
           const f = texSvg(p.tex, p.display)
-          if (!f) return escHtml(texSource(p))
-          return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${f.viewBox}" width="${em(f.width)}" height="${em(f.ascent + f.descent)}" style="vertical-align:-${em(f.descent)}" role="img" aria-label="${escHtml(p.tex)}">${f.body}</svg>`
+          if (!f) return escapeHtml(texSource(p))
+          return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${f.viewBox}" width="${em(f.width)}" height="${em(f.ascent + f.descent)}" style="vertical-align:-${em(f.descent)}" role="img" aria-label="${escapeHtml(p.tex)}">${f.body}</svg>`
         })
         .join(''),
     )

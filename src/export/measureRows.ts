@@ -1,7 +1,7 @@
 import { measure, type MeasurementKey, type Measurements } from '../dsp/measure'
 import { formatMeasurement, measurementDef } from '../dsp/measureDefs'
 import { channelName } from '../util/names'
-import { sampleRange, type CursorState, type LiveChannel, type MeasureRange, type TimeWindow } from '../components/state'
+import { sampleRange, type CursorState, type LiveChannel, type MeasureRange, type TimeWindow } from '../model/view'
 
 export interface MeasuredChannel {
   channel: LiveChannel

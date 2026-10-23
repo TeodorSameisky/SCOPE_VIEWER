@@ -237,21 +237,31 @@ are generated from `public/favicon.svg` with `npx pwa-assets-generator` (config 
 npm install
 npm run dev       # http://localhost:5173
 npm test          # unit tests (session tests run only if SessionSample/Tek000.tss exists locally)
+npm run check     # type check (app, tools and tests), lint and unit tests – what CI runs before the build
 npm run build     # type check + production build into dist/
 npm run preview   # serve the build (http://localhost:4173), to test the service worker and offline use
 ```
 
+GitHub Actions (`.github/workflows/ci.yml`) runs lint, tests and the build on every push to `main` and on pull requests.
+
 Code layout:
 
 ```
-src/parsers/   file formats (tekWfm, tekIsf, tekSetup, session = .tss/.wfm/.isf/.zip loader, worker)
-src/dsp/       min/max pyramid, measurements and their documentation
-src/math/      expression language and signal processing for math channels, FFT and windows
-src/model/     data types, callouts, math, spectra and the workspace (autosave, analysis files)
-src/export/    CSV, image composition, HTML report, bundles
-src/render/    canvas drawing of views, time axis and spectrum
-src/components React UI (Scope workspace, plot, panels)
+src/parsers/    file formats (tekWfm, tekIsf, tekSetup, session = .tss/.wfm/.isf/.zip loader, worker)
+src/dsp/        min/max pyramid, measurements and their documentation, edge detection
+src/math/       expression language and signal processing for math channels, FFT and windows
+src/model/      data types, view state (time window, cursors, ranges), callouts, math, spectra,
+                the workspace (autosave, analysis files), undo history and the browser's file store
+src/export/     CSV, image composition, HTML report, bundles
+src/render/     canvas drawing of views, time axis, spectrum and callouts; TeX; export themes
+src/components/ React UI (Scope workspace, plot, panels) and its hooks
+src/pwa/        install prompt and files opened from the operating system
+src/util/       formatting, names, clipboard, downloads
 ```
+
+Only `src/components` imports from `src/components`: parsing, analysis, rendering and exports do not
+depend on the UI components (exports reach the plot and the spectrum view through the small interfaces
+`PlotImageSource` and `SpectrumSource` in `src/export/sessionExport.ts`).
 
 To add a new format (e.g. Rigol), write a parser that returns `Waveform` objects and add it to
 `loadFiles` in `src/parsers/session.ts`.

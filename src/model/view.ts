@@ -1,4 +1,8 @@
-import type { Channel, ChannelDisplay } from '../model/types'
+/**
+ * State of the view on a session (time window, cursors, tool, measurement range) and the pure
+ * helpers that work on it. Shared by the UI, the renderers and the exports.
+ */
+import type { Channel, ChannelDisplay } from './types'
 import type { MinMaxPyramid } from '../dsp/minmax'
 import { niceStep } from '../util/format'
 
@@ -14,7 +18,9 @@ export interface CursorState {
   source: string
 }
 
+/** Samples measurements, spectra and CSV exports are taken from */
 export type MeasureRange = 'screen' | 'cursors' | 'record'
+export const MEASURE_RANGES: readonly MeasureRange[] = ['screen', 'cursors', 'record']
 
 /** Sample index range [i0, i1) of a waveform for a measurement range (fractional, clamped by the caller) */
 export function sampleRange(w: { t0: number; dt: number; data: { length: number } }, range: MeasureRange, win: TimeWindow, cursors: CursorState): [number, number] {
@@ -24,6 +30,10 @@ export function sampleRange(w: { t0: number; dt: number; data: { length: number 
 }
 
 export const RANGE_LABEL: Record<MeasureRange, string> = { screen: 'On screen', cursors: 'Between cursors', record: 'Whole record' }
+
+export function isMeasureRange(v: unknown): v is MeasureRange {
+  return MEASURE_RANGES.includes(v as MeasureRange)
+}
 
 export interface LiveChannel extends Channel {
   pyramid: MinMaxPyramid

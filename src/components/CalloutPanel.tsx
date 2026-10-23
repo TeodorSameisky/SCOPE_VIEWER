@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { CALLOUT_COLORS, CALLOUT_ICON, calloutSpan, calloutTitle, type Callout } from '../model/callouts'
+import { CALLOUT_COLORS, CALLOUT_ICON, CALLOUT_TYPE_LABEL, calloutName, calloutSpan, calloutTitle, type Callout } from '../model/callouts'
 import { si } from '../util/format'
+import { channelName } from '../util/names'
 import { CalloutValueEditor } from './CalloutValueEditor'
-import type { LiveChannel, Tool } from './state'
+import type { LiveChannel, Tool } from '../model/view'
 
 interface Props {
   callouts: Callout[]
@@ -18,14 +19,12 @@ interface Props {
   onContextMenu?: (e: React.MouseEvent, c: Callout) => void
 }
 
-const TYPE_NAME: Record<Callout['type'], string> = { note: 'note', marker: 'marker', region: 'region' }
-
 export function CalloutPanel(p: Props) {
   // Search in the text, the title and the type ("marker" lists all markers)
   const [query, setQuery] = useState('')
   const q = query.trim().toLowerCase()
   const sorted = [...p.callouts]
-    .filter((c) => !q || `${calloutTitle(c)} ${c.text} ${TYPE_NAME[c.type]}`.toLowerCase().includes(q))
+    .filter((c) => !q || `${calloutTitle(c)} ${c.text} ${CALLOUT_TYPE_LABEL[c.type]}`.toLowerCase().includes(q))
     .sort((a, b) => calloutSpan(a)[0] - calloutSpan(b)[0])
   // A callout selected in the plot is scrolled into view in the list
   const listRef = useRef<HTMLDivElement>(null)
@@ -37,7 +36,7 @@ export function CalloutPanel(p: Props) {
       <div className="callout-tools">
         {(['note', 'marker', 'region'] as const).map((t) => (
           <button key={t} className={p.tool === t ? 'active' : ''} onClick={() => p.setTool(p.tool === t ? 'pan' : t)}>
-            {CALLOUT_ICON[t]} {t === 'note' ? 'Note' : t === 'marker' ? 'Marker' : 'Region'}
+            {CALLOUT_ICON[t]} {CALLOUT_TYPE_LABEL[t]}
           </button>
         ))}
       </div>
@@ -84,7 +83,7 @@ export function CalloutPanel(p: Props) {
               {c.type === 'region' && c.t2 !== undefined && <span className="mono muted">Δt {si(Math.abs(c.t2 - c.t), 's')}</span>}
               {ch && (
                 <span className="chip" style={{ ['--ch' as string]: ch.display.color }}>
-                  {ch.wave.id}
+                  {channelName(ch.wave.id)}
                 </span>
               )}
               <span className="spacer" />
@@ -98,7 +97,7 @@ export function CalloutPanel(p: Props) {
             <textarea
               rows={Math.min(4, Math.max(1, c.text.split('\n').length))}
               value={c.text}
-              placeholder={calloutTitle({ ...c, text: '' })}
+              placeholder={calloutName(c)}
               onChange={(e) => p.onUpdate(c.id, { text: e.target.value })}
             />
             <CalloutValueEditor callout={c} sources={p.channels.map((x) => x.wave.id)} onUpdate={(patch) => p.onUpdate(c.id, patch)} />

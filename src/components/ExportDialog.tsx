@@ -1,47 +1,12 @@
 import { useCallback, useRef, useState } from 'react'
 import { ClipboardCopy, Download, FileSpreadsheet, FileText, Image, Table2, Waves, X } from 'lucide-react'
 import { CSV_FORMATS, type CsvFormatKey } from '../export/csv'
+import type { ExportKind, ExportPrefs, WaveformOptions } from '../export/sessionExport'
 import type { Appearance } from '../render/theme'
 import { formatBytes } from '../util/format'
 import { usePersistentState } from '../util/usePersistentState'
-import { RANGE_LABEL, type MeasureRange } from './state'
+import { MEASURE_RANGES, RANGE_LABEL, type MeasureRange } from '../model/view'
 import { useDismiss } from './ui/useDismiss'
-
-export type ExportKind = 'image' | 'report' | 'waveforms' | 'measurements' | 'spectra'
-
-export interface ImageOptions {
-  header: boolean
-  legend: boolean
-  spectrum: boolean
-  table: boolean
-  scale: 1 | 2 | 3
-  appearance: Appearance
-}
-
-export interface ReportOptions {
-  image: boolean
-  channels: boolean
-  math: boolean
-  measurements: boolean
-  cursors: boolean
-  callouts: boolean
-  spectra: boolean
-  /** Colours of the report's image (its other options come from the image options) */
-  appearance: Appearance
-}
-
-export interface WaveformOptions {
-  range: MeasureRange
-  channels: 'visible' | 'all'
-  step: number
-}
-
-export interface ExportPrefs {
-  csv: CsvFormatKey
-  image: ImageOptions
-  report: ReportOptions
-  waveforms: WaveformOptions
-}
 
 const DEFAULT_PREFS: ExportPrefs = {
   csv: 'intl',
@@ -254,7 +219,7 @@ export function ExportDialog(p: Props) {
                 <fieldset>
                   <legend>Range</legend>
                   <div className="segmented">
-                    {(['screen', 'cursors', 'record'] as const).map((r) => (
+                    {MEASURE_RANGES.map((r) => (
                       <button key={r} type="button" className={wf.range === r ? 'active' : ''} onClick={() => set('waveforms', { range: r })}>
                         {RANGE_LABEL[r]}
                       </button>

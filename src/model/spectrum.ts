@@ -1,4 +1,5 @@
 import { DEFAULT_WINDOW, isWindowKind, type WindowKind } from '../math/fft'
+import { isMeasureRange, type MeasureRange } from './view'
 
 /** An FFT spectrum of one channel or math channel; its colour follows the source. */
 export interface SpectrumDef {
@@ -8,8 +9,8 @@ export interface SpectrumDef {
   visible: boolean
 }
 
-/** Samples the spectra are computed from */
-export type SpectrumRange = 'screen' | 'cursors' | 'record'
+/** Samples the spectra are computed from (the same choices as for measurements) */
+export type SpectrumRange = MeasureRange
 /** dB relative to 1 unit RMS (dBV), or linear RMS */
 export type SpectrumScale = 'db' | 'linear'
 export type FreqAxis = 'log' | 'linear'
@@ -68,7 +69,7 @@ export function parseStoredSpectra(raw: unknown): StoredSpectra {
     .map((d) => ({ id: d.id, source: d.source, window: d.window, visible: d.visible }))
   const o = r.options ?? {}
   const options: SpectrumOptions = {
-    range: o.range === 'screen' || o.range === 'cursors' || o.range === 'record' ? o.range : DEFAULT_SPECTRUM_OPTIONS.range,
+    range: isMeasureRange(o.range) ? o.range : DEFAULT_SPECTRUM_OPTIONS.range,
     scale: o.scale === 'db' || o.scale === 'linear' ? o.scale : DEFAULT_SPECTRUM_OPTIONS.scale,
     axis: o.axis === 'log' || o.axis === 'linear' ? o.axis : DEFAULT_SPECTRUM_OPTIONS.axis,
     peaks: typeof o.peaks === 'number' && PEAK_COUNTS.includes(o.peaks) ? o.peaks : DEFAULT_SPECTRUM_OPTIONS.peaks,

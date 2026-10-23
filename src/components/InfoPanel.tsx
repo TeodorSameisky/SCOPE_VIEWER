@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { Session } from '../model/types'
 import { si } from '../util/format'
+import { triggerText } from '../util/names'
 
 export function InfoPanel({ session, storage }: { session: Session; storage?: React.ReactNode }) {
   const [filter, setFilter] = useState('')
@@ -49,9 +50,7 @@ export function InfoPanel({ session, storage }: { session: Session; storage?: Re
         {session.trigger && (
           <>
             <dt>Trigger</dt>
-            <dd className="mono">
-              {session.trigger.source} {session.trigger.slope?.toLowerCase()} {session.trigger.level !== undefined && si(session.trigger.level, 'V')}
-            </dd>
+            <dd className="mono">{triggerText(session, 4)}</dd>
           </>
         )}
       </dl>

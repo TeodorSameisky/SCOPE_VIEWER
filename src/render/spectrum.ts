@@ -1,4 +1,4 @@
-import type { Peak, Spectrum } from '../math/fft'
+import { toDb, type Peak, type Spectrum } from '../math/fft'
 import type { FreqAxis, SpectrumScale } from '../model/spectrum'
 import { niceStep, siTick } from '../util/format'
 import { PLOT_FONT } from './draw'
@@ -33,7 +33,7 @@ export function xToF(m: FreqMap, x: number): number {
 
 /** Value on the level axis: dB re 1 unit RMS, or linear RMS */
 export function levelValue(scale: SpectrumScale, rms: number): number {
-  return scale === 'db' ? 20 * Math.log10(rms) : rms
+  return scale === 'db' ? toDb(rms) : rms
 }
 
 /**

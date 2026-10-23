@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { calloutSpan, calloutTitle, type Callout } from '../model/callouts'
 import { AXIS_GUTTER, DIVS_Y, PLOT_FONT, valueToDiv } from '../render/draw'
 import { DARK_THEME } from '../render/theme'
-import { zoomAround, type LiveChannel, type NavKind, type TimeWindow } from './state'
+import { zoomAround, type LiveChannel, type NavKind, type TimeWindow } from '../model/view'
 
 const HEIGHT = 46
 const EDGE_PX = 6
