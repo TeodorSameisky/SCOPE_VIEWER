@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { BookOpen, CircleHelp, Focus, GalleryHorizontal, Info, Ruler, StickyNote, Table2 } from 'lucide-react'
 import { IconButton } from './ui/IconButton'
 import { ThemeButton } from './ui/ThemeProvider'
@@ -70,16 +70,41 @@ const SHORTCUTS: [string[], string][] = [
   [['Esc'], 'Cancel, back to Pan'],
 ]
 
+/** Gap between the help popover and the edges of the window (px) */
+const EDGE = 8
+
 function HelpButton() {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const close = useCallback(() => setOpen(false), [])
   useDismiss(ref, open, close)
+  // Fixed to the window, left of the button and growing upwards from its bottom; in a window too
+  // short (or narrow) for it, it gets as much room as there is and scrolls
+  const [place, setPlace] = useState<React.CSSProperties>()
+  useLayoutEffect(() => {
+    if (!open) return
+    const update = () => {
+      const r = ref.current?.getBoundingClientRect()
+      if (!r) return
+      const bottom = Math.max(EDGE, window.innerHeight - r.bottom)
+      setPlace({
+        position: 'fixed',
+        right: window.innerWidth - r.left + EDGE,
+        bottom,
+        maxHeight: window.innerHeight - bottom - EDGE,
+        maxWidth: Math.max(200, r.left - 2 * EDGE),
+        overflowY: 'auto',
+      })
+    }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [open])
   return (
     <div className="help" ref={ref}>
       <IconButton icon={CircleHelp} label="Mouse & keyboard" active={open} onClick={() => setOpen(!open)} />
       {open && (
-        <div className="popover help-popover">
+        <div className="popover help-popover" style={place}>
           <h4>Mouse &amp; keyboard</h4>
           <dl>
             {SHORTCUTS.map(([keys, v]) => (
