@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { edgeLevels, nearestEdge, type EdgeLevels } from '../dsp/edges'
 import type { PlotImageSource } from '../export/sessionExport'
-import { calloutSpan, type Callout } from '../model/callouts'
+import { DEFAULT_CALLOUT_COLOR, calloutSpan, type Callout } from '../model/callouts'
 import { calloutsSvg, flagsBottom, layoutCallouts } from '../render/callouts'
 import {
   AXIS_GUTTER,
@@ -60,15 +60,7 @@ export interface PlotPoint {
   edgeT?: number
 }
 
-export interface NewCallout {
-  type: Callout['type']
-  t: number
-  t2?: number
-  channel?: string
-  view?: number
-  div?: number
-  dy?: number
-}
+export type NewCallout = Pick<Callout, 'type' | 't' | 't2' | 'channel' | 'channel2' | 'v' | 'v2' | 'view' | 'div' | 'div2' | 'dy'>
 
 interface Props {
   channels: LiveChannel[]
@@ -121,8 +113,10 @@ type Drag =
   | { kind: 'cursor'; which: 'a' | 'b' }
   /** time-only zoom band */
   | { kind: 'band'; x0: number; x1: number }
-  /** time + vertical zoom rectangle inside one view */
+  /** time + vertical zoom rectangle inside one view, or a new box callout */
   | { kind: 'rect'; view: number; x0: number; y0: number; x1: number; y1: number }
+  /** new span callout from end `a`; `b` follows the pointer */
+  | { kind: 'span'; a: { ch: string; t: number }; b?: { ch: string; t: number } }
   /** new region callout */
   | { kind: 'region'; x0: number; x1: number }
   /** click-type tools (zoom click, note, marker): only track whether it moved */
@@ -153,32 +147,80 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   const maxSpan = (p.record.end - p.record.start) * 4
   const xToT = useCallback((x: number) => p.win.start + (x / plotW) * span, [p.win.start, plotW, span])
   const tToX = useCallback((t: number) => ((t - p.win.start) / span) * plotW, [p.win.start, plotW, span])
+  const clampX = (x: number) => Math.min(plotW, Math.max(0, x))
+
+  /** The visible trace of the view at y that passes closest to (x, y), within maxPx */
+  const nearestTrace = (x: number, y: number, maxPx = 20): string | undefined => {
+    const vi = Math.min(nViews - 1, Math.floor(y / viewH))
+    const yIn = y - vi * viewH
+    const t = xToT(x)
+    let best: string | undefined
+    let bestD = maxPx
+    for (const id of p.views[vi] ?? []) {
+      const c = p.channels.find((ch) => ch.wave.id === id)
+      if (!c || !c.display.visible) continue
+      const v = valueAt(c.wave, t)
+      if (!Number.isFinite(v)) continue
+      const dist = Math.abs(viewH / 2 - valueToDiv(v, c.display) * divH - yIn)
+      if (dist < bestD) {
+        bestD = dist
+        best = id
+      }
+    }
+    return best
+  }
+
   /**
-   * Time of the edge of the selected trace nearest to t (within SNAP_PX), or undefined. The
+   * Edge finder of a trace: the time of its edge nearest to t (within SNAP_PX), or undefined. The
    * reference levels come from the samples on screen and are worked out on first use.
    */
-  const edgeNear = useMemo(() => {
-    const ch = p.channels.find((c) => c.wave.id === p.selected && c.display.visible)
-    if (!ch) return () => undefined
-    const w = ch.wave
-    const i0 = Math.max(0, Math.floor((p.win.start - w.t0) / w.dt))
-    const i1 = Math.min(w.data.length, Math.ceil((p.win.end - w.t0) / w.dt) + 1)
-    const maxN = (SNAP_PX * (p.win.end - p.win.start)) / Math.max(1, plotW) / w.dt
-    let levels: EdgeLevels | undefined | null = null
-    return (t: number): number | undefined => {
-      if (levels === null) levels = edgeLevels(w.data, i0, i1)
-      if (!levels) return undefined
-      const x = nearestEdge(w.data, (t - w.t0) / w.dt, maxN, levels, i0, i1)
-      return x === undefined ? undefined : w.t0 + x * w.dt
+  const edgesOf = useMemo(() => {
+    const finders = new Map<string, (t: number) => number | undefined>()
+    return (id: string | undefined): ((t: number) => number | undefined) => {
+      const ch = p.channels.find((c) => c.wave.id === id && c.display.visible)
+      if (!ch) return () => undefined
+      let find = finders.get(ch.wave.id)
+      if (!find) {
+        const w = ch.wave
+        const i0 = Math.max(0, Math.floor((p.win.start - w.t0) / w.dt))
+        const i1 = Math.min(w.data.length, Math.ceil((p.win.end - w.t0) / w.dt) + 1)
+        const maxN = (SNAP_PX * (p.win.end - p.win.start)) / Math.max(1, plotW) / w.dt
+        let levels: EdgeLevels | undefined | null = null
+        find = (t: number): number | undefined => {
+          if (levels === null) levels = edgeLevels(w.data, i0, i1)
+          if (!levels) return undefined
+          const x = nearestEdge(w.data, (t - w.t0) / w.dt, maxN, levels, i0, i1)
+          return x === undefined ? undefined : w.t0 + x * w.dt
+        }
+        finders.set(ch.wave.id, find)
+      }
+      return find
     }
-  }, [p.channels, p.selected, p.win, plotW])
+  }, [p.channels, p.win, plotW])
+  /** Markers and the edges of regions snap to edges of the selected trace */
+  const edgeNear = useMemo(() => edgesOf(p.selected), [edgesOf, p.selected])
   /** Markers and region edges snap to edges; Alt places them freely */
   const snapT = (t: number, alt: boolean) => (alt ? t : (edgeNear(t) ?? t))
   const snapX = (x: number, alt: boolean) => tToX(snapT(xToT(x), alt))
+  /** An end of a new span at (x, y): on the nearest trace of that view, at its edge next to x (Alt: at x) */
+  const spanEndAt = (x: number, y: number, free: boolean): { ch: string; t: number } | undefined => {
+    if (y < 0 || y >= viewsH) return undefined
+    const ch = nearestTrace(x, y, viewH)
+    if (!ch) return undefined
+    const t = xToT(clampX(x))
+    return { ch, t: free ? t : (edgesOf(ch)(t) ?? t) }
+  }
 
   const pointerT = hover && hover.x >= 0 && hover.x <= plotW ? xToT(hover.x) : undefined
-  // With the Marker and Region tools the hover line shows where a click would put the edge
-  const hoverT = pointerT !== undefined && (p.tool === 'marker' || p.tool === 'region') ? snapT(pointerT, hover!.alt) : pointerT
+  // With the Marker, Region and Span tools the hover line shows where a click would put the edge
+  const hoverT =
+    pointerT === undefined
+      ? undefined
+      : p.tool === 'marker' || p.tool === 'region'
+        ? snapT(pointerT, hover!.alt)
+        : p.tool === 'span'
+          ? (spanEndAt(hover!.x, hover!.y, hover!.alt)?.t ?? pointerT)
+          : pointerT
   // Callout geometry (formulas render asynchronously: lay out again when one is ready)
   useTexVersion()
   const { theme } = useTheme()
@@ -259,6 +301,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   /** Rubber band for zoom / region selection; the level or the drop target of a dragged channel tag */
   const drawDragPreview = (ctx: CanvasRenderingContext2D, dpr: number, vi: number) => {
     if (drag?.kind === 'tag') return drawTagDrag(ctx, dpr, vi)
+    if (drag?.kind === 'span') return drawSpanDrag(ctx, dpr, vi)
     if (!drag || (drag.kind !== 'band' && drag.kind !== 'rect' && drag.kind !== 'region')) return
     if (drag.kind === 'rect' && drag.view !== vi) return
     const x0 = Math.min(drag.x0, drag.x1)
@@ -284,6 +327,41 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       ctx.textBaseline = 'top'
       ctx.fillText(si(Math.abs(xToT(drag.x1) - xToT(drag.x0)), 's'), x0 + 4, y0 + 4)
     }
+    ctx.restore()
+  }
+
+  /** A new span while it is dragged: from its first end to where the second would go, with Δt */
+  const drawSpanDrag = (ctx: CanvasRenderingContext2D, dpr: number, vi: number) => {
+    if (drag?.kind !== 'span' || !drag.b) return
+    // The ends on their traces, in plot coordinates (each view's canvas shows its part)
+    const end = ({ ch, t }: { ch: string; t: number }) => {
+      const c = byId.get(ch)
+      const view = p.views.findIndex((v) => v.includes(ch))
+      const v = c ? valueAt(c.wave, t) : NaN
+      return c && view >= 0 && Number.isFinite(v) ? { x: tToX(t), y: view * viewH + viewH / 2 - valueToDiv(v, c.display) * divH } : undefined
+    }
+    const a = end(drag.a)
+    const b = end(drag.b)
+    if (!a || !b) return
+    const ink = theme.ink(DEFAULT_CALLOUT_COLOR.span)
+    ctx.save()
+    ctx.setTransform(dpr, 0, 0, dpr, 0, -vi * viewH * dpr)
+    ctx.strokeStyle = ink
+    ctx.fillStyle = ink
+    ctx.lineWidth = 1.4
+    ctx.beginPath()
+    ctx.moveTo(a.x, a.y)
+    ctx.lineTo(b.x, b.y)
+    ctx.stroke()
+    for (const pt of [a, b]) {
+      ctx.beginPath()
+      ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2)
+      ctx.fill()
+    }
+    ctx.font = '12px system-ui, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'bottom'
+    ctx.fillText(`Δt ${si(drag.b.t - drag.a.t, 's')}`, (a.x + b.x) / 2, Math.min(a.y, b.y) - 6)
     ctx.restore()
   }
 
@@ -399,7 +477,6 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     const r = containerRef.current!.getBoundingClientRect()
     return { x: e.clientX - r.left, y: e.clientY - r.top }
   }
-  const clampX = (x: number) => Math.min(plotW, Math.max(0, x))
   const clampY = (y: number, view: number) => Math.min((view + 1) * viewH, Math.max(view * viewH, y))
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -443,12 +520,15 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     // Dragging along the time axis always marks a time range to zoom into
     if (onAxis || (navTool && e.shiftKey)) setDrag({ kind: 'band', x0: x, x1: x })
     else if (p.tool === 'pan') setDrag({ kind: 'pan', x0: x, win: p.win })
-    else if (p.tool === 'zoom') {
+    else if (p.tool === 'zoom' || p.tool === 'box') {
       const view = Math.min(nViews - 1, Math.floor(y / viewH))
       setDrag({ kind: 'rect', view, x0: x, y0: y, x1: x, y1: y })
     } else if (p.tool === 'region') {
       const xs = snapX(clampX(x), e.altKey)
       setDrag({ kind: 'region', x0: xs, x1: xs })
+    } else if (p.tool === 'span') {
+      const a = spanEndAt(x, y, e.altKey)
+      if (a) setDrag({ kind: 'span', a })
     } else setDrag({ kind: 'click', x0: x, y0: y })
   }
 
@@ -480,7 +560,45 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       case 'rect':
         setDrag({ ...drag, x1: clampX(x), y1: clampY(y, drag.view) })
         break
+      case 'span':
+        setDrag({ ...drag, b: spanEndAt(x, y, e.altKey) })
+        break
     }
+  }
+
+  /**
+   * A new box around the rectangle dragged in a view. It belongs to a trace that runs through it:
+   * the selected one if it does, else the one nearest the centre; without one, the selected trace
+   * of the view or the nearest. Its time edges snap to edges of that trace (Alt: free).
+   */
+  const newBox = (d: Extract<Drag, { kind: 'rect' }>, free: boolean): NewCallout => {
+    const divAt = (yy: number) => DIVS_Y / 2 - (yy - d.view * viewH) / divH
+    const top = divAt(Math.min(d.y0, d.y1))
+    const bottom = divAt(Math.max(d.y0, d.y1))
+    const [ta, tb] = [xToT(Math.min(d.x0, d.x1)), xToT(Math.max(d.x0, d.x1))]
+    const { traces } = viewChannels(d.view)
+    const mm: [number, number] = [0, 0]
+    const through = traces.filter(({ wave: w, display, pyramid }) => {
+      pyramid.range(Math.floor((ta - w.t0) / w.dt), Math.ceil((tb - w.t0) / w.dt) + 1, mm)
+      return mm[1] >= divToValue(bottom, display) && mm[0] <= divToValue(top, display)
+    })
+    // Distance of a trace from the centre of the box (px)
+    const midT = (ta + tb) / 2
+    const midY = (d.y0 + d.y1) / 2 - d.view * viewH
+    const distance = (c: LiveChannel) => Math.abs(viewH / 2 - valueToDiv(valueAt(c.wave, midT), c.display) * divH - midY)
+    const closest = (list: LiveChannel[]) =>
+      list.filter((c) => Number.isFinite(distance(c))).reduce<LiveChannel | undefined>((best, c) => (!best || distance(c) < distance(best) ? c : best), undefined)
+    const selectedIn = (list: LiveChannel[]) => list.find((c) => c.wave.id === p.selected)
+    const ch = selectedIn(through) ?? closest(through) ?? selectedIn(traces) ?? closest(traces)
+    const at = (x: number) => {
+      const t = xToT(x)
+      return free || !ch ? t : (edgesOf(ch.wave.id)(t) ?? t)
+    }
+    const t = at(Math.min(d.x0, d.x1))
+    const t2 = at(Math.max(d.x0, d.x1))
+    if (!ch) return { type: 'box', t, t2, view: d.view, div: top, div2: bottom }
+    const round = (v: number) => parseFloat(v.toPrecision(6))
+    return { type: 'box', t, t2, channel: ch.wave.id, v: round(divToValue(top, ch.display)), v2: round(divToValue(bottom, ch.display)) }
   }
 
   /** The 0 level (div from the centre) of a tag dragged to `y` in `view`; snapped to the grid unless `free` */
@@ -522,6 +640,14 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     }
     const wide = (a: number, b: number) => Math.abs(a - b) >= MIN_BOX_PX
 
+    if (d.kind === 'rect' && p.tool === 'box') {
+      if (wide(d.x0, d.x1) && wide(d.y0, d.y1)) p.onAddCallout(newBox(d, e.altKey))
+      return
+    }
+    if (d.kind === 'span') {
+      if (d.b && wide(tToX(d.a.t), tToX(d.b.t))) p.onAddCallout({ type: 'span', t: d.a.t, t2: d.b.t, channel: d.a.ch, channel2: d.b.ch })
+      return
+    }
     if (d.kind === 'band' && wide(d.x0, d.x1)) {
       zoomToTimes(xToT(Math.min(d.x0, d.x1)), xToT(Math.max(d.x0, d.x1)))
     } else if (d.kind === 'rect' && wide(d.x0, d.x1)) {
@@ -598,26 +724,6 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       note: onAxis ? undefined : noteAt(x, yIn),
       edgeT: e.altKey ? undefined : edgeNear(xToT(x)),
     })
-  }
-
-  const nearestTrace = (x: number, y: number, maxPx = 20): string | undefined => {
-    const vi = Math.min(nViews - 1, Math.floor(y / viewH))
-    const yIn = y - vi * viewH
-    const t = xToT(x)
-    let best: string | undefined
-    let bestD = maxPx
-    for (const id of p.views[vi] ?? []) {
-      const c = p.channels.find((ch) => ch.wave.id === id)
-      if (!c || !c.display.visible) continue
-      const v = valueAt(c.wave, t)
-      if (!Number.isFinite(v)) continue
-      const dist = Math.abs(viewH / 2 - valueToDiv(v, c.display) * divH - yIn)
-      if (dist < bestD) {
-        bestD = dist
-        best = id
-      }
-    }
-    return best
   }
 
   const cursorReadout = p.cursors.on ? cursorSummary(p, theme) : null
@@ -714,6 +820,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
         callouts={p.callouts}
         geo={calloutGeo}
         snap={edgeNear}
+        snapOn={edgesOf}
         channels={p.channels}
         views={p.views}
         win={p.win}

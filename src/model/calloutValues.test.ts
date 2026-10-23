@@ -32,6 +32,22 @@ describe('calloutValueText', () => {
   it('says so when the measured channel has no waveform', () => {
     expect(calloutValueText({ ...base, type: 'region', t2: 1, measure: { channel: 'MATH1', keys: ['mean'] } }, [ramp])).toBe('Math 1: no waveform')
   })
+
+  it('measures a box over its time span, like a region', () => {
+    const step = wave('CH2', [0, 0, 4, 4, 4])
+    const box: Callout = { ...base, type: 'box', t: 1e-3, t2: 3e-3, channel: 'CH2', v: 5, v2: -1, measure: { channel: 'CH2', keys: ['pkpk'] } }
+    expect(calloutValueText(box, [step])).toBe('Ch 2: pk-pk 4.000 V')
+  })
+
+  it('shows Δv between the ends of a span and 1/Δt', () => {
+    const step = wave('CH2', [0, 0, 4, 4, 4])
+    const span: Callout = { ...base, type: 'span', t: 1e-3, t2: 3e-3, channel: 'CH1', channel2: 'CH2', showValue: true }
+    // CH1 is 1 V at 1 ms, CH2 4 V at 3 ms
+    expect(calloutValueText(span, [ramp, step])).toBe('Δv 3.000 V · 1/Δt 500.0 Hz')
+    // Channels in different units: no Δv
+    expect(calloutValueText(span, [ramp, { ...step, yUnit: 'A' }])).toBe('1/Δt 500.0 Hz')
+    expect(calloutValueText({ ...span, showValue: undefined }, [ramp, step])).toBeUndefined()
+  })
 })
 
 describe('sanitizeCallouts', () => {
@@ -46,8 +62,32 @@ describe('sanitizeCallouts', () => {
   })
 
   it('drops options that do not fit the type', () => {
-    const [marker] = sanitizeCallouts([{ ...base, type: 'marker', showValue: true, measure: { channel: 'CH1', keys: ['max'] } }])
+    const [marker] = sanitizeCallouts([{ ...base, type: 'marker', showValue: true, measure: { channel: 'CH1', keys: ['max'] }, shape: 'ellipse', v: 1 }])
     expect(marker.showValue).toBeUndefined()
     expect(marker.measure).toBeUndefined()
+    expect(marker.shape).toBeUndefined()
+    expect(marker.v).toBeUndefined()
+  })
+
+  it('keeps boxes on a channel or in a view, and spans between two channels', () => {
+    const [box, free, span] = sanitizeCallouts([
+      { ...base, type: 'box', t2: 1, channel: 'CH1', v: 2, v2: -1, shape: 'ellipse', measure: { channel: 'CH1', keys: ['max'] } },
+      { ...base, id: 'b', type: 'box', t2: 1, view: 1, div: 2, div2: -2 },
+      { ...base, id: 'c', type: 'span', t2: 1, channel: 'CH1', channel2: 'CH2', dy: 30, showValue: true },
+    ])
+    expect(box).toMatchObject({ channel: 'CH1', v: 2, v2: -1, shape: 'ellipse', measure: { channel: 'CH1', keys: ['max'] } })
+    expect(free).toMatchObject({ view: 1, div: 2, div2: -2 })
+    expect(free.shape).toBeUndefined()
+    expect(span).toMatchObject({ channel: 'CH1', channel2: 'CH2', dy: 30, showValue: true })
+  })
+
+  it('drops boxes and spans that cannot be placed', () => {
+    const list = sanitizeCallouts([
+      { ...base, type: 'box', t2: 1, channel: 'CH1', v: 2 },
+      { ...base, type: 'box', channel: 'CH1', v: 2, v2: 1 },
+      { ...base, type: 'span', t2: 1, channel: 'CH1' },
+      { ...base, type: 'circle', t2: 1 },
+    ])
+    expect(list).toEqual([])
   })
 })

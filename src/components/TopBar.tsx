@@ -19,7 +19,9 @@ import {
   MoveHorizontal,
   RotateCcw,
   Ruler,
+  RulerDimensionLine,
   Search,
+  SquareDashed,
   StickyNote,
   Table2,
   Redo2,
@@ -109,6 +111,8 @@ export function TopBar(p: Props) {
         <IconButton icon={StickyNote} label="Note" shortcut="N" showLabel active={p.tool === 'note'} onClick={() => toggle('note')} />
         <IconButton icon={Flag} label="Marker" shortcut="M" showLabel active={p.tool === 'marker'} onClick={() => toggle('marker')} />
         <IconButton icon={MoveHorizontal} label="Region" shortcut="R" showLabel active={p.tool === 'region'} onClick={() => toggle('region')} />
+        <IconButton icon={SquareDashed} label="Box" shortcut="B" showLabel active={p.tool === 'box'} onClick={() => toggle('box')} />
+        <IconButton icon={RulerDimensionLine} label="Span" shortcut="D" showLabel active={p.tool === 'span'} onClick={() => toggle('span')} />
       </div>
 
       <div className="sep" />

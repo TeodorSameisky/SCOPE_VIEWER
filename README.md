@@ -70,7 +70,7 @@ Right-click (on a Mac also Ctrl+click) opens the commands for what is under the 
 | Plot | time at the pointer; zoom in / out here, back, full record; put cursor A or B here; add a note or marker here, mark the region between the cursors; copy the values of all visible channels at that time; export image |
 | A trace in the plot | additionally that channel's value and commands (see channel badge) |
 | Channel badge | settings, hide, show only this channel / show all, autoscale, move to another view, show/remove its spectrum, use it for the cursor Δv, delete (math channels) |
-| Callout (plot or Callouts panel) | edit text, colour, go to, cursors to the callout or region, delete |
+| Callout (plot or Callouts panel) | edit text, colour, shape (box), values or measurements, go to, zoom to box, cursors to the callout, region, box or span ends, duplicate, delete |
 | Measurement table | copy a value, a row or the whole table (tab separated, pastes as a table), explanation, move or remove a column, add a measurement, range |
 | Spectrum | frequency and levels at the pointer (copy), zoom, full span, level / frequency scale, peak count, range, copy the peak list |
 | Overview, horizontal box | centre the view here, back, full record, saved view |
@@ -99,9 +99,20 @@ Mark events directly on the waveforms:
 - **Note** — text attached to a point on a trace; it follows the trace when zooming or changing V/div
 - **Marker** — vertical line at an event time across all views
 - **Region** — a marked time span with its Δt
+- **Box** — a frame around an event in time *and* amplitude (a glitch, ringing, an overshoot), drawn as a
+  rectangle or an ellipse. It belongs to the trace that runs through it (the selected one if several do)
+  and stays around the event when you change V/div or position. Drag its edges and corners to
+  resize it (the time edges snap to edges of its trace; Alt: free), its label to move it. Like a region it
+  can show measurements of a channel over its time span. *Zoom to box* (right-click) shows its time span
+  with its channel scaled so the box fills the view
+- **Span** — the time from a point on one trace to a point on another (a propagation delay, a reaction
+  time): drag from the first trace to the second. Both ends snap to edges of their trace (Alt: exactly
+  where you press and release) and stay on them; the dimension line shows the signed Δt and can be dragged
+  up or down. *Show Δv, 1/Δt* adds the difference between the values at the ends (same unit) and 1/Δt;
+  *Set cursors to the ends* puts the cursors there
 
-Pick a type in the toolbar (or press N / M / R), click (or drag for a region) in the plot and type
-the text. Drag callouts to move them, double-click to edit. The **Callouts** tab lists all of them
+Pick a type in the toolbar (or press N / M / R / B / D), click (or drag for a region, box or span) in the
+plot and type the text. Drag callouts to move them, double-click to edit. The **Callouts** tab lists all of them
 with *Go to*; right-click a callout for its commands. Callouts are saved with the session (see *Saving*).
 Callout files from earlier versions can still be opened with *File → Open analysis file*.
 
@@ -231,7 +242,7 @@ Exports keep their own Dark / Light option.
 
 ### Keyboard
 
-`Ctrl+K` command palette · `P` pan · `Z` zoom tool · `N` note · `M` marker · `R` region · `Esc` back to pan ·
+`Ctrl+K` command palette · `P` pan · `Z` zoom tool · `N` note · `M` marker · `R` region · `B` box · `D` span · `Esc` back to pan ·
 `Ctrl+Z` undo · `Ctrl+Y` redo · `F` full record · `+`/`-` zoom · `←`/`→` pan · `Backspace` zoom back · `C` cursors ·
 `V` values at the pointer · `O` overview · `T` measurements · `\` focus mode ·
 `Enter` edit / `Delete` delete the selected callout · `,` / `.` previous / next callout ·

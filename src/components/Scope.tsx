@@ -34,7 +34,9 @@ import {
   RotateCcw,
   Ruler,
   ScanEye,
+  RulerDimensionLine,
   SlidersHorizontal,
+  SquareDashed,
   StickyNote,
   Table2,
   Trash2,
@@ -49,7 +51,18 @@ import {
 } from 'lucide-react'
 import type { ChannelDisplay, Session } from '../model/types'
 import type { MeasurementKey } from '../dsp/measure'
-import { CALLOUT_COLORS, DEFAULT_CALLOUT_COLOR, calloutName, calloutSpan, calloutTitle, newCalloutId, nextCalloutNumber, type Callout } from '../model/callouts'
+import {
+  CALLOUT_COLORS,
+  CALLOUT_TYPE_LABEL,
+  DEFAULT_CALLOUT_COLOR,
+  calloutName,
+  calloutSpan,
+  calloutTitle,
+  hasTimeSpan,
+  newCalloutId,
+  nextCalloutNumber,
+  type Callout,
+} from '../model/callouts'
 import { MEASUREMENT_DEFS } from '../dsp/measureDefs'
 import { MinMaxPyramid } from '../dsp/minmax'
 import { evaluateMath } from '../math/expr'
@@ -72,7 +85,7 @@ import {
 } from '../model/workspace'
 import { buildBundle } from '../export/bundle'
 import { runExport, waveformRows, type ExportContext, type ExportKind } from '../export/sessionExport'
-import { AXIS_GUTTER, valueAt } from '../render/draw'
+import { AXIS_GUTTER, DIVS_Y, valueAt } from '../render/draw'
 import { copyText } from '../util/clipboard'
 import { downloadBlob, stem } from '../util/download'
 import { niceStep, si } from '../util/format'
@@ -128,6 +141,8 @@ const TOOL_HINT: Partial<Record<Tool, string>> = {
   note: 'Click on a trace to attach a note · Esc: cancel',
   marker: 'Click to place a marker · snaps to edges of the selected channel (Alt: free) · Esc: cancel',
   region: 'Drag to mark a time region · snaps to edges of the selected channel (Alt: free) · Esc: cancel',
+  box: 'Drag a box around an event · it stays with the trace that runs through it · time edges snap to its edges (Alt: free) · Esc: cancel',
+  span: 'Drag from a point on one trace to a point on another to measure Δt · the ends snap to edges (Alt: free) · Esc: cancel',
 }
 
 const PANEL_TITLE: Record<PanelId, string> = { cursors: 'Cursors', callouts: 'Callouts', info: 'Session', reference: 'Reference' }
@@ -304,7 +319,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
   const [editing, setEditing] = useState<{ id: string; isNew: boolean } | null>(null)
 
   const addCallout = (nc: NewCallout) => {
-    const ch = nc.channel ? displays.find((d) => d.id === nc.channel) : undefined
+    // A note takes the colour of its trace; boxes and spans stand out in colours of their own
+    const ch = nc.type === 'note' && nc.channel ? displays.find((d) => d.id === nc.channel) : undefined
     const c: Callout = {
       id: newCalloutId(),
       n: nextCalloutNumber(callouts),
@@ -340,16 +356,24 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     if (editing?.isNew && c?.type === 'note' && !c.text.trim()) deleteCallout(c.id, true)
     setEditing(null)
   }
+  /** The time window around a callout: its time span with some room, or the current width centred on it */
+  const calloutWindow = (c: Callout): TimeWindow => {
+    const [a, b] = calloutSpan(c)
+    if (!hasTimeSpan(c)) return { start: c.t - (win.end - win.start) / 2, end: c.t + (win.end - win.start) / 2 }
+    const pad = Math.max((b - a) * 0.15, minSpan)
+    return { start: a - pad, end: b + pad }
+  }
   const jumpToCallout = (c: Callout) => {
-    const span = win.end - win.start
-    if (c.type === 'region' && c.t2 !== undefined) {
-      const a = Math.min(c.t, c.t2)
-      const b = Math.max(c.t, c.t2)
-      const pad = Math.max((b - a) * 0.15, minSpan)
-      zoomTo({ start: a - pad, end: b + pad })
-    } else {
-      zoomTo({ start: c.t - span / 2, end: c.t + span / 2 })
-    }
+    zoomTo(calloutWindow(c))
+    setSelectedCallout(c.id)
+  }
+  /** Zoom to a box: its time span, and its channel scaled so the box fills most of the view */
+  const zoomToBox = (c: Callout) => {
+    const d = c.channel ? displayById.get(c.channel) : undefined
+    if (!d || c.v === undefined || c.v2 === undefined || c.v === c.v2) return jumpToCallout(c)
+    const span = Math.abs(c.v - c.v2)
+    const scale = parseFloat((span / (DIVS_Y * 0.7)).toPrecision(4))
+    zoomTo(calloutWindow(c), [{ id: d.id, patch: { scale, offset: parseFloat(((c.v + c.v2) / 2).toPrecision(6)), position: 0 } }])
     setSelectedCallout(c.id)
   }
   /** A copy of a callout, a little later in time, selected */
@@ -590,6 +614,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
           n: () => setTool('note'),
           m: () => setTool('marker'),
           r: () => setTool('region'),
+          b: () => setTool('box'),
+          d: () => setTool('span'),
           f: () => zoomTo(record),
           c: () => setCursors({ ...cursors, on: !cursors.on }),
           o: toggleOverview,
@@ -808,21 +834,43 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
 
   const calloutMenu = (e: React.MouseEvent, c: Callout) => {
     const t2 = c.t2 ?? c.t
+    const kind = CALLOUT_TYPE_LABEL[c.type].toLowerCase()
     openMenu(e, [
-      { kind: 'heading', label: calloutTitle(c), color: c.color, detail: c.type === 'region' ? `Δt ${si(Math.abs(t2 - c.t), 's')}` : si(c.t, 's', 5) },
+      {
+        kind: 'heading',
+        label: calloutTitle(c),
+        color: c.color,
+        detail: c.type === 'span' ? `Δt ${si(t2 - c.t, 's')}` : hasTimeSpan(c) ? `Δt ${si(Math.abs(t2 - c.t), 's')}` : si(c.t, 's', 5),
+      },
       { label: 'Edit text', icon: Pencil, hint: 'Enter', onClick: () => editCallout(c.id) },
       { kind: 'choices', label: 'Colour', options: CALLOUT_COLORS.map((col) => ({ label: col, color: col, checked: c.color === col, onClick: () => updateCallout(c.id, { color: col }) })) },
-      c.type === 'note' && {
-        label: c.channel ? 'Show value at the anchor' : 'Show time at the anchor',
+      c.type === 'box' && {
+        kind: 'choices',
+        label: 'Shape',
+        options: [
+          { label: 'Rectangle', checked: c.shape !== 'ellipse', onClick: () => updateCallout(c.id, { shape: undefined }) },
+          { label: 'Ellipse', checked: c.shape === 'ellipse', onClick: () => updateCallout(c.id, { shape: 'ellipse' }) },
+        ],
+      },
+      (c.type === 'note' || c.type === 'span') && {
+        label: c.type === 'span' ? 'Show Δv and 1/Δt' : c.channel ? 'Show value at the anchor' : 'Show time at the anchor',
         icon: Hash,
         checked: !!c.showValue,
         onClick: () => updateCallout(c.id, { showValue: c.showValue ? undefined : true }),
       },
-      c.type === 'region' && { label: c.measure ? 'Change measurements…' : 'Measure in this region…', icon: Activity, onClick: () => editCallout(c.id) },
+      (c.type === 'region' || c.type === 'box') && { label: c.measure ? 'Change measurements…' : `Measure in this ${kind}…`, icon: Activity, onClick: () => editCallout(c.id) },
+      c.type === 'box' && { label: 'Zoom to box', icon: ZoomIn, title: 'Its time span, and its channel scaled to fill the view', onClick: () => zoomToBox(c) },
       { label: c.type === 'region' ? 'Zoom to region' : 'Go to', icon: LocateFixed, onClick: () => jumpToCallout(c) },
       { label: 'Duplicate', icon: CopyPlus, onClick: () => duplicateCallout(c) },
-      c.type === 'region'
-        ? { label: 'Set cursors to region', icon: Ruler, onClick: () => setCursors({ ...cursors, on: true, a: Math.min(c.t, t2), b: Math.max(c.t, t2) }) }
+      c.type === 'span'
+        ? {
+            label: 'Set cursors to the ends',
+            icon: Ruler,
+            title: 'Cursor A at the start, B at the end, Δv on the channel of the start',
+            onClick: () => setCursors({ ...cursors, on: true, a: c.t, b: t2, source: c.channel && displayById.has(c.channel) ? c.channel : cursors.source }),
+          }
+        : hasTimeSpan(c)
+        ? { label: `Set cursors to ${kind}`, icon: Ruler, onClick: () => setCursors({ ...cursors, on: true, a: Math.min(c.t, t2), b: Math.max(c.t, t2) }) }
         : {
             kind: 'choices',
             label: 'Cursor',
@@ -865,6 +913,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
       ['note', 'Note', 'N', StickyNote],
       ['marker', 'Marker', 'M', Flag],
       ['region', 'Region', 'R', MoveHorizontal],
+      ['box', 'Box', 'B', SquareDashed],
+      ['span', 'Span (Δt)', 'D', RulerDimensionLine],
     ]
     const exports: [ExportKind, string, LucideIcon][] = [
       ['image', 'Image (PNG)…', Image],

@@ -48,8 +48,9 @@ function measureSpan(w: Waveform, ta: number, tb: number): Measurements {
 
 /**
  * The value line of a callout, or undefined when it has none: a note with `showValue` shows the
- * value of its trace at the anchor (only the time when it is not on a trace), a region with
- * `measure` the measurements of that channel over its time span.
+ * value of its trace at the anchor (only the time when it is not on a trace), a region or box with
+ * `measure` the measurements of that channel over its time span, a span with `showValue` Δv
+ * between its ends (when both channels have the same unit) and 1/Δt.
  */
 export function calloutValueText(c: Callout, waves: Waveform[]): string | undefined {
   if (c.type === 'note' && c.showValue) {
@@ -57,7 +58,15 @@ export function calloutValueText(c: Callout, waves: Waveform[]): string | undefi
     const w = c.channel ? waves.find((x) => x.id === c.channel) : undefined
     return w ? `${channelName(w.id)} = ${si(sampleAt(w.data, w.t0, w.dt, c.t), w.yUnit, 4)} at ${t}` : t
   }
-  if (c.type === 'region' && c.measure?.keys.length) {
+  if (c.type === 'span' && c.showValue) {
+    const t2 = c.t2 ?? c.t
+    const a = waves.find((x) => x.id === c.channel)
+    const b = waves.find((x) => x.id === c.channel2)
+    const parts = [`1/Δt ${si(1 / Math.abs(t2 - c.t), 'Hz')}`]
+    if (a && b && a.yUnit === b.yUnit) parts.unshift(`Δv ${si(sampleAt(b.data, b.t0, b.dt, t2) - sampleAt(a.data, a.t0, a.dt, c.t), a.yUnit, 4)}`)
+    return parts.join(' · ')
+  }
+  if ((c.type === 'region' || c.type === 'box') && c.measure?.keys.length) {
     const { channel, keys } = c.measure
     const w = waves.find((x) => x.id === channel)
     if (!w) return `${channelName(channel)}: no waveform`

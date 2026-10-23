@@ -54,7 +54,7 @@ const SHORTCUTS: [string[], string][] = [
   [['↑  ↓', 'Page Up / Down'], 'Position / V/div of the selected channel (Shift + ↑ ↓: a whole division)'],
   [['Ctrl / Alt + wheel'], 'V/div / position of selected channel'],
   [['P  Z'], 'Pan / Zoom tool'],
-  [['N  M  R'], 'Note / Marker / Region'],
+  [['N  M  R  B  D'], 'Note / Marker / Region / Box / Span (Δt between two traces)'],
   [['C'], 'Cursors on/off'],
   [['V'], 'Values of all channels at the pointer on/off'],
   [['F'], 'Full record'],

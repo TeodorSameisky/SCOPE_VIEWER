@@ -2,7 +2,7 @@ import type { MeasurementKey } from '../dsp/measure'
 import { measurementDef } from '../dsp/measureDefs'
 import type { MathResult } from '../math/expr'
 import { toDb, type Peak, type Spectrum } from '../math/fft'
-import { calloutName, calloutTitle, type Callout } from '../model/callouts'
+import { calloutName, calloutSpan, calloutTitle, hasTimeSpan, type Callout } from '../model/callouts'
 import { calloutValueText } from '../model/calloutValues'
 import type { MathDef } from '../model/math'
 import type { SpectrumDef, SpectrumOptions, SpectrumScale } from '../model/spectrum'
@@ -210,18 +210,22 @@ function reportTables(ctx: ExportContext, prefs: ExportPrefs): ReportTable[] {
       const v = calloutValueText(c, waves)
       return v ? `<br><small>${escapeHtml(v)}</small>` : ''
     }
+    /** Duration: of a region or box; the signed Δt from start to end of a span */
+    const duration = (c: Callout) => (c.type === 'span' ? si((c.t2 ?? c.t) - c.t, 's') : hasTimeSpan(c) ? si(Math.abs((c.t2 ?? c.t) - c.t), 's') : '')
+    const channelCell = (c: Callout) => (c.type === 'span' ? `${channelName(c.channel ?? '')} → ${channelName(c.channel2 ?? '')}` : c.channel ? channelName(c.channel) : '')
     tables.push({
       title: 'Callouts',
       columns: ['Callout', 'Time', 'Duration', 'Channel', 'Text'],
       rows: [...callouts]
-        .sort((a, b) => a.t - b.t)
+        .sort((a, b) => calloutSpan(a)[0] - calloutSpan(b)[0])
         .map((c) => ({
           color: c.color,
           cells: [
             calloutName(c),
-            si(c.type === 'region' ? Math.min(c.t, c.t2 ?? c.t) : c.t, 's', 5),
-            c.type === 'region' && c.t2 !== undefined ? si(Math.abs(c.t2 - c.t), 's') : '',
-            c.channel ? channelName(c.channel) : '',
+            // A span starts where it starts, whichever end is earlier
+            si(c.type === 'span' ? c.t : calloutSpan(c)[0], 's', 5),
+            duration(c),
+            channelCell(c),
             { html: texHtml(c.text || calloutTitle(c)) + valueHtml(c) },
           ],
         })),

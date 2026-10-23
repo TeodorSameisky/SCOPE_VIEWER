@@ -60,7 +60,7 @@ export function stepScale(scale: number, dir: 1 | -1): number {
 export type DisplayPatch = Partial<Omit<ChannelDisplay, 'id'>>
 
 /** Active mouse tool in the plot */
-export type Tool = 'pan' | 'zoom' | 'note' | 'marker' | 'region'
+export type Tool = 'pan' | 'zoom' | 'note' | 'marker' | 'region' | 'box' | 'span'
 
 /**
  * How a view change was made. Continuous changes (wheel, pan) are grouped so that

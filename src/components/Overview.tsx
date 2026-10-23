@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { calloutSpan, calloutTitle, type Callout } from '../model/callouts'
+import { calloutSpan, calloutTitle, hasTimeSpan, type Callout } from '../model/callouts'
 import { AXIS_GUTTER, DIVS_Y, PLOT_FONT, valueToDiv } from '../render/draw'
 import { useTheme } from './ui/themeContext'
 import { zoomAround, type LiveChannel, type NavKind, type TimeWindow } from '../model/view'
@@ -151,13 +151,13 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
       ctx.strokeStyle = 'rgba(80, 160, 255, 0.9)'
       ctx.strokeRect(a + 0.5, 0.5, b - a, HEIGHT - 1)
     }
-    // Callouts along the bottom: regions as bars, markers as lines, notes as dots
+    // Callouts along the bottom: regions, boxes and spans as bars, markers as lines, notes as dots
     for (const c of callouts) {
       const [ta, tb] = calloutSpan(c)
       const selected = c.id === selectedCallout
       ctx.fillStyle = theme.ink(c.color)
       ctx.strokeStyle = theme.ink(c.color)
-      if (c.type === 'region') {
+      if (hasTimeSpan(c)) {
         const xa = tToX(ta)
         ctx.globalAlpha = selected ? 0.9 : 0.6
         ctx.fillRect(xa, HEIGHT - BAND + 2, Math.max(2, tToX(tb) - xa), BAND - 3)
@@ -214,8 +214,8 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
       const [ta, tb] = calloutSpan(c)
       const xa = tToX(ta)
       const xb = tToX(tb)
-      // Inside a region counts as near, but any point within reach wins over it
-      const d = x >= xa && x <= xb ? (c.type === 'region' ? HIT_PX - 0.5 : 0) : Math.min(Math.abs(x - xa), Math.abs(x - xb))
+      // Inside a time span counts as near, but any point within reach wins over it
+      const d = x >= xa && x <= xb ? (hasTimeSpan(c) ? HIT_PX - 0.5 : 0) : Math.min(Math.abs(x - xa), Math.abs(x - xb))
       if (d < bestD) {
         bestD = d
         best = c

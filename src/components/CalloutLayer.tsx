@@ -1,6 +1,6 @@
-import { forwardRef, useEffect, useState } from 'react'
+import { forwardRef, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { CALLOUT_COLORS, type Callout } from '../model/callouts'
-import { calloutShapes, type CalloutGeo, type CalloutLayout, type CalloutPart } from '../render/callouts'
+import { SPAN_DY, calloutShapes, type CalloutGeo, type CalloutLayout, type CalloutPart } from '../render/callouts'
 import { CalloutValueEditor } from './CalloutValueEditor'
 import { DIVS_Y } from '../render/draw'
 import { useTheme } from './ui/themeContext'
@@ -11,6 +11,8 @@ interface Props extends CalloutLayout {
   geo: Map<string, CalloutGeo>
   /** Time of an edge of the selected trace near t: markers and region edges snap to it */
   snap?: (t: number) => number | undefined
+  /** The same for any channel: box edges snap to edges of their channel, span ends to those of their trace */
+  snapOn?: (channel: string | undefined) => (t: number) => number | undefined
   selectedId?: string
   editingId?: string
   onSelect: (id: string | undefined) => void
@@ -30,12 +32,43 @@ interface Drag {
   box?: { ax: number; ay: number; bx: number; by: number; bw: number; bh: number }
 }
 
-/** Where the inline editor of a callout goes: below its label, above it for regions (labels at the bottom) */
-function editorPosition(g: CalloutGeo | undefined): { left: number; top: number; above?: boolean } | null {
+/** Height of the inline editor until it has been measured (px) */
+const EDITOR_H = 150
+
+/**
+ * Where the inline editor of a callout (`h` px high) goes: below it, above the label for regions
+ * (labels at the bottom). Boxes and spans get it on the side with room, else the roomier side.
+ */
+function editorPosition(g: CalloutGeo | undefined, totalH: number, h: number): { left: number; top: number; above?: boolean } | null {
   if (!g) return null
   if (g.type === 'note') return { left: g.bx, top: g.by + g.bh + 4 }
   if (g.type === 'marker') return { left: g.fx, top: g.fy + g.h + 6 }
+  if (g.type === 'box' || g.type === 'span') {
+    const [below, above] = g.type === 'box' ? [Math.max(g.y + g.h, g.ly + g.lh) + 6, Math.min(g.y, g.ly) - 6] : [g.y + 8, g.ly - 6]
+    const left = g.type === 'box' ? g.x : g.lx
+    const useBelow = below + h <= totalH || (above - h < 0 && totalH - below >= above)
+    return useBelow ? { left, top: below } : { left, top: Math.max(h + 4, above), above: true }
+  }
   return { left: g.lx, top: g.ly - 6, above: true }
+}
+
+const PART_CURSOR: Record<CalloutPart, string> = {
+  box: 'move',
+  region: 'move',
+  rect: 'move',
+  anchor: 'pointer',
+  marker: 'ew-resize',
+  start: 'ew-resize',
+  end: 'ew-resize',
+  e: 'ew-resize',
+  w: 'ew-resize',
+  n: 'ns-resize',
+  s: 'ns-resize',
+  dim: 'ns-resize',
+  nw: 'nwse-resize',
+  se: 'nwse-resize',
+  ne: 'nesw-resize',
+  sw: 'nesw-resize',
 }
 
 /**
@@ -58,9 +91,14 @@ export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLay
       const x = e.clientX - r.left
       const y = e.clientY - r.top
       const dT = ((x - drag.x0) / p.plotW) * span
+      // Upwards in divisions, and in the unit of a box's channel
+      const dDiv = -(y - drag.y0) / (p.viewH / DIVS_Y)
       const o = drag.orig
-      // Markers and region edges snap to edges of the selected trace; Alt moves them freely
+      // Markers and region edges snap to edges of the selected trace, box edges and span ends to
+      // those of their own channel; Alt moves them freely
       const snapped = (t: number) => (e.altKey ? t : (p.snap?.(t) ?? t))
+      const snappedOn = (channel: string | undefined, t: number) => (e.altKey ? t : (p.snapOn?.(channel)(t) ?? t))
+      const scale = p.channels.find((c) => c.wave.id === o.channel)?.display.scale
       switch (drag.part) {
         case 'box': {
           // The box stays inside the plot, so the stored offset never runs past the edge either
@@ -82,19 +120,52 @@ export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLay
         }
         case 'marker':
         case 'start':
-          p.onUpdate(o.id, { t: snapped(o.t + dT) })
+          p.onUpdate(o.id, { t: o.type === 'span' ? snappedOn(o.channel, o.t + dT) : snapped(o.t + dT) })
           break
-        case 'end':
-          p.onUpdate(o.id, { t2: snapped((o.t2 ?? o.t) + dT) })
+        case 'end': {
+          const t2 = (o.t2 ?? o.t) + dT
+          p.onUpdate(o.id, { t2: o.type === 'span' ? snappedOn(o.channel2, t2) : snapped(t2) })
           break
+        }
         case 'region':
           p.onUpdate(o.id, { t: o.t + dT, t2: (o.t2 ?? o.t) + dT })
           break
+        case 'dim':
+          p.onUpdate(o.id, { dy: (o.dy ?? SPAN_DY) + y - drag.y0 })
+          break
+        case 'rect':
+          // A box moves in time and in value
+          p.onUpdate(o.id, {
+            t: o.t + dT,
+            t2: (o.t2 ?? o.t) + dT,
+            ...(o.v !== undefined && o.v2 !== undefined && scale !== undefined
+              ? { v: o.v + dDiv * scale, v2: o.v2 + dDiv * scale }
+              : { div: (o.div ?? 0) + dDiv, div2: (o.div2 ?? 0) + dDiv }),
+          })
+          break
+        default: {
+          // An edge or a corner of a box: the letters of the compass direction say which edges move
+          const part = drag.part
+          const t2 = o.t2 ?? o.t
+          const patch: Partial<Callout> = { t: Math.min(o.t, t2), t2: Math.max(o.t, t2) }
+          if (part.includes('w')) patch.t = snappedOn(o.channel, patch.t! + dT)
+          if (part.includes('e')) patch.t2 = snappedOn(o.channel, patch.t2! + dT)
+          if (part.includes('n') || part.includes('s')) {
+            // Levels: the upper one first; in the channel's unit, or in divisions for a free box
+            const onChannel = o.v !== undefined && o.v2 !== undefined && scale !== undefined
+            const [a, b] = onChannel ? [o.v!, o.v2!] : [o.div ?? 0, o.div2 ?? 0]
+            const step = onChannel ? dDiv * scale : dDiv
+            const upper = Math.max(a, b) + (part.includes('n') ? step : 0)
+            const lower = Math.min(a, b) + (part.includes('s') ? step : 0)
+            Object.assign(patch, onChannel ? { v: upper, v2: lower } : { div: upper, div2: lower })
+          }
+          p.onUpdate(o.id, patch)
+        }
       }
     }
     const up = () => {
       const c = p.callouts.find((x) => x.id === drag.id)
-      if (c?.type === 'region' && c.t2 !== undefined && c.t2 < c.t) p.onUpdate(c.id, { t: c.t2, t2: c.t })
+      if ((c?.type === 'region' || c?.type === 'box') && c.t2 !== undefined && c.t2 < c.t) p.onUpdate(c.id, { t: c.t2, t2: c.t })
       setDrag(null)
     }
     window.addEventListener('pointermove', move)
@@ -135,13 +206,20 @@ export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLay
         p.onSelect(c.id)
         p.onContextMenu(e, c)
       },
-      style: { pointerEvents: 'auto' as const, cursor: part === 'box' || part === 'region' ? 'move' : part === 'anchor' ? 'pointer' : 'ew-resize' },
+      style: { pointerEvents: 'auto' as const, cursor: PART_CURSOR[part] },
     }),
     p.geo,
   )
 
   const editing = p.callouts.find((c) => c.id === p.editingId)
-  const pos = editing ? editorPosition(p.geo.get(editing.id)) : null
+  // The editor is placed by its height, measured once it is shown (it grows with the measurement choice)
+  const editorRef = useRef<HTMLDivElement>(null)
+  const [editorH, setEditorH] = useState(EDITOR_H)
+  useLayoutEffect(() => {
+    const h = editorRef.current?.offsetHeight
+    if (h && Math.abs(h - editorH) > 2) setEditorH(h)
+  }, [editing, editorH])
+  const pos = editing ? editorPosition(p.geo.get(editing.id), totalH, editorH) : null
 
   return (
     <>
@@ -157,10 +235,11 @@ export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLay
       </svg>
       {editing && pos && (
         <div
+          ref={editorRef}
           className="callout-editor"
           style={{
             left: Math.max(4, Math.min(p.plotW - 250, pos.left)),
-            ...(pos.above ? { top: pos.top, transform: 'translateY(-100%)' } : { top: Math.max(4, Math.min(totalH - 140, pos.top)) }),
+            ...(pos.above ? { top: pos.top, transform: 'translateY(-100%)' } : { top: Math.max(4, Math.min(totalH - editorH, pos.top)) }),
           }}
           onPointerDown={(e) => e.stopPropagation()}
           onDoubleClick={(e) => e.stopPropagation()}
@@ -180,7 +259,13 @@ export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLay
               }
             }}
           />
-          <CalloutValueEditor callout={editing} sources={p.channels.map((c) => c.wave.id)} onUpdate={(patch) => p.onUpdate(editing.id, patch)} keepFocus />
+          <CalloutValueEditor
+            callout={editing}
+            sources={p.channels.map((c) => c.wave.id)}
+            displays={p.channels.map((c) => c.display)}
+            onUpdate={(patch) => p.onUpdate(editing.id, patch)}
+            keepFocus
+          />
           <div className="callout-editor-row">
             {CALLOUT_COLORS.map((col) => (
               <button
