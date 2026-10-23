@@ -68,6 +68,15 @@ export type Tool = 'pan' | 'zoom' | 'note' | 'marker' | 'region'
  */
 export type NavKind = 'zoom' | 'pan' | 'wheel'
 
+/**
+ * A vertical level in divisions moved onto the nearest grid line when it is within `snapPx`
+ * of it on screen; `divPx` is the height of one division.
+ */
+export function snapToGrid(div: number, divPx: number, snapPx = 6): number {
+  const line = Math.round(div)
+  return Math.abs(div - line) * divPx <= snapPx ? line : div
+}
+
 /** Zoom the time window by factor f (>1 = out) keeping time t at the same screen position. */
 export function zoomAround(w: TimeWindow, t: number, f: number, minSpan: number, maxSpan: number): TimeWindow {
   const span = w.end - w.start

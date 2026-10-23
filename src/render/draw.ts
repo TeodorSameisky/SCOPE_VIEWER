@@ -44,9 +44,74 @@ export function divToValue(div: number, d: ChannelDisplay): number {
   return (div - d.position) * d.scale + d.offset
 }
 
+/** The position that puts the channel's 0 level at `div` divisions from the centre (to 0.01 div) */
+export function positionForZeroAt(div: number, d: ChannelDisplay): number {
+  return Math.round((div + d.offset / d.scale) * 100) / 100
+}
+
 /** Interpolated sample value at time t, NaN outside the record. */
 export function valueAt(w: Waveform, t: number): number {
   return sampleAt(w.data, w.t0, w.dt, t)
+}
+
+let measureCtx: CanvasRenderingContext2D | null | undefined
+/** Width of a text in a canvas font (estimated where there is no canvas, e.g. in tests) */
+export function textWidth(text: string, font: string): number {
+  if (measureCtx === undefined) measureCtx = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d')
+  if (!measureCtx) return text.length * 7
+  measureCtx.font = font
+  return measureCtx.measureText(text).width
+}
+
+/** Font of the channel labels next to the tags */
+const TAG_LABEL_FONT = '13px system-ui, sans-serif'
+/** Half the height of a tag, and the least distance between the centres of two tags */
+const TAG_HALF = 7
+const TAG_GAP = 16
+
+/** A channel's tag on the left edge of its view, at the channel's 0 level */
+export interface ChannelTag {
+  display: ChannelDisplay
+  /** Centre of the tag (px from the top of the view): the 0 level, kept inside the view and apart from the other tags */
+  y: number
+  /** Width of the tag itself */
+  w: number
+  /** Right end of the tag with its label (px) */
+  right: number
+  /** The 0 level lies above (-1) or below (1) the view; the tag then shows an arrow */
+  off: -1 | 0 | 1
+}
+
+/** Where the tags of the channels of one view go (in drawing order) */
+export function layoutTags(displays: ChannelDisplay[], height: number): ChannelTag[] {
+  const divH = height / DIVS_Y
+  const tags = displays
+    .map((d): ChannelTag => {
+      const level = height / 2 - valueToDiv(0, d) * divH
+      const w = textWidth(channelTag(d.id), PLOT_FONT) + 8
+      return {
+        display: d,
+        y: Math.min(height - TAG_HALF - 1, Math.max(TAG_HALF + 1, level)),
+        w,
+        right: d.label ? w + 12 + textWidth(d.label, TAG_LABEL_FONT) : w + 12,
+        off: level < 0 ? -1 : level > height ? 1 : 0,
+      }
+    })
+    .sort((a, b) => a.y - b.y)
+  // Spread apart where they would overlap
+  for (let i = 1; i < tags.length; i++) tags[i].y = Math.max(tags[i].y, tags[i - 1].y + TAG_GAP)
+  for (let i = tags.length - 1; i >= 0; i--) {
+    const limit = i === tags.length - 1 ? height - TAG_HALF - 1 : tags[i + 1].y - TAG_GAP
+    tags[i].y = Math.min(tags[i].y, limit)
+  }
+  return tags
+}
+
+/** The tag at (x, y) of a view (tags drawn later win), or undefined */
+export function tagAt(tags: ChannelTag[], x: number, y: number): ChannelTag | undefined {
+  if (x < 0) return undefined
+  for (let i = tags.length - 1; i >= 0; i--) if (x <= tags[i].right && Math.abs(y - tags[i].y) <= TAG_HALF + 1) return tags[i]
+  return undefined
 }
 
 export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): void {
@@ -114,37 +179,35 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
     }
   }
 
-  // Channel ground/offset badges on the left edge
+  // Channel tags on the left edge at each channel's 0 level (see layoutTags); a tag whose level
+  // is outside the view sits at the edge with an arrow towards it
   ctx.font = PLOT_FONT
   ctx.textBaseline = 'middle'
-  // Badges sit at each channel's 0 V level; spread them apart where they would overlap
-  const badges = o.traces
-    .map((tr) => ({ d: tr.display, y: Math.min(H - 8, Math.max(8, H / 2 - valueToDiv(0, tr.display) * divH)) }))
-    .sort((a, b) => a.y - b.y)
-  for (let i = 1; i < badges.length; i++) badges[i].y = Math.max(badges[i].y, badges[i - 1].y + 16)
-  for (let i = badges.length - 1; i >= 0; i--) {
-    const limit = i === badges.length - 1 ? H - 8 : badges[i + 1].y - 16
-    badges[i].y = Math.min(badges[i].y, limit)
-  }
-  for (const { d, y } of badges) {
-    const tag = channelTag(d.id)
-    const w = ctx.measureText(tag).width + 8
+  for (const { display: d, y, w, off } of layoutTags(o.traces.map((t) => t.display), H)) {
     const ink = theme.ink(d.color)
     ctx.fillStyle = ink
     ctx.beginPath()
-    ctx.moveTo(0, y - 7)
-    ctx.lineTo(w, y - 7)
-    ctx.lineTo(w + 6, y)
-    ctx.lineTo(w, y + 7)
-    ctx.lineTo(0, y + 7)
-    ctx.closePath()
+    if (off === 0) {
+      ctx.moveTo(0, y - TAG_HALF)
+      ctx.lineTo(w, y - TAG_HALF)
+      ctx.lineTo(w + 6, y)
+      ctx.lineTo(w, y + TAG_HALF)
+      ctx.lineTo(0, y + TAG_HALF)
+      ctx.closePath()
+    } else {
+      ctx.rect(0, y - TAG_HALF, w, 2 * TAG_HALF)
+      ctx.moveTo(w + 1, y - off * TAG_HALF)
+      ctx.lineTo(w + 11, y - off * TAG_HALF)
+      ctx.lineTo(w + 6, y + off * TAG_HALF)
+      ctx.closePath()
+    }
     ctx.fill()
     ctx.fillStyle = theme.onInk(ink)
     ctx.textAlign = 'left'
-    ctx.fillText(tag, 4, y + 0.5)
+    ctx.fillText(channelTag(d.id), 4, y + 0.5)
     if (d.label) {
       ctx.fillStyle = ink
-      ctx.font = '13px system-ui, sans-serif'
+      ctx.font = TAG_LABEL_FONT
       ctx.fillText(d.label, w + 12, y + 0.5)
       ctx.font = PLOT_FONT
     }

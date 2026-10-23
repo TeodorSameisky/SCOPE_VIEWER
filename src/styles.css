@@ -647,6 +647,22 @@ code {
   color: var(--accent);
 }
 /* Values of all channels next to the pointer */
+/* Next to a channel tag while it is dragged: its new position, or the view it moves to */
+.drag-readout {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  background: var(--float-bg);
+  border: 1px solid var(--float-border);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+}
 .hover-readout {
   position: absolute;
   z-index: 2;

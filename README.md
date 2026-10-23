@@ -34,6 +34,16 @@ Which panels are open is remembered in the browser.
 - Stacked waveform views with the scope's colours, labels, ground markers, trigger point and level
 - Min/max decimation pyramid, so long records stay responsive
 - Click a trace to select it; Ctrl+wheel changes its V/div, Alt+wheel its position
+- **Moving and scaling traces** with the channel tags on the left edge of the plot (C1, C2, … at each
+  channel's 0 level, as on the scope):
+  - **drag a tag** up or down to move its trace; it snaps to the grid lines (hold Alt to place it freely),
+    and a dashed line and a readout show the new 0 level and position while dragging. Drop it on another
+    view to move the channel there
+  - **wheel on a tag**, or on a view's scale labels on the right, changes that channel's V/div (1-2-5)
+  - a click on a tag selects the channel, a double-click opens its settings, a right-click its commands
+  - when a channel's 0 level is outside the view, its tag stays at the edge with an arrow towards it
+  - `↑`/`↓` move the selected channel by 0.1 div (with Shift a whole division), `Page Up`/`Page Down`
+    step its V/div
 - **Values at the pointer**: next to the pointer, the time and the value of every visible channel, with a
   ring where each trace crosses that time; the trace under the pointer is highlighted. Toggle with the
   crosshair button in the top bar or `V`
@@ -225,7 +235,8 @@ Exports keep their own Dark / Light option.
 `Ctrl+Z` undo · `Ctrl+Y` redo · `F` full record · `+`/`-` zoom · `←`/`→` pan · `Backspace` zoom back · `C` cursors ·
 `V` values at the pointer · `O` overview · `T` measurements · `\` focus mode ·
 `Enter` edit / `Delete` delete the selected callout · `,` / `.` previous / next callout ·
-`Shift+←`/`→` move the selected callout · `Alt` while placing a marker or region: no snapping
+`Shift+←`/`→` move the selected callout · `Alt` while placing a marker or region: no snapping ·
+`↑`/`↓` position of the selected channel (Shift: 1 div) · `Page Up`/`Page Down` its V/div
 
 The **?** button at the bottom of the rail shows all mouse and keyboard controls.
 

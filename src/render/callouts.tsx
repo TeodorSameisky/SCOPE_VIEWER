@@ -6,7 +6,7 @@ import { calloutValueText } from '../model/calloutValues'
 import type { Waveform } from '../model/types'
 import { si } from '../util/format'
 import type { LiveChannel, TimeWindow } from '../model/view'
-import { DIVS_Y, valueAt, valueToDiv } from './draw'
+import { DIVS_Y, textWidth, valueAt, valueToDiv } from './draw'
 import { MATH_SCALE, splitTex, texSource, texSvg, type TexSvg } from './tex'
 import type { Theme } from './theme'
 
@@ -37,14 +37,6 @@ export interface CalloutLayout {
 export type CalloutPart = 'box' | 'anchor' | 'marker' | 'start' | 'end' | 'region'
 /** Pointer handlers of a draggable part of a callout */
 export type PartProps = DOMAttributes<SVGElement> & { style?: CSSProperties }
-
-let measureCtx: CanvasRenderingContext2D | null = null
-function textWidth(s: string, font: string): number {
-  measureCtx ??= document.createElement('canvas').getContext('2d')
-  if (!measureCtx) return s.length * 7
-  measureCtx.font = font
-  return measureCtx.measureText(s).width
-}
 
 /** One line of callout text: runs of text and rendered formulas, positioned from x = 0 */
 interface TextLine {

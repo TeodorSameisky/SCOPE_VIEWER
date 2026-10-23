@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { niceStep, parseTime, si, siTick } from './format'
-import { stepScale, timeTicks } from '../model/view'
+import { snapToGrid, stepScale, timeTicks } from '../model/view'
 
 describe('format', () => {
   it('formats SI values', () => {
@@ -24,6 +24,14 @@ describe('format', () => {
     expect(stepScale(1, -1)).toBeCloseTo(0.5)
     expect(stepScale(0.2, -1)).toBeCloseTo(0.1)
     expect(stepScale(3, 1)).toBe(5)
+  })
+
+  it('snaps a level onto grid lines close by', () => {
+    // 20 px per division: within 6 px of a line it snaps
+    expect(snapToGrid(1.2, 20)).toBe(1)
+    expect(snapToGrid(-2.75, 20)).toBe(-3)
+    expect(snapToGrid(-2.65, 20)).toBe(-2.65)
+    expect(snapToGrid(0.4, 20)).toBe(0.4)
   })
 
   it('rounds a scale up to 1-2-5', () => {

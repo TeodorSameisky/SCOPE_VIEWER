@@ -3,7 +3,20 @@ import { edgeLevels, nearestEdge, type EdgeLevels } from '../dsp/edges'
 import type { PlotImageSource } from '../export/sessionExport'
 import { calloutSpan, type Callout } from '../model/callouts'
 import { calloutsSvg, flagsBottom, layoutCallouts } from '../render/callouts'
-import { AXIS_GUTTER, DIVS_Y, PLOT_FONT, divToValue, drawTimeAxis, drawView, valueAt, valueToDiv, type ViewDrawOptions } from '../render/draw'
+import {
+  AXIS_GUTTER,
+  DIVS_Y,
+  PLOT_FONT,
+  divToValue,
+  drawTimeAxis,
+  drawView,
+  layoutTags,
+  positionForZeroAt,
+  tagAt,
+  valueAt,
+  valueToDiv,
+  type ViewDrawOptions,
+} from '../render/draw'
 import { loadTex, useTexVersion } from '../render/tex'
 import type { Theme } from '../render/theme'
 import { si } from '../util/format'
@@ -11,6 +24,7 @@ import { channelName } from '../util/names'
 import { CalloutLayer } from './CalloutLayer'
 import { useTheme } from './ui/themeContext'
 import {
+  snapToGrid,
   stepScale,
   timeTicks,
   zoomAround,
@@ -28,6 +42,8 @@ const GRAB_PX = 8
 const MIN_BOX_PX = 5
 /** Markers and region edges snap to an edge of the selected trace this close to the pointer */
 const SNAP_PX = 8
+/** Wheel delta (px) of one step of V/div or position: about one notch of a mouse wheel */
+const WHEEL_STEP = 40
 /** Top of the cursor readout box: below the cursor labels, and below the marker flags if there are any */
 const readoutTop = (flags: number) => Math.max(22, flags + 6)
 
@@ -75,6 +91,12 @@ interface Props {
   setSelected: (id: string) => void
   trigger?: { source: string; level?: number }
   onAdjust: (id: string, patch: DisplayPatch) => void
+  /** A channel tag was dropped onto another view */
+  onMoveToView: (id: string, view: number) => void
+  /** Double-click on a channel tag */
+  onChannelSettings?: (id: string) => void
+  /** Right-click on a channel tag */
+  onChannelMenu?: (e: React.MouseEvent, id: string) => void
   callouts: Callout[]
   selectedCallout?: string
   editingCallout?: string
@@ -105,6 +127,11 @@ type Drag =
   | { kind: 'region'; x0: number; x1: number }
   /** click-type tools (zoom click, note, marker): only track whether it moved */
   | { kind: 'click'; x0: number; y0: number }
+  /**
+   * A channel tag moved up or down (its position), or over another view (`target`) to move the
+   * channel there on release. `zero0`: the channel's 0 level (div) when the drag started.
+   */
+  | { kind: 'tag'; id: string; view: number; y0: number; x: number; y: number; zero0: number; pos0: number; moved: boolean; target?: number }
 
 export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -166,10 +193,36 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     return () => ro.disconnect()
   }, [])
 
+  const byId = useMemo(() => new Map(p.channels.map((c) => [c.wave.id, c])), [p.channels])
+  /** The visible channels of view `vi`, and the one its scale labels are for: the selected one, else the first */
+  const viewChannels = (vi: number) => {
+    const traces = (p.views[vi] ?? []).map((id) => byId.get(id)).filter((c): c is LiveChannel => !!c && c.display.visible)
+    return { traces, axis: traces.find((t) => t.display.id === p.selected) ?? traces[0] }
+  }
+  /** The channel tag at (x, y) on the left edge of a view, and that view */
+  const tagUnder = (x: number, y: number): { id: string; view: number } | undefined => {
+    if (y < 0 || y >= viewsH) return undefined
+    const view = Math.floor(y / viewH)
+    const tag = tagAt(layoutTags(viewChannels(view).traces.map((t) => t.display), viewH), x, y - view * viewH)
+    return tag && { id: tag.display.id, view }
+  }
+
+  // Discrete settings (V/div, position) change one step per wheel notch; trackpads add up small deltas
+  const wheelAcc = useRef(0)
+  const wheelStep = (delta: number): -1 | 0 | 1 => {
+    if (Math.abs(delta) < WHEEL_STEP) {
+      wheelAcc.current += delta
+      if (Math.abs(wheelAcc.current) < WHEEL_STEP) return 0
+      delta = wheelAcc.current
+    }
+    wheelAcc.current = 0
+    return delta > 0 ? 1 : -1
+  }
+
   const ticks = timeTicks(p.win)
   /** Drawing options of view `vi` that are the same on screen and in exports */
-  const viewOptions = (vi: number, byId: Map<string, LiveChannel>, dpr: number, theme: Theme): ViewDrawOptions => {
-    const traces = p.views[vi].map((id) => byId.get(id)).filter((c): c is LiveChannel => !!c && c.display.visible)
+  const viewOptions = (vi: number, dpr: number, theme: Theme): ViewDrawOptions => {
+    const { traces, axis } = viewChannels(vi)
     return {
       width: size.w,
       height: viewH,
@@ -178,8 +231,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       tEnd: p.win.end,
       timeTicks: ticks,
       traces,
-      // The right axis is labelled for the selected channel, else the first one of the view
-      axisChannel: traces.find((t) => t.display.id === p.selected) ?? traces[0],
+      axisChannel: axis,
       cursors: p.cursors.on ? { a: p.cursors.a, b: p.cursors.b, sourceId: p.cursors.source, showLabels: vi === 0 } : undefined,
       trigger: { sourceId: p.trigger?.source, level: p.trigger?.level, showMarker: true },
       theme,
@@ -190,11 +242,10 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   useEffect(() => {
     const id = requestAnimationFrame(() => {
       const dpr = window.devicePixelRatio || 1
-      const byId = new Map(p.channels.map((c) => [c.wave.id, c]))
       p.views.forEach((_, vi) => {
         const ctx = canvasRefs.current[vi]?.getContext('2d')
         if (!ctx) return
-        drawView(ctx, { ...viewOptions(vi, byId, dpr, theme), selectedId: p.selected, hoverT: drag ? undefined : hoverT, hoverDots: p.readout })
+        drawView(ctx, { ...viewOptions(vi, dpr, theme), selectedId: p.selected, hoverT: drag ? undefined : hoverT, hoverDots: p.readout })
         drawDragPreview(ctx, dpr, vi)
       })
       const ax = axisRef.current?.getContext('2d')
@@ -205,8 +256,9 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.channels, p.views, p.win, p.cursors, p.selected, p.trigger, p.readout, size, viewH, hoverT, drag, theme])
 
-  /** Rubber band for zoom / region selection */
+  /** Rubber band for zoom / region selection; the level or the drop target of a dragged channel tag */
   const drawDragPreview = (ctx: CanvasRenderingContext2D, dpr: number, vi: number) => {
+    if (drag?.kind === 'tag') return drawTagDrag(ctx, dpr, vi)
     if (!drag || (drag.kind !== 'band' && drag.kind !== 'rect' && drag.kind !== 'region')) return
     if (drag.kind === 'rect' && drag.view !== vi) return
     const x0 = Math.min(drag.x0, drag.x1)
@@ -235,6 +287,35 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     ctx.restore()
   }
 
+  /** While a tag is dragged: a dashed line at the channel's 0 level, or the view it would move to */
+  const drawTagDrag = (ctx: CanvasRenderingContext2D, dpr: number, vi: number) => {
+    if (drag?.kind !== 'tag') return
+    const ch = byId.get(drag.id)
+    if (!ch || !drag.moved) return
+    const line = (y: number) => {
+      ctx.beginPath()
+      ctx.moveTo(0, Math.round(y) + 0.5)
+      ctx.lineTo(plotW, Math.round(y) + 0.5)
+      ctx.stroke()
+    }
+    ctx.save()
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.strokeStyle = theme.ink(ch.display.color)
+    ctx.lineWidth = 1
+    ctx.setLineDash([5, 4])
+    if (drag.target === undefined && vi === drag.view) {
+      const y = viewH / 2 - valueToDiv(0, ch.display) * divH
+      if (y >= 0 && y <= viewH) line(y)
+    } else if (drag.target === vi) {
+      ctx.fillStyle = 'rgba(80, 160, 255, 0.1)'
+      ctx.fillRect(0, 0, plotW, viewH)
+      line(drag.y - vi * viewH)
+      ctx.strokeStyle = 'rgba(80, 160, 255, 0.85)'
+      ctx.strokeRect(0.5, 0.5, plotW - 1, viewH - 1)
+    }
+    ctx.restore()
+  }
+
   useImperativeHandle(ref, () => ({
     size: () => size,
     renderImage: async (scale: number, theme: Theme) => {
@@ -242,13 +323,12 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       out.width = Math.round(size.w * scale)
       out.height = Math.round((viewsH + AXIS_H) * scale)
       const ctx = out.getContext('2d')!
-      const byId = new Map(p.channels.map((c) => [c.wave.id, c]))
       // Redraw each view at the export resolution (no hover line or rubber band)
       p.views.forEach((_, vi) => {
         const cv = document.createElement('canvas')
         cv.width = out.width
         cv.height = Math.round(viewH * scale)
-        drawView(cv.getContext('2d')!, viewOptions(vi, byId, scale, theme))
+        drawView(cv.getContext('2d')!, viewOptions(vi, scale, theme))
         ctx.drawImage(cv, 0, Math.round(vi * viewH * scale))
       })
       const ax = document.createElement('canvas')
@@ -271,7 +351,8 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     },
   }))
 
-  // Wheel: zoom time around the mouse; Ctrl = V/div of selected channel; Alt = its position
+  // Wheel: zoom time around the mouse. On a channel tag or a view's scale labels: V/div of that
+  // channel; Ctrl = V/div of the selected channel, Alt = its position
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
@@ -280,12 +361,22 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       e.preventDefault()
       const rect = el.getBoundingClientRect()
       const x = e.clientX - rect.left
+      const y = e.clientY - rect.top
       const dir = e.deltaY > 0 ? 1 : -1
+      const delta = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY
+      const onTag = tagUnder(x, y)
+      const pointed = onTag ? byId.get(onTag.id) : x > plotW && y >= 0 && y < viewsH ? viewChannels(Math.floor(y / viewH)).axis : undefined
+      if (pointed && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        const step = wheelStep(delta)
+        if (step) p.onAdjust(pointed.wave.id, { scale: stepScale(pointed.display.scale, step) })
+        return
+      }
       if ((e.ctrlKey || e.altKey) && p.selected) {
-        const ch = p.channels.find((c) => c.wave.id === p.selected)
-        if (!ch) return
-        if (e.ctrlKey) p.onAdjust(ch.wave.id, { scale: stepScale(ch.display.scale, dir as 1 | -1) })
-        else p.onAdjust(ch.wave.id, { position: Math.round((ch.display.position - dir * 0.2) * 100) / 100 })
+        const ch = byId.get(p.selected)
+        const step = wheelStep(delta)
+        if (!ch || !step) return
+        if (e.ctrlKey) p.onAdjust(ch.wave.id, { scale: stepScale(ch.display.scale, step) })
+        else p.onAdjust(ch.wave.id, { position: Math.round((ch.display.position - step * 0.2) * 100) / 100 })
         return
       }
       if (e.shiftKey) {
@@ -295,15 +386,16 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       }
       const t = xToT(Math.min(plotW, Math.max(0, x)))
       // Proportional to the wheel delta so trackpads and fast wheels feel natural
-      const delta = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY
       const f = Math.min(4, Math.max(0.25, Math.pow(1.0022, delta)))
       p.onNavigate(zoomAround(p.win, t, f, p.minSpan, maxSpan), 'wheel')
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [p, span, plotW, xToT, maxSpan])
+    // tagUnder, viewChannels and wheelStep only read the props and sizes listed here
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p, byId, span, plotW, viewH, viewsH, xToT, maxSpan])
 
-  const local = (e: React.PointerEvent) => {
+  const local = (e: { clientX: number; clientY: number }) => {
     const r = containerRef.current!.getBoundingClientRect()
     return { x: e.clientX - r.left, y: e.clientY - r.top }
   }
@@ -328,6 +420,15 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       return
     }
     p.onSelectCallout(undefined)
+    // A channel tag is a handle with every tool: pressing selects the channel, dragging moves it
+    const onTag = tagUnder(x, y)
+    const tagged = onTag && byId.get(onTag.id)
+    if (onTag && tagged) {
+      p.setSelected(onTag.id)
+      const d = tagged.display
+      setDrag({ kind: 'tag', id: onTag.id, view: onTag.view, y0: y, x, y, zero0: valueToDiv(0, d), pos0: d.position, moved: false })
+      return
+    }
     const onAxis = y > viewsH
     const navTool = p.tool === 'pan' || p.tool === 'zoom'
 
@@ -359,6 +460,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       if (Math.hypot(x - drag.x0, y - drag.y0) > 3) dragMoved.current = true
       return
     }
+    if (drag.kind === 'tag') return moveTag(drag, x, y, e.altKey)
     dragMoved.current = true
     switch (drag.kind) {
       case 'pan': {
@@ -381,11 +483,43 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     }
   }
 
+  /** The 0 level (div from the centre) of a tag dragged to `y` in `view`; snapped to the grid unless `free` */
+  const zeroAt = (y: number, view: number, free: boolean) => {
+    const div = DIVS_Y / 2 - (y - view * viewH) / divH
+    return free ? div : snapToGrid(div, divH)
+  }
+
+  /** Drag of a channel tag: up and down in its view moves the trace, over another view marks it as the target */
+  const moveTag = (drag: Extract<Drag, { kind: 'tag' }>, x: number, y: number, free: boolean) => {
+    // A click only selects: the trace moves once the pointer has moved a few pixels
+    if (!drag.moved && Math.abs(y - drag.y0) < 3) return
+    const d = byId.get(drag.id)?.display
+    if (!d) return
+    const over = y >= 0 && y < viewsH ? Math.floor(y / viewH) : drag.view
+    if (over !== drag.view) {
+      // Over another view: the trace waits where it was until it is dropped
+      if (drag.target === undefined) p.onAdjust(drag.id, { position: drag.pos0 })
+      setDrag({ ...drag, x, y, moved: true, target: over })
+      return
+    }
+    const zero = drag.zero0 - (y - drag.y0) / divH
+    p.onAdjust(drag.id, { position: positionForZeroAt(free ? zero : snapToGrid(zero, divH), d) })
+    setDrag({ ...drag, x, y, moved: true, target: undefined })
+  }
+
   const onPointerUp = (e: React.PointerEvent) => {
     const { x, y } = local(e)
     const d = drag
     setDrag(null)
     if (!d) return
+    if (d.kind === 'tag') {
+      // Dropped onto another view: the channel moves there, with its 0 level where it was dropped
+      const disp = byId.get(d.id)?.display
+      if (d.target === undefined || !disp) return
+      p.onMoveToView(d.id, d.target)
+      p.onAdjust(d.id, { position: positionForZeroAt(zeroAt(y, d.target, e.altKey), disp) })
+      return
+    }
     const wide = (a: number, b: number) => Math.abs(a - b) >= MIN_BOX_PX
 
     if (d.kind === 'band' && wide(d.x0, d.x1)) {
@@ -445,9 +579,16 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
 
   const onContextMenu = (e: React.MouseEvent) => {
     if (!p.onContextMenu || (e.target as HTMLElement).closest('.callout-editor')) return
-    const r = containerRef.current!.getBoundingClientRect()
-    const x = clampX(e.clientX - r.left)
-    const y = e.clientY - r.top
+    const pt = local(e)
+    // On a channel tag: the commands of that channel
+    const onTag = tagUnder(pt.x, pt.y)
+    if (onTag && p.onChannelMenu) {
+      p.setSelected(onTag.id)
+      p.onChannelMenu(e, onTag.id)
+      return
+    }
+    const x = clampX(pt.x)
+    const y = pt.y
     const onAxis = y > viewsH
     const yIn = Math.min(viewsH - 1, Math.max(0, y))
     p.onContextMenu(e, {
@@ -499,32 +640,54 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
         {dir === 'left' ? `‹ ${n}` : `${n} ›`}
       </button>
     )
-  const showHover = hover !== undefined && hoverT !== undefined && !drag && !p.editingCallout
+  // Channel tags and scale labels under the pointer: what dragging and the wheel do there
+  const hoverTag = hover && !drag ? tagUnder(hover.x, hover.y) : undefined
+  const hoverScale = hover && !drag && hover.x > plotW && hover.y >= 0 && hover.y < viewsH ? viewChannels(Math.floor(hover.y / viewH)).axis : undefined
+  const pointerTip = hoverTag
+    ? `${channelName(hoverTag.id)}: drag to move the trace (Alt: no snapping; drop on another view to move it there) · wheel: V/div · double-click: settings`
+    : hoverScale
+      ? `Wheel: V/div of ${channelName(hoverScale.wave.id)}`
+      : undefined
+  const dragged = drag?.kind === 'tag' && drag.moved ? byId.get(drag.id) : undefined
+
+  const showHover = hover !== undefined && hoverT !== undefined && !drag && !p.editingCallout && !hoverTag
   const nearCursor =
     hoverT !== undefined && p.cursors.on && (p.tool === 'pan' || p.tool === 'zoom') && [p.cursors.a, p.cursors.b].some((t) => Math.abs(tToX(t) - tToX(hoverT)) < GRAB_PX)
   const cursorStyle =
-    drag?.kind === 'pan'
-      ? 'grabbing'
-      : nearCursor || drag?.kind === 'cursor'
-        ? 'ew-resize'
-        : p.tool === 'zoom'
-          ? 'zoom-in'
-          : p.tool === 'pan'
-            ? 'grab'
-            : 'crosshair'
+    drag?.kind === 'tag'
+      ? drag.target === undefined
+        ? 'ns-resize'
+        : 'move'
+      : hoverTag
+        ? 'ns-resize'
+        : drag?.kind === 'pan'
+          ? 'grabbing'
+          : nearCursor || drag?.kind === 'cursor'
+            ? 'ew-resize'
+            : p.tool === 'zoom'
+              ? 'zoom-in'
+              : p.tool === 'pan'
+                ? 'grab'
+                : 'crosshair'
 
   return (
     <div
       ref={containerRef}
       className={`plot-area tool-${p.tool}`}
       style={{ cursor: cursorStyle }}
+      title={pointerTip}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerLeave={() => setHover(undefined)}
       // no auto-scroll on a middle click
       onMouseDown={(e) => e.button === 1 && e.preventDefault()}
-      onDoubleClick={() => (p.tool === 'pan' || p.tool === 'zoom') && p.onZoomTo(p.record)}
+      onDoubleClick={(e) => {
+        const pt = local(e)
+        const onTag = tagUnder(pt.x, pt.y)
+        if (onTag) p.onChannelSettings?.(onTag.id)
+        else if (p.tool === 'pan' || p.tool === 'zoom') p.onZoomTo(p.record)
+      }}
       onContextMenu={onContextMenu}
     >
       {p.views.map((_, i) => (
@@ -585,6 +748,14 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
         />
       )}
       {showHover && !p.readout && <div className="hover-time">{si(hoverT, 's', 5)}</div>}
+      {drag?.kind === 'tag' && dragged && (
+        <div className="drag-readout" style={{ left: Math.min(plotW - 180, drag.x + 16), top: Math.max(4, Math.min(viewsH - 30, drag.y - 12)) }}>
+          <span className="dot" style={{ background: theme.ink(dragged.display.color) }} />
+          {drag.target === undefined
+            ? `${channelName(drag.id)} · position ${dragged.display.position >= 0 ? '+' : ''}${dragged.display.position.toFixed(2)} div`
+            : `Move ${channelName(drag.id)} to view ${drag.target + 1}`}
+        </div>
+      )}
       {offscreen('left', before.length, nearestBefore)}
       {offscreen('right', after.length, nearestAfter)}
       {p.hint && <div className="tool-hint">{p.hint}</div>}

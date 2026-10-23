@@ -98,6 +98,7 @@ import {
   MEASURE_RANGES,
   RANGE_LABEL,
   sampleRange,
+  stepScale,
   timeTicks,
   zoomAround,
   type CursorState,
@@ -561,6 +562,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
       if (e.ctrlKey || e.metaKey) return
       const span = win.end - win.start
       const mid = (win.start + win.end) / 2
+      const selectedDisplay = selected ? displayById.get(selected) : undefined
       if (e.key === 'Escape') {
         setTool('pan')
         setSelectedCallout(undefined)
@@ -574,6 +576,13 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
         nudgeCallout(selectedCallout, e.key === 'ArrowLeft' ? -1 : 1)
       } else if (e.key === 'Enter' && selectedCallout) {
         editCallout(selectedCallout)
+      } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && selectedDisplay) {
+        // Position of the selected channel: 0.1 div, with Shift a whole division
+        const step = (e.shiftKey ? 1 : 0.1) * (e.key === 'ArrowUp' ? 1 : -1)
+        onAdjust(selectedDisplay.id, { position: Math.round((selectedDisplay.position + step) * 100) / 100 })
+      } else if ((e.key === 'PageUp' || e.key === 'PageDown') && selectedDisplay) {
+        // V/div of the selected channel: Page Up makes the trace larger
+        onAdjust(selectedDisplay.id, { scale: stepScale(selectedDisplay.scale, e.key === 'PageUp' ? -1 : 1) })
       } else {
         const actions: Record<string, () => void> = {
           p: () => setTool('pan'),
@@ -1048,6 +1057,9 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
             setSelected={setSelected}
             trigger={session.trigger}
             onAdjust={onAdjust}
+            onMoveToView={onMoveToView}
+            onChannelSettings={(id) => channelBarRef.current?.openSettings(id)}
+            onChannelMenu={channelMenu}
             callouts={callouts}
             selectedCallout={selectedCallout}
             editingCallout={editing?.id}
