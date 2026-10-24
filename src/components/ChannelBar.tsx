@@ -3,7 +3,8 @@ import { flushSync } from 'react-dom'
 import { AlertTriangle, AudioLines, ChevronLeft, ChevronRight, Eye, EyeOff, Plus } from 'lucide-react'
 import type { MathResult } from '../math/expr'
 import { MAX_MATH, type MathDef } from '../model/math'
-import type { ChannelDisplay, Session } from '../model/types'
+import { inputFlags, inputSummary } from '../model/input'
+import type { ChannelDisplay, ChannelInput, Session } from '../model/types'
 import { si } from '../util/format'
 import { channelName, perDiv, slopeSymbol, sourceUnit } from '../util/names'
 import { ChannelSettings } from './ChannelSettings'
@@ -145,8 +146,10 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
   const { ink } = useTheme().theme
   const triggerColor = p.channels.find((c) => c.wave.id === p.trigger?.source)?.display.color
 
-  const badge = (id: string, d: ChannelDisplay, unit: string, sub: string, popover: React.ReactNode, error?: string) => {
+  const badge = (id: string, d: ChannelDisplay, unit: string, sub: string, popover: React.ReactNode, error?: string, input?: ChannelInput) => {
     const isOpen = open?.id === id
+    // Settings that differ from DC into a high impedance are marked on the badge, as on the scope
+    const flags = inputFlags(input)
     return (
       <div
         key={id}
@@ -163,7 +166,7 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
           <button
             type="button"
             className="ch-main"
-            title={`${channelName(id)}${d.label ? ` – ${d.label}` : ''}${error ? ` – ${error}` : ''}: click for settings`}
+            title={`${channelName(id)}${d.label ? ` – ${d.label}` : ''}${error ? ` – ${error}` : ''}${input ? `\n${inputSummary(input)}` : ''}\nClick for settings`}
             aria-expanded={isOpen}
             onClick={(e) => {
               p.setSelected(id)
@@ -173,7 +176,14 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
           >
             <span className="ch-name">{channelName(id)}</span>
             <span className="ch-scale mono">{error ? <AlertTriangle size={12} aria-label="Error" /> : perDiv(d.scale, unit)}</span>
-            <span className="ch-label">{sub || ' '}</span>
+            <span className="ch-label">
+              {flags.map((f) => (
+                <span key={f} className="ch-flag">
+                  {f}
+                </span>
+              ))}
+              {sub || (flags.length ? '' : ' ')}
+            </span>
           </button>
           <button
             type="button"
@@ -194,10 +204,11 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
     )
   }
 
-  const settings = (d: ChannelDisplay, unit: string, hasWave: boolean, children?: React.ReactNode) => (
+  const settings = (d: ChannelDisplay, unit: string, hasWave: boolean, children?: React.ReactNode, input?: ChannelInput) => (
     <ChannelSettings
       display={d}
       unit={unit}
+      input={input}
       hasWave={hasWave}
       views={p.views}
       onAdjust={p.onAdjust}
@@ -221,7 +232,9 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
         )}
         <div ref={scrollRef} className="badges" onScroll={onScroll}>
           <div ref={trackRef} className="badges-track">
-            {p.channels.map((c) => badge(c.wave.id, c.display, c.wave.yUnit, c.display.label, settings(c.display, c.wave.yUnit, true)))}
+            {p.channels.map((c) =>
+              badge(c.wave.id, c.display, c.wave.yUnit, c.display.label, settings(c.display, c.wave.yUnit, true, undefined, c.input), undefined, c.input),
+            )}
             {p.math.map((m) => {
               const unit = m.result?.wave?.yUnit ?? ''
               return badge(

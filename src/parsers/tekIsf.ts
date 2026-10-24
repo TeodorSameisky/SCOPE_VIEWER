@@ -16,6 +16,8 @@ export interface IsfDisplayHints {
   /** divisions */
   position?: number
   offset?: number
+  /** Coupling named in the waveform id ("Ch1, DC coupling, …") */
+  coupling?: string
 }
 
 export interface IsfWaveform {
@@ -167,6 +169,8 @@ export function parseTekIsf(buf: ArrayBuffer, id: string): IsfWaveform {
   if (pre.VSCALE !== undefined && num(pre.VSCALE, 0) > 0) hints.scale = num(pre.VSCALE, 1)
   if (pre.VPOS !== undefined) hints.position = num(pre.VPOS, 0)
   if (pre.VOFFSET !== undefined) hints.offset = num(pre.VOFFSET, 0)
+  const coupling = /\b(DC|AC|GND)\s+coupling\b/i.exec(pre.WFID ?? '')?.[1]
+  if (coupling) hints.coupling = coupling.toUpperCase()
 
   return {
     wave: { id, data, t0, dt, yUnit: normaliseUnit(pre.YUNIT, 'V'), xUnit: normaliseUnit(pre.XUNIT, 's') },

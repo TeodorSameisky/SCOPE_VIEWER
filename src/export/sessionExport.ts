@@ -4,6 +4,7 @@ import type { MathResult } from '../math/expr'
 import { toDb, type Peak, type Spectrum } from '../math/fft'
 import { calloutName, calloutSpan, calloutTitle, hasTimeSpan, type Callout } from '../model/callouts'
 import { calloutValueText } from '../model/calloutValues'
+import { inputSummary } from '../model/input'
 import type { MathDef } from '../model/math'
 import type { SpectrumDef, SpectrumOptions, SpectrumScale } from '../model/spectrum'
 import type { ChannelDisplay, Session } from '../model/types'
@@ -165,12 +166,22 @@ function reportTables(ctx: ExportContext, prefs: ExportPrefs): ReportTable[] {
   const { channels, cursors, callouts } = ctx
   const tables: ReportTable[] = []
   if (o.channels) {
+    // The input settings on the scope (coupling, termination, probe …) when the files have them
+    const withInput = channels.some((c) => c.input)
     tables.push({
       title: 'Channels',
-      columns: ['Channel', 'Label', 'Scale', 'Offset', 'Position', 'Shown'],
+      columns: ['Channel', 'Label', 'Scale', 'Offset', 'Position', 'Shown', ...(withInput ? ['Input'] : [])],
       rows: channels.map((c) => ({
         color: c.display.color,
-        cells: [channelName(c.wave.id), c.display.label, perDiv(c.display.scale, c.wave.yUnit), si(c.display.offset, c.wave.yUnit), `${c.display.position} div`, c.display.visible ? 'yes' : 'no'],
+        cells: [
+          channelName(c.wave.id),
+          c.display.label,
+          perDiv(c.display.scale, c.wave.yUnit),
+          si(c.display.offset, c.wave.yUnit),
+          `${c.display.position} div`,
+          c.display.visible ? 'yes' : 'no',
+          ...(withInput ? [c.input ? inputSummary(c.input) : ''] : []),
+        ],
       })),
     })
   }

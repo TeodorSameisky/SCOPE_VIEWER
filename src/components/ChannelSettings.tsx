@@ -1,5 +1,6 @@
 import { AudioLines, Eye, EyeOff } from 'lucide-react'
-import type { ChannelDisplay } from '../model/types'
+import { inputItems, inputSummary } from '../model/input'
+import type { ChannelDisplay, ChannelInput } from '../model/types'
 import { channelName, perDiv } from '../util/names'
 import { POSITION_STEP, stepPosition, stepScale, type DisplayPatch } from '../model/view'
 import { chipStyle, useTheme } from './ui/themeContext'
@@ -8,6 +9,8 @@ interface Props {
   display: ChannelDisplay
   /** Vertical unit of the channel */
   unit: string
+  /** Coupling, termination, probe … as set on the scope (read only) */
+  input?: ChannelInput
   /** It has a waveform (not a math channel whose expression failed): autoscale and FFT need one */
   hasWave: boolean
   views: string[][]
@@ -22,7 +25,7 @@ interface Props {
 }
 
 /** Vertical settings of one channel (shown in the channel badge popover). */
-export function ChannelSettings({ display: d, unit, hasWave, views, onAdjust, onMoveToView, onAutoscale, hasSpectrum, canAddSpectrum, onToggleSpectrum, children }: Props) {
+export function ChannelSettings({ display: d, unit, input, hasWave, views, onAdjust, onMoveToView, onAutoscale, hasSpectrum, canAddSpectrum, onToggleSpectrum, children }: Props) {
   const id = d.id
   const view = views.findIndex((v) => v.includes(id))
   const { ink, onInk } = useTheme().theme
@@ -98,6 +101,19 @@ export function ChannelSettings({ display: d, unit, hasWave, views, onAdjust, on
             <AudioLines size={14} aria-hidden /> {hasSpectrum ? 'Shown' : 'Show FFT'}
           </button>
         </div>
+        {input && (
+          <>
+            <span>Input</span>
+            <span
+              className="input-summary"
+              title={`As set on the scope when the session was saved:\n${inputItems(input)
+                .map(({ label, value }) => `${label}: ${value}`)
+                .join('\n')}`}
+            >
+              {inputSummary(input)}
+            </span>
+          </>
+        )}
       </div>
     </div>
   )

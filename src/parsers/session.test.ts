@@ -76,4 +76,10 @@ describe.skipIf(!hasSample)('Tektronix .tss session (SessionSample/Tek000.tss)',
     expect(s.cursors?.a).toBeCloseTo(-5.588e-3, 6)
     expect(s.screenshot).toBeDefined()
   })
+
+  it('reads the input settings of each channel', () => {
+    const input = (id: string) => s.channels.find((c) => c.wave.id === id)!.input
+    expect(input('CH1')).toEqual({ coupling: 'DC', termination: 1e6, bandwidth: 200e6, invert: false, deskew: 0 })
+    expect(input('CH2')?.termination).toBe(250e3)
+  })
 })

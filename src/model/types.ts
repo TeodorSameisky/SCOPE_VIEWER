@@ -26,9 +26,38 @@ export interface ChannelDisplay {
   offset: number
 }
 
+/**
+ * How a channel was connected and set on the scope, from the setup file (or the waveform file):
+ * settings the file does not have are left out. Setups store what is set for a probe, not which
+ * probe it was (model, serial number).
+ */
+export interface ChannelInput {
+  /** As the scope writes it: DC, AC, GND, DCREJ … */
+  coupling?: string
+  /** Input termination (Ω) */
+  termination?: number
+  /** Bandwidth setting (Hz), or the full bandwidth of the instrument */
+  bandwidth?: number | 'full'
+  /** Probe attenuation (×), e.g. 10 for a 10× probe */
+  attenuation?: number
+  /** Attenuation set by hand for a probe the scope does not recognise (×), when not 1 */
+  extAttenuation?: number
+  /** Input mode of a probe with several (differential probes), when not the default */
+  probeMode?: string
+  /** Propagation delay of the probe (s) */
+  probeDelay?: number
+  /** Current measured as the voltage across a shunt: amperes per volt */
+  ampsPerVolt?: number
+  invert?: boolean
+  /** Deskew (s) */
+  deskew?: number
+}
+
 export interface Channel {
   wave: Waveform
   display: ChannelDisplay
+  /** Input settings on the scope (coupling, termination, probe …), when the files have them */
+  input?: ChannelInput
 }
 
 export interface SessionCursors {

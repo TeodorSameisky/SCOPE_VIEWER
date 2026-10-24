@@ -53,7 +53,7 @@ describe('ISF waveforms', () => {
     )
     const r = parseTekIsf(buf, 'x')
     expect(r.channel).toBe('CH1')
-    expect(r.hints).toEqual({ scale: 1, position: 0.42, offset: 0 })
+    expect(r.hints).toEqual({ scale: 1, position: 0.42, offset: 0, coupling: 'DC' })
     expect(r.wave.t0).toBeCloseTo(-1e-3, 12)
     expect(r.wave.dt).toBeCloseTo(200e-9, 15)
     expect(Array.from(r.wave.data)).toEqual([0, 1, (-100 - 2688) * 156.25e-6, (32767 - 2688) * 156.25e-6].map(Math.fround))

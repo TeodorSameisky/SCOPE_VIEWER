@@ -3,7 +3,7 @@ import type { Channel, ChannelDisplay, Session, Waveform } from '../model/types'
 import { niceStep } from '../util/format'
 import { isTekWfm, parseTekWfm } from './tekWfm'
 import { isTekIsf, parseTekIsf, type IsfDisplayHints } from './tekIsf'
-import { parseTekSetup, setupNumber, setupString } from './tekSetup'
+import { parseTekSetup, readChannelInput, setupNumber, setupString } from './tekSetup'
 
 /** Default trace colours of Tektronix 4/5/6-Series scopes, indexed by channel number. */
 const TEK_COLORS: Record<string, string> = {
@@ -113,7 +113,10 @@ function buildSession(fileName: string, format: string, waves: Waveform[], o: Bu
       position: setupNumber(get(id, ':POSITION')) ?? setupNumber(get(id, ':VERTICAL:POSITION')) ?? hint.position ?? 0,
       offset: setupNumber(get(id, ':OFFSET')) ?? hint.offset ?? auto?.offset ?? 0,
     }
-    return { wave, display }
+    // Coupling, termination, probe …: from the setup, the coupling also from an .isf header
+    const fromSetup = o.setup ? readChannelInput((suffix) => get(id, suffix)) : undefined
+    const input = hint.coupling && !fromSetup?.coupling ? { ...fromSetup, coupling: hint.coupling } : fromSetup
+    return input ? { wave, display, input } : { wave, display }
   })
 
   const ids = new Set(channels.map((c) => c.wave.id))

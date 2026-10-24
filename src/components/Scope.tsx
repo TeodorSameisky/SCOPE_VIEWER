@@ -202,7 +202,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
 
   const displayById = useMemo(() => new Map(displays.map((d) => [d.id, d])), [displays])
   const inputChannels: LiveChannel[] = useMemo(
-    () => session.channels.map((c) => ({ wave: c.wave, display: displayById.get(c.wave.id)!, pyramid: pyramids.get(c.wave.id)! })),
+    () => session.channels.map((c) => ({ wave: c.wave, display: displayById.get(c.wave.id)!, input: c.input, pyramid: pyramids.get(c.wave.id)! })),
     [session, displayById, pyramids],
   )
   const mathItems: MathItem[] = useMemo(

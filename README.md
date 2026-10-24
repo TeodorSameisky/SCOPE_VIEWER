@@ -9,9 +9,9 @@ All parsing happens **in the browser** (in a Web Worker). Session files are neve
 
 | Format | Notes |
 | --- | --- |
-| Tektronix session `.tss` (4/5/6-Series MSO) | Zip with `chN.wfm`, a zipped SCPI setup (`.set`), a screenshot and `manifest.json`. Channel labels, V/div, offset/position, stacked view layout, trigger, cursors and measurements are restored from the setup. |
+| Tektronix session `.tss` (4/5/6-Series MSO) | Zip with `chN.wfm`, a zipped SCPI setup (`.set`), a screenshot and `manifest.json`. Channel labels, V/div, offset/position, stacked view layout, trigger, cursors and measurements are restored from the setup, and each channel's input settings (coupling, termination, bandwidth, probe) are read from it. |
 | Tektronix waveform `.wfm` (WFM#001–#003) | One or more files; drop a matching `.set` file together with them to restore the setup. FastFrame: only the first frame is shown. |
-| Tektronix ISF `.isf` (TDS1000/2000, TPS2000, DPO/MSO2000–4000, MDO3000/4000) | The waveforms saved by the older families ("Save All" writes `tekNNNNCHx.isf`, a `.set` and a screenshot). Open the files together, or a `.zip` of them. Labels, V/div, position, trigger, cursors and measurements come from the `.set`; without it, scale and position are taken from the waveform files. 8/16-bit, float, ASCII and envelope data are read. |
+| Tektronix ISF `.isf` (TDS1000/2000, TPS2000, DPO/MSO2000–4000, MDO3000/4000) | The waveforms saved by the older families ("Save All" writes `tekNNNNCHx.isf`, a `.set` and a screenshot). Open the files together, or a `.zip` of them. Labels, V/div, position, trigger, cursors, measurements and the input settings (with the probe attenuation) come from the `.set`; without it, scale, position and coupling are taken from the waveform files. 8/16-bit, float, ASCII and envelope data are read. |
 | Scope Viewer bundle `.scopeview` | A session file together with its analysis (see *Saving*). An analysis file `.scopeview.json` can also be opened together with its session file, or dropped onto an open session. |
 | Rigol | Planned. |
 
@@ -53,6 +53,11 @@ Which panels are open is remembered in the browser.
   Click a column header for an explanation with a diagram, drag it to move the column; the **Reference**
   panel (book icon in the rail) documents every measurement and the reference levels used
 - **Math channels** and **Spectrum (FFT)** (see below)
+- **Input settings** of each channel as set on the scope: coupling, termination, bandwidth, probe attenuation,
+  external attenuation and input mode, probe delay, current via shunt, invert and deskew – whatever the files hold.
+  They are shown in the channel's settings, as a table in the Session panel and in the report; AC or GND coupling,
+  a 50 Ω input and an inverted channel are marked on its badge. Setup files name what is set for a probe, not the
+  probe itself (model, serial number)
 - Instrument screenshot and searchable instrument setup
 - Saving in the browser, analysis files and bundles; exports to image, report and CSV (see below)
 - **Undo / redo** (Ctrl+Z, Ctrl+Y or Ctrl+Shift+Z, or the arrows next to the save status) for every change

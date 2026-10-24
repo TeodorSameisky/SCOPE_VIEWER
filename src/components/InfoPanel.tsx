@@ -1,7 +1,9 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
+import { inputItems } from '../model/input'
 import type { Session } from '../model/types'
 import { si } from '../util/format'
-import { triggerText } from '../util/names'
+import { channelName, triggerText } from '../util/names'
+import { useTheme } from './ui/themeContext'
 import { useDismiss } from './ui/useDismiss'
 
 export function InfoPanel({ session, storage }: { session: Session; storage?: React.ReactNode }) {
@@ -56,6 +58,8 @@ export function InfoPanel({ session, storage }: { session: Session; storage?: Re
         )}
       </dl>
 
+      <ChannelInputs session={session} />
+
       {shotUrl && (
         <>
           <h4>Instrument screenshot</h4>
@@ -81,6 +85,48 @@ export function InfoPanel({ session, storage }: { session: Session; storage?: Re
         </>
       )}
     </div>
+  )
+}
+
+/** How each channel was connected and set on the scope: one column per setting any channel has */
+function ChannelInputs({ session }: { session: Session }) {
+  const { ink } = useTheme().theme
+  const rows = session.channels.flatMap((c) => (c.input ? [{ c, items: new Map(inputItems(c.input).map((it) => [it.label, it.value])) }] : []))
+  if (!rows.length) return null
+  // In the order of inputItems, only settings at least one channel has
+  const columns = [...new Set(rows.flatMap((r) => [...r.items.keys()]))]
+  return (
+    <>
+      <h4>Channel inputs</h4>
+      <div className="table-scroll">
+        <table className="data-table compact">
+          <thead>
+            <tr>
+              <th>Channel</th>
+              {columns.map((col) => (
+                <th key={col}>{col}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ c, items }) => (
+              <tr key={c.wave.id}>
+                <td>
+                  <span className="dot" style={{ background: ink(c.display.color) }} />
+                  {channelName(c.wave.id)}
+                </td>
+                {columns.map((col) => (
+                  <td key={col} className="mono">
+                    {items.get(col) ?? ''}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="hint">As set on the scope when the session was saved. The setup names the settings of a probe, not the probe itself.</p>
+    </>
   )
 }
 
