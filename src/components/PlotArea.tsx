@@ -7,6 +7,7 @@ import {
   AXIS_GUTTER,
   DIVS_Y,
   divToValue,
+  drawHover,
   drawTimeAxis,
   drawView,
   layoutTags,
@@ -134,6 +135,8 @@ type Drag =
 export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([])
+  /** Transparent canvases over the views: the pointer line and what is being dragged */
+  const overlayRefs = useRef<(HTMLCanvasElement | null)[]>([])
   const axisRef = useRef<HTMLCanvasElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const [size, setSize] = useState({ w: 800, h: 600 })
@@ -290,23 +293,40 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     }
   }
 
-  // Draw everything on the next animation frame whenever inputs change
+  // Draw the views on the next animation frame whenever what they show changes (not when the pointer moves)
   useEffect(() => {
     const id = requestAnimationFrame(() => {
       const dpr = window.devicePixelRatio || 1
       p.views.forEach((_, vi) => {
         const ctx = canvasRefs.current[vi]?.getContext('2d')
-        if (!ctx) return
-        drawView(ctx, { ...viewOptions(vi, dpr, theme), selectedId: p.selected, hoverT: drag ? undefined : hoverT, hoverDots: p.readout })
-        drawDragPreview(ctx, dpr, vi)
+        if (ctx) drawView(ctx, { ...viewOptions(vi, dpr, theme), selectedId: p.selected })
       })
       const ax = axisRef.current?.getContext('2d')
       if (ax) drawTimeAxis(ax, size.w, AXIS_H, dpr, p.win.start, p.win.end, ticks, theme)
     })
     return () => cancelAnimationFrame(id)
-    // viewOptions and drawDragPreview only read the props and state listed here
+    // viewOptions only reads the props and state listed here
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.channels, p.views, p.win, p.cursors, p.selected, p.trigger, p.readout, size, viewH, hoverT, drag, theme])
+  }, [p.channels, p.views, p.win, p.cursors, p.selected, p.trigger, size, viewH, theme])
+
+  // The pointer line and the drag previews on the overlays: cheap, so drawn at once, before the
+  // frame is painted, and in step with the value readout next to the pointer
+  useLayoutEffect(() => {
+    const dpr = window.devicePixelRatio || 1
+    p.views.forEach((_, vi) => {
+      const cv = overlayRefs.current[vi]
+      const ctx = cv?.getContext('2d')
+      if (!cv || !ctx) return
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
+      ctx.clearRect(0, 0, cv.width, cv.height)
+      if (hoverT !== undefined && !drag) {
+        drawHover(ctx, { width: size.w, height: viewH, dpr, tStart: p.win.start, tEnd: p.win.end, traces: viewChannels(vi).traces, t: hoverT, dots: p.readout, theme })
+      }
+      drawDragPreview(ctx, dpr, vi)
+    })
+    // viewChannels and drawDragPreview only read the props and state listed here
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hoverT, drag, p.readout, p.channels, p.views, p.win, p.selected, size, viewH, theme])
 
   /** Rubber band for zoom / region selection; the level or the drop target of a dragged channel tag */
   const drawDragPreview = (ctx: CanvasRenderingContext2D, dpr: number, vi: number) => {
@@ -832,6 +852,18 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
           width={Math.round(size.w * (window.devicePixelRatio || 1))}
           height={Math.round(viewH * (window.devicePixelRatio || 1))}
           style={{ width: size.w, height: viewH, display: 'block' }}
+        />
+      ))}
+      {p.views.map((_, i) => (
+        <canvas
+          key={`overlay${i}`}
+          ref={(el) => {
+            overlayRefs.current[i] = el
+          }}
+          className="plot-overlay"
+          width={Math.round(size.w * (window.devicePixelRatio || 1))}
+          height={Math.round(viewH * (window.devicePixelRatio || 1))}
+          style={{ top: i * viewH, width: size.w, height: viewH }}
         />
       ))}
       <canvas

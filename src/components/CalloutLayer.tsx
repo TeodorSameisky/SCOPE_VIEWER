@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { forwardRef, memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Callout } from '../model/callouts'
 import { SPAN_DY, calloutShapes, type CalloutGeo, type CalloutLayout, type CalloutPart } from '../render/callouts'
 import { CalloutValueEditor } from './CalloutValueEditor'
@@ -74,9 +74,10 @@ const PART_CURSOR: Record<CalloutPart, string> = {
 
 /**
  * SVG overlay with all callouts. Only the callouts themselves take pointer events, so
- * panning/zooming still works everywhere else on the plot.
+ * panning/zooming still works everywhere else on the plot. Memoized: moving the pointer over the
+ * plot re-renders the plot, but not the callouts.
  */
-export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLayer(p, ref) {
+export const CalloutLayer = memo(forwardRef<SVGSVGElement, Props>(function CalloutLayer(p, ref) {
   const [drag, setDrag] = useState<Drag | null>(null)
   const { theme } = useTheme()
   const span = p.win.end - p.win.start
@@ -294,4 +295,4 @@ export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLay
       )}
     </>
   )
-})
+}))

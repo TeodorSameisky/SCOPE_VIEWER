@@ -29,9 +29,6 @@ export interface ViewDrawOptions {
   cursors?: { a: number; b: number; sourceId?: string; showLabels: boolean }
   trigger?: { sourceId?: string; level?: number; showMarker: boolean }
   selectedId?: string
-  hoverT?: number
-  /** Mark where each trace crosses the hover line */
-  hoverDots?: boolean
   theme: Theme
 }
 
@@ -286,32 +283,56 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
     }
   }
 
-  // Hover crosshair
-  if (o.hoverT !== undefined) {
-    const x = Math.round(tx(o.hoverT)) + 0.5
-    ctx.strokeStyle = theme.hover
-    ctx.beginPath()
-    ctx.moveTo(x, 0)
-    ctx.lineTo(x, H)
-    ctx.stroke()
-    if (o.hoverDots) {
-      ctx.save()
+  ctx.restore()
+}
+
+export interface HoverDrawOptions {
+  width: number
+  height: number
+  dpr: number
+  tStart: number
+  tEnd: number
+  traces: TraceInput[]
+  /** Time at the pointer */
+  t: number
+  /** Mark where each trace crosses the line */
+  dots: boolean
+  theme: Theme
+}
+
+/**
+ * The line at the pointer's time across a view, with a ring where each trace crosses it. Drawn on
+ * a transparent canvas over the view (cleared by the caller), so following the pointer never
+ * redraws the traces.
+ */
+export function drawHover(ctx: CanvasRenderingContext2D, o: HoverDrawOptions): void {
+  const { theme } = o
+  const H = o.height
+  const plotW = o.width - AXIS_GUTTER
+  const divH = H / DIVS_Y
+  const x = Math.round(((o.t - o.tStart) / (o.tEnd - o.tStart)) * plotW) + 0.5
+  ctx.save()
+  ctx.setTransform(o.dpr, 0, 0, o.dpr, 0, 0)
+  ctx.beginPath()
+  ctx.rect(0, 0, plotW, H)
+  ctx.clip()
+  ctx.lineWidth = 1
+  ctx.strokeStyle = theme.hover
+  ctx.beginPath()
+  ctx.moveTo(x, 0)
+  ctx.lineTo(x, H)
+  ctx.stroke()
+  if (o.dots) {
+    ctx.lineWidth = 1.5
+    for (const tr of o.traces) {
+      const y = H / 2 - valueToDiv(valueAt(tr.wave, o.t), tr.display) * divH
+      if (!Number.isFinite(y) || y < -4 || y > H + 4) continue
+      ctx.fillStyle = theme.bg
+      ctx.strokeStyle = theme.ink(tr.display.color)
       ctx.beginPath()
-      ctx.rect(0, 0, plotW, H)
-      ctx.clip()
-      ctx.lineWidth = 1.5
-      for (const tr of o.traces) {
-        const v = valueAt(tr.wave, o.hoverT)
-        const y = H / 2 - valueToDiv(v, tr.display) * divH
-        if (!Number.isFinite(y) || y < -4 || y > H + 4) continue
-        ctx.fillStyle = theme.bg
-        ctx.strokeStyle = theme.ink(tr.display.color)
-        ctx.beginPath()
-        ctx.arc(x, y, 3.5, 0, Math.PI * 2)
-        ctx.fill()
-        ctx.stroke()
-      }
-      ctx.restore()
+      ctx.arc(x, y, 3.5, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.stroke()
     }
   }
   ctx.restore()

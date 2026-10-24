@@ -577,6 +577,13 @@ code {
   touch-action: none;
   user-select: none;
 }
+/* Pointer line and drag previews over each view (PlotArea) */
+.plot-overlay {
+  position: absolute;
+  left: 0;
+  display: block;
+  pointer-events: none;
+}
 .cursor-readout {
   position: absolute;
   top: 22px;
