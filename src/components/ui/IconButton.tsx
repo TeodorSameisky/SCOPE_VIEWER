@@ -11,10 +11,12 @@ interface Props {
   showLabel?: boolean
   className?: string
   badge?: number
+  /** Pressing it leaves the focus where it is */
+  keepFocus?: boolean
   onClick: () => void
 }
 
-export function IconButton({ icon: Icon, label, shortcut, active, disabled, showLabel, className = '', badge, onClick }: Props) {
+export function IconButton({ icon: Icon, label, shortcut, active, disabled, showLabel, className = '', badge, keepFocus, onClick }: Props) {
   return (
     <button
       type="button"
@@ -23,6 +25,7 @@ export function IconButton({ icon: Icon, label, shortcut, active, disabled, show
       aria-label={label}
       aria-pressed={active}
       disabled={disabled}
+      onMouseDown={keepFocus ? (e) => e.preventDefault() : undefined}
       onClick={onClick}
     >
       <Icon size={17} strokeWidth={1.8} aria-hidden />
@@ -42,6 +45,7 @@ export function ActionButton({ action: a, showLabel }: { action: Action; showLab
       active={a.checked}
       disabled={a.disabled}
       showLabel={showLabel}
+      keepFocus={a.keepFocus}
       onClick={a.run}
     />
   )

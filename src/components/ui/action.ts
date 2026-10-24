@@ -17,6 +17,8 @@ export interface Action {
   disabled?: boolean
   /** A setting that is on */
   checked?: boolean
+  /** Its toolbar button leaves the focus where it is (e.g. in a text field) */
+  keepFocus?: boolean
   run: () => void
 }
 

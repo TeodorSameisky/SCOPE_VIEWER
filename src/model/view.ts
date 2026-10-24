@@ -61,6 +61,26 @@ export function stepScale(scale: number, dir: 1 | -1): number {
 
 export type DisplayPatch = Partial<Omit<ChannelDisplay, 'id'>>
 
+/** Vertical settings of channels by id: what Back restores after a zoom that scaled them */
+export type Verticals = Record<string, Pick<ChannelDisplay, 'scale' | 'position' | 'offset'>>
+
+/** The vertical settings of the channels `ids` */
+export function verticalsOf(displays: ChannelDisplay[], ids: string[]): Verticals {
+  return Object.fromEntries(displays.filter((d) => ids.includes(d.id)).map((d) => [d.id, { scale: d.scale, position: d.position, offset: d.offset }]))
+}
+
+/** `displays` with the patches (by channel id) applied; the same array when they change nothing */
+export function patchDisplays(displays: ChannelDisplay[], patches: Record<string, DisplayPatch>): ChannelDisplay[] {
+  let changed = false
+  const next = displays.map((d) => {
+    const p = patches[d.id]
+    if (!p || (Object.keys(p) as (keyof DisplayPatch)[]).every((k) => p[k] === d[k])) return d
+    changed = true
+    return { ...d, ...p }
+  })
+  return changed ? next : displays
+}
+
 /** One step of a channel's position (div): arrow keys, Alt+wheel and the ± buttons; Shift+arrow moves a whole division */
 export const POSITION_STEP = 0.1
 

@@ -151,7 +151,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
   const [boot] = useState(() => initWorkspace(session, initial))
   const ws0 = boot.workspace
   // Undo history of the analysis (recorded in "undo / redo" below)
-  const [editHistory] = useState(() => new UndoHistory(undoDocOf(ws0)))
+  const [editHistory] = useState(() => new UndoHistory<UndoDoc, TimeWindow>(undoDocOf(ws0)))
 
   const pyramids = useMemo(() => new Map(session.channels.map((c) => [c.wave.id, new MinMaxPyramid(c.wave.data)])), [session])
   const [mathDefs, setMathDefs] = useState<MathDef[]>(ws0.math)
@@ -298,7 +298,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
   }
 
   // ---------- navigation ----------
-  const nav = useNavigation(session, ws0.window, displays, setDisplays)
+  // A zoom that scales channels (or Back from it) is an undo step that takes the window with it
+  const nav = useNavigation(session, ws0.window, displays, setDisplays, (from, to) => editHistory.moveView(from, to))
   const { win, record, minSpan } = nav
   const ticks = timeTicks(win)
   const tPerDiv = ticks.length > 1 ? ticks[1] - ticks[0] : (win.end - win.start) / 10
@@ -326,6 +327,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
   /** Delete a callout; offers undo unless `silent` (an empty new note that is discarded) */
   const deleteCallout = (id: string, silent = false) => {
     const c = callouts.find((x) => x.id === id)
+    // Its own step, also for a new callout whose step is still open (Delete in its editor), so the Undo offered brings it back
+    if (!silent) editHistory.commit()
     setCallouts((cs) => cs.filter((x) => x.id !== id))
     if (editing?.id === id) setEditing(null)
     if (selectedCallout === id) setSelectedCallout(undefined)
@@ -337,7 +340,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
       setSelectedCallout(id)
       return
     }
-    // Finishing the editor: a new note without text is discarded
+    // Finishing the editor: a new note without text is discarded (and with it the undo step that added it)
     const c = editing && callouts.find((x) => x.id === editing.id)
     if (editing?.isNew && c?.type === 'note' && !c.text.trim()) deleteCallout(c.id, true)
     setEditing(null)
@@ -467,12 +470,15 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
 
   // ---------- undo / redo ----------
   // Every change of the analysis is a step; the time window and the selection are navigation
-  // (Back / Backspace) and not part of it.
+  // (Back / Backspace) and not part of it, except that a step in which a zoom scaled channels
+  // restores the window with them. A new callout and what is written into it while its editor is
+  // open are one step.
   const undoDoc = useMemo(
     () => undoDocOf({ channels: displays, views, math: mathDefs, spectra, spectrumOptions: specOptions, callouts, cursors, measurements: { keys: measKeys, range: measRange }, notes }),
     [displays, views, mathDefs, spectra, specOptions, callouts, cursors, measKeys, measRange, notes],
   )
-  const edits = useUndoHistory(editHistory, undoDoc, (d) => {
+  const edits = useUndoHistory(editHistory, undoDoc, (d, view) => {
+    if (view) nav.show(view)
     setDisplays(d.channels)
     setViews(d.views)
     setMathDefs(d.math)
@@ -488,7 +494,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     if (editing && !d.callouts.some((c) => c.id === editing.id)) setEditing(null)
     if (selectedCallout && !d.callouts.some((c) => c.id === selectedCallout)) setSelectedCallout(undefined)
     dropUndoNotice()
-  })
+  }, !!editing?.isNew)
   // The Undo of a deletion applies only while the deletion is the latest step
   useEffect(() => {
     const u = undoNotice.current
@@ -591,8 +597,9 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
   const exportAction = (kind: ExportKind, label: string, icon: Action['icon'], disabled = false): Action => ({ label, icon, disabled, run: () => openExport(kind) })
   const actions: ScopeActions = {
     tools,
-    undo: { label: 'Undo', icon: Undo2, hint: KEYS.undo, disabled: !edits.canUndo, run: edits.undo },
-    redo: { label: 'Redo', icon: Redo2, hint: KEYS.redo, disabled: !edits.canRedo, run: edits.redo },
+    // Their buttons do not close an open callout editor first: Undo takes back what was done in it (a new callout goes)
+    undo: { label: 'Undo', icon: Undo2, hint: KEYS.undo, disabled: !edits.canUndo, keepFocus: true, run: edits.undo },
+    redo: { label: 'Redo', icon: Redo2, hint: KEYS.redo, disabled: !edits.canRedo, keepFocus: true, run: edits.redo },
     back: { label: 'Back to the previous view', icon: ArrowLeft, hint: KEYS.back, disabled: !nav.canGoBack, run: nav.zoomBack },
     savedView: { label: 'Saved view', icon: Home, title: 'The view the scope showed when the session was saved', run: () => nav.zoomTo(nav.savedWin) },
     fullRecord: { label: 'Full record', icon: Maximize2, hint: KEYS.fullRecord, disabled: !nav.zoomed, run: () => nav.zoomTo(record) },
