@@ -13,10 +13,9 @@ import type { Theme } from './theme'
 
 const FONT_SIZE = 12
 const FONT = font(FONT_SIZE, SANS)
-const FLAG_FONT = font(FONT_SIZE, SANS, 600)
 /** px per em of formulas */
 const MATH_EM = FONT_SIZE * MATH_SCALE
-/** Ascent and descent of a text line of notes (16 px) and of the flags of markers and regions (18 px) */
+/** Ascent and descent of a text line of notes (16 px) and of the labels of markers, regions, boxes and spans (18 px) */
 const NOTE_LINE = [12, 4] as const
 const FLAG_LINE = [13, 5] as const
 const PAD = 6
@@ -77,7 +76,7 @@ function layoutLine(s: string, font: string, base: readonly [number, number]): T
 }
 
 /** SVG elements of a laid-out line with its baseline at (x, y) */
-function lineElements(line: TextLine, x: number, y: number, fill: string, fontWeight?: number): ReactNode[] {
+function lineElements(line: TextLine, x: number, y: number, fill: string): ReactNode[] {
   return line.runs.map((r, i) =>
     r.tex ? (
       <svg
@@ -93,7 +92,7 @@ function lineElements(line: TextLine, x: number, y: number, fill: string, fontWe
         dangerouslySetInnerHTML={{ __html: r.tex.body }}
       />
     ) : (
-      <text key={i} x={x + r.x} y={y} fill={fill} fontSize={FONT_SIZE} fontWeight={fontWeight} fontFamily={SANS} xmlSpace="preserve" style={{ pointerEvents: 'none' }}>
+      <text key={i} x={x + r.x} y={y} fill={fill} fontSize={FONT_SIZE} fontFamily={SANS} xmlSpace="preserve" style={{ pointerEvents: 'none' }}>
         {r.text}
       </text>
     ),
@@ -229,11 +228,11 @@ function noteGeometry(c: Callout, p: CalloutLayout, waves: Waveform[]): NoteGeo 
   return { type: 'note', ax, ay, bx, by, bw, bh, lines, value }
 }
 
-/** Marker: dashed line with a flag at the top, on the left of the line near the right edge */
+/** Marker: dashed line with its label at the top, on the left of the line near the right edge */
 function markerGeometry(c: Callout, p: CalloutLayout): MarkerGeo | null {
   const x = ((c.t - p.win.start) / (p.win.end - p.win.start)) * p.plotW
   if (x < -1 || x > p.plotW + 1) return null
-  const label = layoutLine(calloutTitle(c), FLAG_FONT, FLAG_LINE)
+  const label = layoutLine(calloutTitle(c), FONT, FLAG_LINE)
   const w = label.width + 14
   return { type: 'marker', x, fx: x + w > p.plotW ? x - w : x, fy: FLAG_Y, w, h: label.ascent + label.descent, label }
 }
@@ -358,12 +357,15 @@ export function flagsBottom(geo: Map<string, CalloutGeo>): number {
   return bottom
 }
 
-/** The label box of a region, box or span: its title in the callout's colour, the value line below */
+/**
+ * The label box of a marker, region, box or span: its title in the callout's colour, the value
+ * line below. Notes have a box of the same look (frame, corners, selection), with their text.
+ */
 function labelShape(g: { lx: number; ly: number; lw: number; lh: number; label: TextLine; value?: TextLine }, ink: string, theme: Theme, selected: boolean, props: PartProps): ReactNode {
   const { lx, ly, lw, lh, label, value } = g
   return (
     <>
-      <rect x={lx} y={ly} width={lw} height={lh} rx={3} fill={theme.labelBox} stroke={ink} {...props} />
+      <rect x={lx} y={ly} width={lw} height={lh} rx={3} fill={theme.labelBox} stroke={ink} strokeWidth={1.2} {...props} />
       {selected && <rect x={lx - 3} y={ly - 3} width={lw + 6} height={lh + 6} rx={5} fill="none" stroke={theme.selection} strokeDasharray="3 3" />}
       {lineElements(label, lx + 7, ly + label.ascent, ink)}
       {value && lineElements(value, lx + 7, ly + lh - value.descent, theme.noteText)}
@@ -413,8 +415,8 @@ export function calloutShapes(
           ) : (
             <circle cx={g.ax} cy={g.ay} r={selected ? 5 : 4} fill={ink} stroke={theme.bg} strokeWidth={1} />
           )}
-          <rect x={g.bx} y={g.by} width={g.bw} height={g.bh} rx={4} fill={theme.noteBox} stroke={ink} strokeWidth={1.2} {...handlers('box')} />
-          {selected && <rect x={g.bx - 3} y={g.by - 3} width={g.bw + 6} height={g.bh + 6} rx={6} fill="none" stroke={theme.selection} strokeDasharray="3 3" />}
+          <rect x={g.bx} y={g.by} width={g.bw} height={g.bh} rx={3} fill={theme.noteBox} stroke={ink} strokeWidth={1.2} {...handlers('box')} />
+          {selected && <rect x={g.bx - 3} y={g.by - 3} width={g.bw + 6} height={g.bh + 6} rx={5} fill="none" stroke={theme.selection} strokeDasharray="3 3" />}
           {g.lines.map((l, i) => {
             const top = g.lines.slice(0, i).reduce((y, prev) => y + prev.ascent + prev.descent, g.by + PAD / 2)
             return <g key={i}>{lineElements(l, g.bx + PAD, top + l.ascent, c.text ? theme.noteText : theme.notePlaceholder)}</g>
@@ -428,13 +430,12 @@ export function calloutShapes(
 
     if (g.type === 'marker') {
       const { x, fx, fy, w, h, label } = g
+      // Dashed like the extension lines of spans, and unlike cursor B (long dashes); the label as on the other callouts
       return (
         <g key={c.id}>
-          <line x1={x} y1={0} x2={x} y2={totalH} stroke={ink} strokeWidth={selected ? 2 : 1.2} strokeDasharray="6 4" />
+          <line x1={x} y1={0} x2={x} y2={totalH} stroke={ink} strokeWidth={selected ? 2 : 1.2} strokeDasharray="3 3" />
           {interact && <line x1={x} y1={0} x2={x} y2={totalH} stroke="transparent" strokeWidth={10} {...handlers('marker')} />}
-          <rect x={fx} y={fy} width={w} height={h} rx={3} fill={ink} {...handlers('marker')} />
-          {selected && <rect x={fx - 3} y={fy - 3} width={w + 6} height={h + 6} rx={5} fill="none" stroke={theme.selection} strokeDasharray="3 3" />}
-          {lineElements(label, fx + 7, fy + label.ascent, theme.onInk(ink), 600)}
+          {labelShape({ lx: fx, ly: fy, lw: w, lh: h, label }, ink, theme, selected, handlers('marker'))}
         </g>
       )
     }

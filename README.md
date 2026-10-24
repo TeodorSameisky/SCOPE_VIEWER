@@ -136,8 +136,9 @@ the Callouts panel has a search box (text, title or type, e.g. "marker").
 counters in the top corners of the plot show how many callouts lie before or after the view (click to go
 to the nearest); `,` and `.` step to the previous / next callout.
 
-Labels never get in each other's way: note boxes stay inside the plot, flags of markers that are close
-together and labels of overlapping regions are stacked, and the cursor readout moves below the flags.
+Labels never get in each other's way: note boxes stay inside the plot, labels of markers that are close
+together and labels of overlapping regions are stacked, and the cursor readout moves below the marker labels.
+All callout labels look alike: a box in the callout's colour with its title in that colour.
 
 Callout text can contain **TeX math**: `$V(t) = V_0\,e^{-t/\tau}$` inline, `$$\frac{1}{2\pi f_c}$$` in display
 style, `\$` for a dollar sign. Formulas are rendered with MathJax (loaded the first time a callout contains

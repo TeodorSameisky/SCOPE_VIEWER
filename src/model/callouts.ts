@@ -57,9 +57,13 @@ export interface RegionMeasure {
 
 export const CALLOUT_COLORS = ['#ffd84d', '#ff9d2e', '#ff5a6a', '#8fd43a', '#3fb6ff', '#c86bff', '#e6e9ee']
 
+/**
+ * The colour of a new callout: one of its own per type (a note on a trace takes the trace's).
+ * Markers are red, not the near-white of the cursors, so a marker line is never taken for a cursor.
+ */
 export const DEFAULT_CALLOUT_COLOR: Record<CalloutType, string> = {
   note: '#ffd84d',
-  marker: '#e6e9ee',
+  marker: '#ff5a6a',
   region: '#3fb6ff',
   box: '#ff9d2e',
   span: '#c86bff',

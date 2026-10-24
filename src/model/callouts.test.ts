@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { calloutName, calloutTitle, nextCalloutNumber, sanitizeCallouts, type Callout } from './callouts'
+import { DARK_THEME, LIGHT_THEME } from '../render/theme'
+import { CALLOUT_TYPES, DEFAULT_CALLOUT_COLOR, calloutName, calloutTitle, nextCalloutNumber, sanitizeCallouts, type Callout } from './callouts'
 import { zoomAround } from './view'
 
 const sample: Callout[] = [
@@ -27,8 +28,16 @@ describe('callout validation', () => {
     const callouts = sanitizeCallouts([{ type: 'region', t: 1 }, { type: 'bogus', t: 0 }, { type: 'marker', t: 2, color: 'red;x' }])
     expect(callouts).toHaveLength(1)
     expect(callouts[0].type).toBe('marker')
-    expect(callouts[0].color).toBe('#e6e9ee')
+    expect(callouts[0].color).toBe(DEFAULT_CALLOUT_COLOR.marker)
     expect(sanitizeCallouts({ foo: 1 })).toEqual([])
+  })
+
+  it('gives each type a default colour of its own, none like the cursors', () => {
+    const defaults = CALLOUT_TYPES.map((t) => DEFAULT_CALLOUT_COLOR[t])
+    expect(new Set(defaults).size).toBe(defaults.length)
+    for (const theme of [DARK_THEME, LIGHT_THEME]) {
+      for (const c of defaults) expect(theme.ink(c)).not.toBe(theme.cursor)
+    }
   })
 
   it('numbers new callouts after the highest existing one', () => {
