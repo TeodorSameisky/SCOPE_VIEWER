@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Session } from '../model/types'
-import { saveWorkspace, type LoadSource, type Workspace } from '../model/workspace'
-import type { SaveStatus } from './TopBar'
+import { saveWorkspace, type LoadSource, type SaveStatus, type Workspace } from '../model/workspace'
 
 /** Delay after the last change before the workspace is written */
 const SAVE_DELAY_MS = 400

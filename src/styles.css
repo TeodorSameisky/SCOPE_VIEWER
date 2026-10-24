@@ -10,8 +10,12 @@
   --accent: #3fb6ff;
   --accent-2: #1d7fc4;
   --accent-soft: rgba(63, 182, 255, 0.14);
+  /* Text on an --accent-2 fill (active and primary buttons), the same in both appearances */
+  --on-accent: #fff;
   --danger: #ff5a6a;
   --danger-text: #ffb3bc;
+  /* Text on a --danger fill */
+  --on-danger: #1a070a;
   --warn: #ffb44c;
   --success: #8fd43a;
   --trigger: #ff9d2e;
@@ -41,6 +45,8 @@
   --drop-bg: rgba(10, 30, 50, 0.75);
   --busy-bg: rgba(0, 0, 0, 0.5);
   --backdrop: rgba(0, 0, 0, 0.6);
+  /* Behind a picture shown over the whole window */
+  --backdrop-strong: rgba(0, 0, 0, 0.85);
   --shadow: rgba(0, 0, 0, 0.5);
   --shadow-strong: rgba(0, 0, 0, 0.6);
   --scroll-thumb: #3a4351;
@@ -71,6 +77,7 @@
   --accent-soft: rgba(22, 115, 184, 0.12);
   --danger: #d0283c;
   --danger-text: #a3192b;
+  --on-danger: #fff;
   --warn: #9a5b00;
   --success: #2f7d1e;
   --trigger: #c4691a;
@@ -96,6 +103,7 @@
   --drop-bg: rgba(225, 238, 250, 0.8);
   --busy-bg: rgba(238, 241, 245, 0.7);
   --backdrop: rgba(20, 30, 45, 0.35);
+  --backdrop-strong: rgba(20, 30, 45, 0.8);
   --shadow: rgba(20, 30, 45, 0.18);
   --shadow-strong: rgba(20, 30, 45, 0.25);
   --scroll-thumb: #c3cad4;
@@ -170,7 +178,7 @@ button:disabled {
 button.active {
   background: var(--accent-2);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 button.text-btn {
   background: transparent;
@@ -279,7 +287,7 @@ kbd {
   padding: 0 4px;
   border-radius: 8px;
   background: var(--accent-2);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 10px;
   line-height: 15px;
 }
@@ -340,7 +348,7 @@ kbd {
   padding: 48px 16px;
   border: 1.5px dashed var(--drop-border);
   border-radius: 12px;
-  background: rgba(63, 182, 255, 0.04);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
   font-size: 15px;
 }
 .drop-target span {
@@ -360,8 +368,8 @@ code {
 }
 .error {
   color: var(--danger);
-  background: rgba(255, 90, 106, 0.1);
-  border: 1px solid rgba(255, 90, 106, 0.35);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
   padding: 8px 12px;
   border-radius: 6px;
 }
@@ -417,50 +425,12 @@ code {
   height: 26px;
 }
 
-.menu {
-  position: relative;
-}
-.menu-list {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 6px);
-  min-width: 230px;
-  padding: 4px;
-  background: var(--panel);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  box-shadow: 0 10px 30px var(--shadow);
-  z-index: 40;
-  display: flex;
-  flex-direction: column;
-}
-.menu-list button {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  text-align: left;
-  background: transparent;
-  border: none;
-  padding: 7px 9px;
-}
-.menu-list button:hover:not(:disabled) {
-  background: var(--hover);
-}
-.menu-list.left {
-  right: auto;
-  left: 0;
-}
-.menu-list small {
-  margin-left: auto;
-  color: var(--muted);
-}
-
-/* ---------- context menu (right-click) ---------- */
+/* ---------- menus (right-click and the drop-downs of the top bar) ---------- */
 .context-menu {
   position: fixed;
   z-index: 90;
   min-width: 220px;
-  max-width: 320px;
+  max-width: 360px;
   max-height: calc(100vh - 8px);
   overflow-y: auto;
   padding: 4px;
@@ -513,6 +483,12 @@ code {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.cm-note {
+  margin-left: 12px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
 }
 .context-menu kbd {
   margin-left: 12px;
@@ -720,8 +696,8 @@ code {
   max-width: calc(100% - 140px);
   padding: 5px 12px;
   border-radius: 14px;
-  background: rgba(29, 127, 196, 0.92);
-  color: #fff;
+  background: color-mix(in srgb, var(--accent-2) 92%, transparent);
+  color: var(--on-accent);
   font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
@@ -1043,7 +1019,8 @@ code {
 }
 .chip {
   background: var(--ch);
-  color: #000;
+  /* Black or white, whichever reads on the channel colour (chipStyle) */
+  color: var(--ch-text, #000);
   font-weight: 600;
   font-size: 11px;
   padding: 1px 6px;
@@ -1221,7 +1198,7 @@ th:hover .x {
 .modal {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.85);
+  background: var(--backdrop-strong);
   display: grid;
   place-items: center;
   z-index: 50;
@@ -1340,11 +1317,18 @@ button.pill.active {
   white-space: nowrap;
 }
 .callout-tools {
-  display: flex;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
 }
+/* Icon above the label, as narrow as the five fit into the panel */
 .callout-tools button {
-  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 2px 4px;
+  font-size: 12px;
 }
 .callout-card {
   border: 1px solid var(--border);
@@ -1367,8 +1351,8 @@ button.pill.active {
   gap: 8px;
 }
 .callout-icon {
+  display: inline-flex;
   color: var(--co);
-  font-size: 14px;
 }
 .empty {
   color: var(--muted);
@@ -1394,19 +1378,6 @@ button.pill.active {
 .busy-overlay {
   border: none;
   background: var(--busy-bg);
-}
-.toast {
-  position: fixed;
-  bottom: 70px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--error-bg);
-  border: 1px solid var(--danger);
-  color: var(--error-text);
-  padding: 10px 16px;
-  border-radius: 6px;
-  z-index: 100;
-  cursor: pointer;
 }
 
 /* ---------- math channels ---------- */
@@ -1690,19 +1661,6 @@ button.pill.active {
   background: var(--border);
   margin: 4px 2px;
 }
-.menu-entry > button {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  text-align: left;
-  background: transparent;
-  border: none;
-  padding: 7px 9px;
-}
-.menu-entry > button:hover:not(:disabled) {
-  background: var(--hover);
-}
 .save-status {
   display: inline-flex;
   align-items: center;
@@ -1842,6 +1800,30 @@ button.pill.active {
 .success {
   color: var(--success);
 }
+.dialog.confirm {
+  width: min(440px, 100%);
+}
+.confirm-body {
+  padding: 16px 16px 12px;
+}
+.confirm-body h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.confirm-body p {
+  margin: 8px 0 0;
+  color: var(--text-2);
+}
+/* A primary button that deletes or discards (text buttons with .danger are only red text) */
+button.primary.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--on-danger);
+}
+button.primary.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 85%, var(--text));
+  border-color: var(--danger);
+}
 .dialog-foot {
   display: flex;
   justify-content: flex-end;
@@ -1857,7 +1839,7 @@ button.pill.active {
 button.primary {
   background: var(--accent-2);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 .storage {
   display: flex;
@@ -1888,7 +1870,7 @@ button.primary {
   }
 }
 
-/* Undo offers and short confirmations, above the channel bar */
+/* Notices (confirmations, Undo, errors), above the channel bar */
 .toast-stack {
   position: fixed;
   left: 50%;
@@ -1901,8 +1883,9 @@ button.primary {
   gap: 8px;
   pointer-events: none;
 }
-.undo-toast {
+.toast {
   pointer-events: auto;
+  max-width: min(640px, calc(100vw - 32px));
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1912,11 +1895,16 @@ button.primary {
   border-radius: 8px;
   box-shadow: 0 8px 24px var(--shadow);
 }
-.undo-toast.notice {
+.toast.plain {
   padding: 7px 14px;
   pointer-events: none;
 }
-.undo-toast .text-btn {
+.toast.error {
+  background: var(--error-bg);
+  border-color: var(--danger);
+  color: var(--error-text);
+}
+.toast .text-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;

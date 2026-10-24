@@ -65,10 +65,6 @@ function closingDelimiter(line: string, from: number, display: boolean): number 
   return -1
 }
 
-export function hasTex(s: string): boolean {
-  return s.split('\n').some((l) => splitTex(l).some((p) => 'tex' in p))
-}
-
 /** The source of a formula as written */
 export function texSource(p: { tex: string; display: boolean }): string {
   const d = p.display ? '$$' : '$'
@@ -78,7 +74,12 @@ export function texSource(p: { tex: string; display: boolean }): string {
 // ---------- rendering cache ----------
 
 type Entry = { svg: TexSvg } | { error: string } | { pending: Promise<void> }
+/**
+ * Rendered formulas, least recently used first. Typing a formula renders every intermediate
+ * state of it, so the cache is limited; formulas still rendering are never dropped.
+ */
 const cache = new Map<string, Entry>()
+const MAX_CACHED = 300
 const listeners = new Set<() => void>()
 let version = 0
 let engine: Promise<typeof import('./mathjax')> | null = null
@@ -101,13 +102,28 @@ function render(tex: string, display: boolean): Promise<void> {
       listeners.forEach((l) => l())
     })
   cache.set(k, { pending })
+  trim()
   return pending
+}
+
+/** Drop the least recently used finished formulas beyond MAX_CACHED */
+function trim(): void {
+  for (const [k, e] of cache) {
+    if (cache.size <= MAX_CACHED) return
+    if (!('pending' in e)) cache.delete(k)
+  }
 }
 
 /** The rendered formula, or undefined while it renders (then subscribers are notified) or on error */
 export function texSvg(tex: string, display: boolean): TexSvg | undefined {
-  const e = cache.get(key(tex, display))
+  const k = key(tex, display)
+  const e = cache.get(k)
   if (!e) void render(tex, display)
+  else if (!('pending' in e)) {
+    // Used: move to the end, so it is dropped last
+    cache.delete(k)
+    cache.set(k, e)
+  }
   return e && 'svg' in e ? e.svg : undefined
 }
 

@@ -74,7 +74,7 @@ Right-click (on a Mac also Ctrl+click) opens the commands for what is under the 
 | Measurement table | copy a value, a row or the whole table (tab separated, pastes as a table), explanation, move or remove a column, add a measurement, range |
 | Spectrum | frequency and levels at the pointer (copy), zoom, full span, level / frequency scale, peak count, range, copy the peak list |
 | Overview, horizontal box | centre the view here, back, full record, saved view |
-| Stored sessions | open or locate, forget |
+| Stored sessions | open or locate, forget (asks first) |
 
 The menus can be used with the keyboard (↑ ↓ Enter, Esc). Text fields keep the browser's own menu.
 The **middle mouse button** pans the plot with any tool.
@@ -83,7 +83,7 @@ The **middle mouse button** pans the plot with any tool.
 
 | How | What it does |
 | --- | --- |
-| Mouse wheel | Zoom time around the pointer (Shift+wheel pans) |
+| Mouse wheel | Zoom time around the pointer (Shift+wheel or a sideways swipe pans; the same in the overview and the spectrum) |
 | Right-click → Zoom in / out here | Zoom 2× around the pointer |
 | **Zoom** tool, drag a rectangle | Zoom time *and* vertical range of that view |
 | **Zoom** tool, click / Alt+click | Zoom in / out 2× |
@@ -112,7 +112,8 @@ Mark events directly on the waveforms:
   *Set cursors to the ends* puts the cursors there
 
 Pick a type in the toolbar (or press N / M / R / B / D), click (or drag for a region, box or span) in the
-plot and type the text. Drag callouts to move them, double-click to edit. The **Callouts** tab lists all of them
+plot and type the text. `Esc` while dragging cancels: nothing is created, a dragged callout goes back where it was.
+Pressing a tool again goes back to Pan. Drag callouts to move them, double-click to edit. The **Callouts** tab lists all of them
 with *Go to*; right-click a callout for its commands. Callouts are saved with the session (see *Saving*).
 Callout files from earlier versions can still be opened with *File → Open analysis file*.
 
@@ -168,9 +169,10 @@ of a channel or math channel in a view below the time views, like the FFT math f
 - Computed over the samples **on screen**, **between the cursors** or of the **whole record**; it
   follows zooming and panning. Each spectrum picks its own window: Rectangular, Hann (default),
   Hamming, Blackman-Harris or Flat-top
-- Levels in **dBV** (dB relative to 1 V RMS; dB(A) etc. for other units) or linear **V RMS**;
+- Levels in **dBV** (dB relative to 1 V RMS; dB(A) etc. for other units) or linear **V RMS**, each spectrum in the
+  unit of its channel (with channels of different units the level axis is in plain dB / RMS);
   a sine of amplitude A reads A/√2 with every window (Flat-top keeps that between bins too)
-- **Log** or **linear** frequency axis; wheel zooms the frequency, Ctrl+wheel the level axis, drag pans,
+- **Log** or **linear** frequency axis; wheel zooms the frequency, Ctrl+wheel the level axis, drag or Shift+wheel pans,
   Shift+drag zooms to a range, double-click shows the full span. Point at the plot to read frequency and level
 - **Peak list**: the highest 3/5/10 peaks in view per spectrum, with interpolated frequency and level,
   ignoring noise and the window's own side lobes
@@ -242,12 +244,13 @@ Exports keep their own Dark / Light option.
 
 ### Keyboard
 
-`Ctrl+K` command palette · `P` pan · `Z` zoom tool · `N` note · `M` marker · `R` region · `B` box · `D` span · `Esc` back to pan ·
-`Ctrl+Z` undo · `Ctrl+Y` redo · `F` full record · `+`/`-` zoom · `←`/`→` pan · `Backspace` zoom back · `C` cursors ·
+`Ctrl+K` command palette · `P` pan · `Z` zoom tool · `N` note · `M` marker · `R` region · `B` box · `D` span (a tool's key
+again: back to pan) · `Esc` cancel a drag, back to pan ·
+`Ctrl+Z` undo · `Ctrl+Y` redo · `F` full record · `+`/`-` zoom · `←`/`→` pan · `Backspace` back to the previous view · `C` cursors ·
 `V` values at the pointer · `O` overview · `T` measurements · `\` focus mode ·
-`Enter` edit / `Delete` delete the selected callout · `,` / `.` previous / next callout ·
+`Enter` edit / `Delete` (on a Mac `fn`+`⌫`) delete the selected callout · `,` / `.` previous / next callout ·
 `Shift+←`/`→` move the selected callout · `Alt` while placing a marker or region: no snapping ·
-`↑`/`↓` position of the selected channel (Shift: 1 div) · `Page Up`/`Page Down` its V/div
+`↑`/`↓` position of the selected channel by 0.1 div (Shift: 1 div; also Alt+wheel and the ± buttons) · `Page Up`/`Page Down` its V/div
 
 The **?** button at the bottom of the rail shows all mouse and keyboard controls.
 
@@ -292,7 +295,7 @@ src/math/       expression language and signal processing for math channels, FFT
 src/model/      data types, view state (time window, cursors, ranges), callouts, math, spectra,
                 the workspace (autosave, analysis files), undo history and the browser's file store
 src/export/     CSV, image composition, HTML report, bundles
-src/render/     canvas drawing of views, time axis, spectrum and callouts; TeX; export themes
+src/render/     canvas drawing of views, time axis, spectrum and callouts; TeX; themes and fonts
 src/components/ React UI (Scope workspace, plot, panels) and its hooks
 src/pwa/        install prompt and files opened from the operating system
 src/util/       formatting, names, clipboard, downloads
@@ -301,6 +304,11 @@ src/util/       formatting, names, clipboard, downloads
 Only `src/components` imports from `src/components`: parsing, analysis, rendering and exports do not
 depend on the UI components (exports reach the plot and the spectrum view through the small interfaces
 `PlotImageSource` and `SpectrumSource` in `src/export/sessionExport.ts`).
+
+Each command of the workspace is defined once as an *action* (`src/components/scopeCommands.ts`) and offered
+by the toolbar, the menus, the command palette and the keyboard alike; the shortcuts and the help text are listed in
+`src/components/keymap.ts`. The colours of the plots (`src/render/theme.ts`) and the CSS tokens in `src/styles.css`
+are checked against each other by a test.
 
 To add a new format (e.g. Rigol), write a parser that returns `Waveform` objects and add it to
 `loadFiles` in `src/parsers/session.ts`.

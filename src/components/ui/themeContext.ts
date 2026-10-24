@@ -24,6 +24,11 @@ export const ThemeContext = createContext<ThemeState>({ preference: 'dark', appe
 /** The appearance in effect and its colours */
 export const useTheme = () => useContext(ThemeContext)
 
+/** CSS variables of a filled channel chip: its colour as drawn (`ink`) and the text that reads on it */
+export function chipStyle(ink: string, onInk: (fill: string) => string): React.CSSProperties {
+  return { ['--ch' as string]: ink, ['--ch-text' as string]: onInk(ink) }
+}
+
 export function isThemePreference(v: unknown): v is ThemePreference {
   return THEME_PREFERENCES.includes(v as ThemePreference)
 }

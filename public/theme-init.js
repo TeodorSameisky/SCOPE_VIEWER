@@ -3,7 +3,8 @@
 // Content-Security-Policy does not allow inline scripts.
 try {
   var preference = JSON.parse(localStorage.getItem('scope-viewer:theme') || '"dark"')
-  if (preference === 'light' || (preference === 'system' && window.matchMedia('(prefers-color-scheme: light)').matches)) {
+  // As in the app (resolveAppearance): "system" is dark only when the system asks for dark
+  if (preference === 'light' || (preference === 'system' && !window.matchMedia('(prefers-color-scheme: dark)').matches)) {
     document.documentElement.dataset.theme = 'light'
   }
 } catch {

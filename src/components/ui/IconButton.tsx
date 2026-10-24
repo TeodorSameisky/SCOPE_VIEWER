@@ -1,4 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
+import type { Action } from './action'
 
 interface Props {
   icon: LucideIcon
@@ -28,5 +29,20 @@ export function IconButton({ icon: Icon, label, shortcut, active, disabled, show
       {showLabel && <span className="btn-label">{label}</span>}
       {!!badge && <span className="icon-badge">{badge}</span>}
     </button>
+  )
+}
+
+/** A toolbar button for an action (it needs an icon) */
+export function ActionButton({ action: a, showLabel }: { action: Action; showLabel?: boolean }) {
+  return (
+    <IconButton
+      icon={a.icon!}
+      label={a.label}
+      shortcut={a.hint}
+      active={a.checked}
+      disabled={a.disabled}
+      showLabel={showLabel}
+      onClick={a.run}
+    />
   )
 }

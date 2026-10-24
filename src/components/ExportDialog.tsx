@@ -290,7 +290,6 @@ export function ExportDialog(p: Props) {
           {kind === 'image' && (
             <button
               type="button"
-              className="secondary"
               disabled={busy || !p.canCopyImage}
               title={p.canCopyImage ? 'Copy the image to the clipboard' : 'Copying images needs a secure (HTTPS) connection'}
               onClick={() => run(true)}

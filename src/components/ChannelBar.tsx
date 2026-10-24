@@ -5,10 +5,11 @@ import type { MathResult } from '../math/expr'
 import { MAX_MATH, type MathDef } from '../model/math'
 import type { ChannelDisplay, Session } from '../model/types'
 import { si } from '../util/format'
-import { channelName, slopeSymbol, sourceUnit } from '../util/names'
+import { channelName, perDiv, slopeSymbol, sourceUnit } from '../util/names'
 import { ChannelSettings } from './ChannelSettings'
 import { MathEditor } from './MathEditor'
 import type { DisplayPatch, LiveChannel, TimeWindow } from '../model/view'
+import { placeNear } from './ui/placement'
 import { useDismiss } from './ui/useDismiss'
 import { useTheme } from './ui/themeContext'
 
@@ -55,6 +56,8 @@ export interface ChannelBarHandle {
 
 /** Badges closer than this to the edge of the scrolling row are under the fade */
 const EDGE_PX = 30
+/** Width of the settings popover */
+const POPOVER_W = 340
 
 /**
  * Bottom settings bar, modelled on the badges of a Tektronix scope:
@@ -64,7 +67,7 @@ const EDGE_PX = 30
  */
 export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBar(p, ref) {
   // The popover is positioned fixed so it is never clipped
-  const [open, setOpen] = useState<{ id: string; left: number; bottom: number } | null>(null)
+  const [open, setOpen] = useState<{ id: string; style: React.CSSProperties } | null>(null)
   const popRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
@@ -73,8 +76,7 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
 
   const openFor = (id: string, el: HTMLElement | null | undefined) => {
     if (!el) return
-    const r = el.getBoundingClientRect()
-    setOpen({ id, left: Math.max(8, Math.min(r.left, window.innerWidth - 356)), bottom: window.innerHeight - r.top + 6 })
+    setOpen({ id, style: placeNear(el.getBoundingClientRect(), POPOVER_W, 'above') })
   }
 
   // ---------- one scrolling row ----------
@@ -170,7 +172,7 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
             }}
           >
             <span className="ch-name">{channelName(id)}</span>
-            <span className="ch-scale mono">{error ? <AlertTriangle size={12} aria-label="Error" /> : si(d.scale, `${unit || 'U'}/div`, 3)}</span>
+            <span className="ch-scale mono">{error ? <AlertTriangle size={12} aria-label="Error" /> : perDiv(d.scale, unit)}</span>
             <span className="ch-label">{sub || ' '}</span>
           </button>
           <button
@@ -183,7 +185,7 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
             {d.visible ? <Eye size={14} /> : <EyeOff size={14} />}
           </button>
           {isOpen && open && (
-            <div className="popover" style={{ position: 'fixed', left: open.left, bottom: open.bottom, maxHeight: `calc(100vh - ${open.bottom + 8}px)`, overflowY: 'auto' }}>
+            <div className="popover" style={open.style}>
               {popover}
             </div>
           )}
@@ -192,10 +194,11 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
     )
   }
 
-  const settings = (d: ChannelDisplay, unit: string, children?: React.ReactNode) => (
+  const settings = (d: ChannelDisplay, unit: string, hasWave: boolean, children?: React.ReactNode) => (
     <ChannelSettings
       display={d}
       unit={unit}
+      hasWave={hasWave}
       views={p.views}
       onAdjust={p.onAdjust}
       onMoveToView={p.onMoveToView}
@@ -218,7 +221,7 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
         )}
         <div ref={scrollRef} className="badges" onScroll={onScroll}>
           <div ref={trackRef} className="badges-track">
-            {p.channels.map((c) => badge(c.wave.id, c.display, c.wave.yUnit, c.display.label, settings(c.display, c.wave.yUnit)))}
+            {p.channels.map((c) => badge(c.wave.id, c.display, c.wave.yUnit, c.display.label, settings(c.display, c.wave.yUnit, true)))}
             {p.math.map((m) => {
               const unit = m.result?.wave?.yUnit ?? ''
               return badge(
@@ -229,6 +232,7 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
                 settings(
                   m.display,
                   unit,
+                  !!m.result?.wave,
                   <MathEditor
                     key={m.def.expr}
                     def={m.def}

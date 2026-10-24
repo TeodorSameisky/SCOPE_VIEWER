@@ -10,6 +10,8 @@ import { Scope, type InitialState, type ScopeHandle, type SourceFile } from './c
 import { Logo } from './components/ui/Logo'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ContextMenuProvider } from './components/ui/ContextMenu'
+import { FeedbackProvider } from './components/ui/Feedback'
+import { useFeedback } from './components/ui/feedbackContext'
 import { ThemeButton, ThemeProvider } from './components/ui/ThemeProvider'
 import { PwaStatus } from './components/PwaStatus'
 import { installApp, useCanInstall } from './pwa/install'
@@ -29,13 +31,35 @@ interface Current {
 }
 
 export default function App() {
+  return (
+    <ThemeProvider>
+      <FeedbackProvider>
+        <ContextMenuProvider>
+          <Main />
+        </ContextMenuProvider>
+      </FeedbackProvider>
+    </ThemeProvider>
+  )
+}
+
+/** The start page or the open session */
+function Main() {
+  const { confirm, notify } = useFeedback()
   const [current, setCurrent] = useState<Current | null>(null)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  /** Shown on the start page; with a session open, errors are notices */
+  const [error, setErrorText] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const scopeRef = useRef<ScopeHandle>(null)
   const hasSession = current !== null
+  const setError = useCallback(
+    (message: string | null) => {
+      if (message && hasSession) notify({ kind: 'error', message })
+      else setErrorText(message)
+    },
+    [hasSession, notify],
+  )
 
   // Session files are kept in the browser after opening, so stored sessions can be reopened
   const [filesVersion, setFilesVersion] = useState(0)
@@ -70,7 +94,9 @@ export default function App() {
           const parsed = parseAnalysisJson(text)
           const fp = loaded.session.fingerprint
           const foreign = parsed.fingerprint && fp && parsed.fingerprint !== fp
-          if (!foreign || confirm('The analysis file was saved for a different session file. Apply it anyway?')) {
+          const apply =
+            !foreign || (await confirm({ title: 'Apply the analysis?', message: 'The analysis file was saved for a different session file.', confirmLabel: 'Apply it' }))
+          if (apply) {
             initial = parsed.kind === 'analysis' ? { kind: 'analysis', workspace: parsed.workspace } : { kind: 'stored', addCallouts: parsed.callouts }
           }
         }
@@ -79,8 +105,9 @@ export default function App() {
           ? loaded.sources.map((s) => ({ name: s.name, blob: new Blob([s.data]) }))
           : data.map((f) => ({ name: f.name, blob: f }))
         setCurrent((c) => ({ session: loaded.session, sources, initial, generation: (c?.generation ?? 0) + 1 }))
+        setErrorText(null)
         if (expected && loaded.session.fingerprint && expected.fingerprint !== loaded.session.fingerprint) {
-          setError(`This is not the stored session “${expected.fileName}” (the content differs), so it was opened on its own.`)
+          notify({ kind: 'error', message: `This is not the stored session “${expected.fileName}” (the content differs), so it was opened on its own.` })
         }
         void keepFiles(loaded.session, sources)
       } catch (e) {
@@ -89,7 +116,7 @@ export default function App() {
         setBusy(false)
       }
     },
-    [hasSession, keepFiles],
+    [hasSession, keepFiles, setError, confirm, notify],
   )
 
   /** Switch to a session stored in this browser; without its kept file, ask for the file */
@@ -163,7 +190,8 @@ export default function App() {
       // A file launched from the operating system takes precedence
       if (launched.current) return setRestoring(false)
       if (files?.length) await openRef.current(files)
-      else setError(`“${toRestore.fileName}” could not be reopened after reloading, because its file is not kept in this browser. Open it again.`)
+      // Still on the start page: the message goes there
+      else setErrorText(`“${toRestore.fileName}” could not be reopened after reloading, because its file is not kept in this browser. Open it again.`)
       setRestoring(false)
     })()
     return () => {
@@ -203,110 +231,103 @@ export default function App() {
   )
 
   return (
-    <ThemeProvider>
-      <ContextMenuProvider>
-        {picker}
-        {current ? (
-          <ErrorBoundary
-            key={current.generation}
+    <>
+      {picker}
+      {current ? (
+        <ErrorBoundary
+          key={current.generation}
+          onClose={() => setCurrent(null)}
+          onReset={() => {
+            // A broken saved state must not make the file unusable: forget it and show the file defaults
+            if (current.session.fingerprint) deleteStoredSession(current.session.fingerprint)
+            replaceWorkspace({ kind: 'defaults' })
+          }}
+        >
+          <Scope
+            ref={scopeRef}
+            session={current.session}
+            sources={current.sources}
+            initial={current.initial}
+            onOpen={() => inputRef.current?.click()}
             onClose={() => setCurrent(null)}
-            onReset={() => {
-              // A broken saved state must not make the file unusable: forget it and show the file defaults
-              if (current.session.fingerprint) deleteStoredSession(current.session.fingerprint)
-              replaceWorkspace({ kind: 'defaults' })
-            }}
-          >
-            <Scope
-              ref={scopeRef}
-              session={current.session}
-              sources={current.sources}
-              initial={current.initial}
-              onOpen={() => inputRef.current?.click()}
-              onClose={() => setCurrent(null)}
-              onReplaceWorkspace={replaceWorkspace}
-              onOpenStored={openStored}
-              onKeepFiles={() => keepFiles(current.session, current.sources)}
-              filesVersion={filesVersion}
-            />
-          </ErrorBoundary>
-        ) : restoring && toRestore ? (
-          <div className="landing">
-            <div className="landing-card">
-              <div className="brand big">
-                <Logo size={30} /> Scope Viewer
-              </div>
-              <p>Reopening {toRestore.fileName}…</p>
+            onReplaceWorkspace={replaceWorkspace}
+            onOpenStored={openStored}
+            onKeepFiles={() => keepFiles(current.session, current.sources)}
+            filesVersion={filesVersion}
+          />
+        </ErrorBoundary>
+      ) : restoring && toRestore ? (
+        <div className="landing">
+          <div className="landing-card">
+            <div className="brand big">
+              <Logo size={30} /> Scope Viewer
             </div>
+            <p>Reopening {toRestore.fileName}…</p>
           </div>
-        ) : (
-          <div className="landing">
-            <div className="landing-card">
-              <div className="brand big">
-                <Logo size={30} /> Scope Viewer
-              </div>
-              <p>View and analyse oscilloscope session files in your browser. Files are processed locally and never uploaded.</p>
-              <button className="drop-target" onClick={() => inputRef.current?.click()} disabled={busy}>
-                {busy ? 'Reading file…' : (
-                  <>
-                    <strong>Drop a session file here</strong>
-                    <span>or click to choose a file</span>
-                  </>
-                )}
-              </button>
-              {error && <div className="error">{error}</div>}
-              <div className={`recent ${recentCount ? '' : 'hidden'}`}>
-                <h4>Recent sessions</h4>
-                <RecentSessions onOpen={openStored} refreshKey={filesVersion} onLoaded={(l) => setRecentCount(l.length)} limit={8} />
-              </div>
-              {canInstall && (
-                <div className="install-hint">
-                  <button type="button" className="primary" onClick={() => installApp()}>
-                    <MonitorDown size={16} aria-hidden /> Install Scope Viewer
-                  </button>
-                  <span>Runs in its own window, works offline and opens .tss files from the file explorer.</span>
-                </div>
+        </div>
+      ) : (
+        <div className="landing">
+          <div className="landing-card">
+            <div className="brand big">
+              <Logo size={30} /> Scope Viewer
+            </div>
+            <p>View and analyse oscilloscope session files in your browser. Files are processed locally and never uploaded.</p>
+            <button className="drop-target" onClick={() => inputRef.current?.click()} disabled={busy}>
+              {busy ? 'Reading file…' : (
+                <>
+                  <strong>Drop a session file here</strong>
+                  <span>or click to choose a file</span>
+                </>
               )}
-              <ul className="formats">
-                <li>
-                  <b>Tektronix session</b> <code>.tss</code> (4/5/6-Series MSO)
-                </li>
-                <li>
-                  <b>Tektronix waveform</b> <code>.wfm</code>, optionally with a <code>.set</code> setup file
-                </li>
-                <li>
-                  <b>Older Tektronix scopes</b> <code>.isf</code> (TDS, DPO/MSO2000–4000, MDO3000/4000), with <code>.set</code> and screenshot; or the
-                  saved files together in a <code>.zip</code>
-                </li>
-                <li>
-                  <b>Scope Viewer bundle</b> <code>.scopeview</code>: a session with its analysis; or a session file together with its{' '}
-                  <code>.scopeview.json</code> analysis
-                </li>
-                <li className="muted">
-                  <b>Rigol</b>: coming soon
-                </li>
-              </ul>
-              <div className="landing-foot">
-                <p className="legal">
-                  MIT License ·{' '}
-                  <a href={`${import.meta.env.BASE_URL}third-party-licenses.txt`} target="_blank" rel="noreferrer">
-                    Licenses of the software used
-                  </a>
-                </p>
-                <ThemeButton />
+            </button>
+            {error && <div className="error">{error}</div>}
+            <div className={`recent ${recentCount ? '' : 'hidden'}`}>
+              <h4>Recent sessions</h4>
+              <RecentSessions onOpen={openStored} refreshKey={filesVersion} onLoaded={(l) => setRecentCount(l.length)} limit={8} />
+            </div>
+            {canInstall && (
+              <div className="install-hint">
+                <button type="button" className="primary" onClick={() => installApp()}>
+                  <MonitorDown size={16} aria-hidden /> Install Scope Viewer
+                </button>
+                <span>Runs in its own window, works offline and opens .tss files from the file explorer.</span>
               </div>
+            )}
+            <ul className="formats">
+              <li>
+                <b>Tektronix session</b> <code>.tss</code> (4/5/6-Series MSO)
+              </li>
+              <li>
+                <b>Tektronix waveform</b> <code>.wfm</code>, optionally with a <code>.set</code> setup file
+              </li>
+              <li>
+                <b>Older Tektronix scopes</b> <code>.isf</code> (TDS, DPO/MSO2000–4000, MDO3000/4000), with <code>.set</code> and screenshot; or the
+                saved files together in a <code>.zip</code>
+              </li>
+              <li>
+                <b>Scope Viewer bundle</b> <code>.scopeview</code>: a session with its analysis; or a session file together with its{' '}
+                <code>.scopeview.json</code> analysis
+              </li>
+              <li className="muted">
+                <b>Rigol</b>: coming soon
+              </li>
+            </ul>
+            <div className="landing-foot">
+              <p className="legal">
+                MIT License ·{' '}
+                <a href={`${import.meta.env.BASE_URL}third-party-licenses.txt`} target="_blank" rel="noreferrer">
+                  Licenses of the software used
+                </a>
+              </p>
+              <ThemeButton />
             </div>
           </div>
-        )}
-        {busy && current && <div className="busy-overlay">Reading file…</div>}
-        {error && current && (
-          <div className="toast" onClick={() => setError(null)}>
-            {error}
-          </div>
-        )}
-        {dragOver && <div className="drop-overlay">Drop to open</div>}
-        <PwaStatus />
-      </ContextMenuProvider>
-    </ThemeProvider>
+        </div>
+      )}
+      {busy && current && <div className="busy-overlay">Reading file…</div>}
+      {dragOver && <div className="drop-overlay">Drop to open</div>}
+      <PwaStatus />
+    </>
   )
 }
 

@@ -23,9 +23,23 @@ export function slopeSymbol(slope: string | undefined): string {
   return slope.toLowerCase()
 }
 
+/**
+ * A unit as part of a compound unit (V/div, V/s): "U" for values without a unit, as on the scope.
+ * Plain values of such channels are shown without a unit.
+ */
+export function displayUnit(unit: string): string {
+  return unit || 'U'
+}
+
+/** A channel's scale, e.g. "500 mV/div" (or "2.00 U/div" without a unit) */
+export function perDiv(scale: number, unit: string): string {
+  return si(scale, `${displayUnit(unit)}/div`, 3)
+}
+
 /** Unit of the channel a trigger (or cursor) source refers to; V for sources without a waveform (AUX, LINE) */
 export function sourceUnit(channels: Session['channels'], source: string | undefined): string {
-  return channels.find((c) => c.wave.id === source)?.wave.yUnit || 'V'
+  const channel = channels.find((c) => c.wave.id === source)
+  return channel ? channel.wave.yUnit : 'V'
 }
 
 /** The trigger as the scope shows it, e.g. "Ch 1 ↗ 1.20 V"; empty without a trigger */

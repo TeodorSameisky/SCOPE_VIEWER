@@ -27,8 +27,12 @@ export interface Theme {
   /** Overview: the record outside the visible window */
   shade: string
   overviewBg: string
-  /** Text in the rubber band of a zoom or a new region */
+  /** Rubber band of a zoom or a new region, and the view a channel tag is dropped on: edge, fill, text */
+  band: string
+  bandFill: string
   bandText: string
+  /** Reference lines and their labels in the explanatory figures (measurements, FFT windows) */
+  guide: string
 
   /** Background of the export image around the plots */
   page: string
@@ -71,7 +75,10 @@ export const DARK_THEME: Theme = {
   windowBox: '#3fb6ff',
   shade: 'rgba(0, 0, 0, 0.55)',
   overviewBg: '#0a0d12',
+  band: 'rgba(80, 160, 255, 0.85)',
+  bandFill: 'rgba(80, 160, 255, 0.15)',
   bandText: '#cfe6ff',
+  guide: 'rgba(160, 170, 185, 0.55)',
 
   page: '#0b0e13',
   panel: '#12161d',
@@ -109,7 +116,10 @@ export const LIGHT_THEME: Theme = {
   windowBox: '#1673b8',
   shade: 'rgba(238, 241, 245, 0.7)',
   overviewBg: '#f6f7f9',
+  band: 'rgba(22, 115, 184, 0.85)',
+  bandFill: 'rgba(22, 115, 184, 0.12)',
   bandText: '#164f80',
+  guide: 'rgba(70, 80, 95, 0.75)',
 
   page: '#ffffff',
   panel: '#f2f4f7',

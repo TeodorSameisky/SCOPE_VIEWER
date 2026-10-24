@@ -4,12 +4,11 @@ import { siTick } from '../util/format'
 import { channelTag } from '../util/names'
 import { sampleAt } from '../math/signal'
 import type { Theme } from './theme'
+import { PLOT_FONT, SANS, font } from './fonts'
 
 export const DIVS_Y = 10
 /** Gutter on the right of each plot for the vertical scale labels */
 export const AXIS_GUTTER = 64
-
-export const PLOT_FONT = '11px "JetBrains Mono", ui-monospace, Consolas, monospace'
 
 export interface TraceInput {
   display: ChannelDisplay
@@ -56,15 +55,15 @@ export function valueAt(w: Waveform, t: number): number {
 
 let measureCtx: CanvasRenderingContext2D | null | undefined
 /** Width of a text in a canvas font (estimated where there is no canvas, e.g. in tests) */
-export function textWidth(text: string, font: string): number {
+export function textWidth(text: string, cssFont: string): number {
   if (measureCtx === undefined) measureCtx = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d')
   if (!measureCtx) return text.length * 7
-  measureCtx.font = font
+  measureCtx.font = cssFont
   return measureCtx.measureText(text).width
 }
 
 /** Font of the channel labels next to the tags */
-const TAG_LABEL_FONT = '13px system-ui, sans-serif'
+const TAG_LABEL_FONT = font(13, SANS)
 /** Half the height of a tag, and the least distance between the centres of two tags */
 const TAG_HALF = 7
 const TAG_GAP = 16

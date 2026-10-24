@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { Archive, FileJson, RotateCcw } from 'lucide-react'
 import { MAX_SESSION_BYTES, MAX_TOTAL_BYTES, clearSessionFiles, keepFilesEnabled, setKeepFiles } from '../model/fileStore'
 import { forgetSession, type RecentSession } from '../model/recent'
-import { MAX_STORED_SESSIONS } from '../model/workspace'
+import { MAX_STORED_SESSIONS, type SaveStatus } from '../model/workspace'
 import { formatBytes } from '../util/format'
 import { RecentSessions } from './RecentSessions'
-import type { SaveStatus } from './TopBar'
+import { useFeedback } from './ui/feedbackContext'
 
 interface Props {
   fingerprint?: string
@@ -25,6 +25,7 @@ interface Props {
 
 /** Session panel section: where the work is kept, saving it to files, managing stored sessions */
 export function StorageSection(p: Props) {
+  const { confirm } = useFeedback()
   const [recent, setRecent] = useState<RecentSession[]>([])
   const [keep, setKeep] = useState(keepFilesEnabled)
   // Bumped after changes made here (forget all, keep files on/off) to reload the list
@@ -68,7 +69,15 @@ export function StorageSection(p: Props) {
               await p.onKeepCurrent()
             } else {
               const kept = recent.filter((r) => r.fileBytes !== undefined).length
-              if (kept && !confirm(`Stop keeping session files and delete the ${kept} kept file${kept > 1 ? 's' : ''} from this browser? Saved analyses stay.`)) return
+              const ok =
+                !kept ||
+                (await confirm({
+                  title: 'Stop keeping session files?',
+                  message: `The ${kept} kept file${kept > 1 ? 's are' : ' is'} deleted from this browser. Saved analyses stay.`,
+                  confirmLabel: 'Delete kept files',
+                  danger: true,
+                }))
+              if (!ok) return
               setKeepFiles(false)
               setKeep(false)
               await clearSessionFiles()
@@ -86,7 +95,13 @@ export function StorageSection(p: Props) {
           type="button"
           className="text-btn danger"
           onClick={async () => {
-            if (!confirm(`Forget ${others.length} other sessions (their analyses and kept files)?`)) return
+            const ok = await confirm({
+              title: `Forget ${others.length} other sessions?`,
+              message: 'Their saved analyses and kept files are deleted from this browser. This cannot be undone.',
+              confirmLabel: 'Forget them',
+              danger: true,
+            })
+            if (!ok) return
             for (const r of others) await forgetSession(r.fingerprint)
             setVersion((v) => v + 1)
           }}

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { FileSearch, FileText, FolderOpen, Trash2 } from 'lucide-react'
 import { forgetSession, listRecentSessions, type RecentSession } from '../model/recent'
 import { formatBytes } from '../util/format'
+import { useFeedback } from './ui/feedbackContext'
 import { useContextMenu } from './ui/menuContext'
 
 interface Props {
@@ -27,7 +28,16 @@ export function RecentSessions({ current, onOpen, refreshKey, onLoaded, limit }:
   const [list, setList] = useState<RecentSession[] | null>(null)
   const [version, setVersion] = useState(0)
   const menu = useContextMenu()
+  const { confirm } = useFeedback()
+  /** Forget a session after asking: its analysis and kept file are deleted for good */
   const forget = async (r: RecentSession) => {
+    const ok = await confirm({
+      title: `Forget “${r.fileName}”?`,
+      message: 'Its saved analysis and kept file are deleted from this browser. This cannot be undone.',
+      confirmLabel: 'Forget',
+      danger: true,
+    })
+    if (!ok) return
     await forgetSession(r.fingerprint)
     setVersion((v) => v + 1)
   }

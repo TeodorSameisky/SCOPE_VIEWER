@@ -3,13 +3,12 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import { configDefaults, defineConfig } from 'vitest/config'
 import { thirdPartyLicenses } from './tools/thirdPartyLicenses.ts'
+import { PAGE_COLORS } from './src/render/pageColors.ts'
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }
 
-const BACKGROUND = '#0b0e13'
 /** Output folder of MathJax's on-demand glyph tables */
 const MATHJAX_FONTS = 'assets/mathjax-fonts'
-const THEME = '#0f1318'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -30,8 +29,9 @@ export default defineConfig({
         start_url: '/',
         scope: '/',
         display: 'standalone',
-        background_color: BACKGROUND,
-        theme_color: THEME,
+        // The default (dark) appearance; the app updates the title bar for the light one
+        background_color: PAGE_COLORS.dark.background,
+        theme_color: PAGE_COLORS.dark.chrome,
         categories: ['utilities', 'productivity'],
         icons: [
           { src: 'pwa-64x64.png', sizes: '64x64', type: 'image/png' },

@@ -46,17 +46,10 @@ export function levelUnit(scale: SpectrumScale, unit: string): string {
   return unit === 'V' ? 'dBV' : unit ? `dB(${unit})` : 'dB'
 }
 
-// ---------- persistence per session file ----------
-
-export interface StoredSpectra {
-  defs: SpectrumDef[]
-  options: SpectrumOptions
-}
-
-const PREFIX = 'scope-viewer:spectra:'
+// ---------- validation of stored spectra ----------
 
 /** Validate what was stored (it may come from an older version or be edited by hand). */
-export function parseStoredSpectra(raw: unknown): StoredSpectra {
+export function parseStoredSpectra(raw: unknown): { defs: SpectrumDef[]; options: SpectrumOptions } {
   const empty = { defs: [], options: { ...DEFAULT_SPECTRUM_OPTIONS } }
   if (!raw || typeof raw !== 'object') return empty
   const r = raw as { defs?: unknown; options?: Partial<Record<keyof SpectrumOptions, unknown>> }
@@ -75,14 +68,4 @@ export function parseStoredSpectra(raw: unknown): StoredSpectra {
     peaks: typeof o.peaks === 'number' && PEAK_COUNTS.includes(o.peaks) ? o.peaks : DEFAULT_SPECTRUM_OPTIONS.peaks,
   }
   return { defs, options }
-}
-
-export function loadSpectra(fingerprint: string | undefined): StoredSpectra {
-  if (!fingerprint) return parseStoredSpectra(null)
-  try {
-    const raw = localStorage.getItem(PREFIX + fingerprint)
-    return parseStoredSpectra(raw ? JSON.parse(raw) : null)
-  } catch {
-    return parseStoredSpectra(null)
-  }
 }

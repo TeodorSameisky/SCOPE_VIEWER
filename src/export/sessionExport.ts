@@ -13,7 +13,7 @@ import { THEMES, type Appearance, type Theme } from '../render/theme'
 import { downloadBlob, stem } from '../util/download'
 import { si } from '../util/format'
 import { escapeHtml } from '../util/html'
-import { channelName, triggerText } from '../util/names'
+import { channelName, perDiv, triggerText } from '../util/names'
 import { RANGE_LABEL, type CursorState, type LiveChannel, type MeasureRange, type TimeWindow } from '../model/view'
 import { buildMeasurementsCsv, buildSpectrumCsv, buildWaveformCsv, csvFormat, waveformRowCount, type CsvFormatKey } from './csv'
 import { canvasToBlob, composeImage } from './image'
@@ -60,9 +60,8 @@ export interface ExportPrefs {
 /** The visible spectra as the spectrum view shows them */
 export interface SpectrumExport {
   scale: SpectrumScale
-  /** Unit of the level values, e.g. dBV or V RMS */
-  levelUnit: string
-  items: { name: string; color: string; window: string; spec: Spectrum; peaks: Peak[] }[]
+  /** `levelUnit`: unit of the levels of that spectrum (its channel's), e.g. dBV or A RMS */
+  items: { name: string; color: string; window: string; levelUnit: string; spec: Spectrum; peaks: Peak[] }[]
 }
 
 /** The plot as an image (implemented by PlotArea) */
@@ -150,7 +149,7 @@ async function renderImage(ctx: ExportContext, prefs: ExportPrefs, appearance: A
             name: channelName(c.wave.id),
             label: def ? `${c.display.label ? `${c.display.label}: ` : ''}${def.expr}` : c.display.label,
             color: c.display.color,
-            detail: si(c.display.scale, `${c.wave.yUnit}/div`, 3),
+            detail: perDiv(c.display.scale, c.wave.yUnit),
           }
         })
       : undefined,
@@ -171,7 +170,7 @@ function reportTables(ctx: ExportContext, prefs: ExportPrefs): ReportTable[] {
       columns: ['Channel', 'Label', 'Scale', 'Offset', 'Position', 'Shown'],
       rows: channels.map((c) => ({
         color: c.display.color,
-        cells: [channelName(c.wave.id), c.display.label, si(c.display.scale, `${c.wave.yUnit}/div`, 3), si(c.display.offset, c.wave.yUnit), `${c.display.position} div`, c.display.visible ? 'yes' : 'no'],
+        cells: [channelName(c.wave.id), c.display.label, perDiv(c.display.scale, c.wave.yUnit), si(c.display.offset, c.wave.yUnit), `${c.display.position} div`, c.display.visible ? 'yes' : 'no'],
       })),
     })
   }
@@ -234,9 +233,10 @@ function reportTables(ctx: ExportContext, prefs: ExportPrefs): ReportTable[] {
   if (o.spectra && ctx.spectra.length) {
     const data = ctx.spectrum?.getData()
     if (data?.items.length) {
+      const units = [...new Set(data.items.map((it) => it.levelUnit))]
       tables.push({
         title: 'Spectrum peaks',
-        note: `Range: ${RANGE_LABEL[ctx.specOptions.range].toLowerCase()} · levels in ${data.levelUnit}`,
+        note: `Range: ${RANGE_LABEL[ctx.specOptions.range].toLowerCase()}${units.length === 1 ? ` · levels in ${units[0]}` : ''}`,
         columns: ['Spectrum', 'Peak', 'Frequency', 'Level'],
         rows: data.items.flatMap((it) =>
           it.peaks.map((pk, i) => ({
@@ -245,7 +245,7 @@ function reportTables(ctx: ExportContext, prefs: ExportPrefs): ReportTable[] {
               `${it.name} (${it.window})`,
               String(i + 1),
               si(pk.freq, 'Hz', 5),
-              data.scale === 'db' ? `${toDb(pk.rms).toFixed(1)} ${data.levelUnit}` : si(pk.rms, data.levelUnit),
+              data.scale === 'db' ? `${toDb(pk.rms).toFixed(1)} ${it.levelUnit}` : si(pk.rms, it.levelUnit),
             ],
           })),
         ),
@@ -323,8 +323,7 @@ export async function runExport(ctx: ExportContext, kind: ExportKind, prefs: Exp
   const db = data.scale === 'db'
   downloadBlob(
     buildSpectrumCsv(
-      data.levelUnit,
-      data.items.map((it) => ({ name: `${it.name} ${it.window}`, df: it.spec.df, values: db ? Array.from(it.spec.rms, toDb) : it.spec.rms })),
+      data.items.map((it) => ({ name: `${it.name} ${it.window}`, unit: it.levelUnit, df: it.spec.df, values: db ? Array.from(it.spec.rms, toDb) : it.spec.rms })),
       format,
     ),
     `${fileStem}-spectra.csv`,

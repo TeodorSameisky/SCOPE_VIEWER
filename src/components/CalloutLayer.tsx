@@ -1,7 +1,8 @@
 import { forwardRef, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { CALLOUT_COLORS, type Callout } from '../model/callouts'
+import type { Callout } from '../model/callouts'
 import { SPAN_DY, calloutShapes, type CalloutGeo, type CalloutLayout, type CalloutPart } from '../render/callouts'
 import { CalloutValueEditor } from './CalloutValueEditor'
+import { ColorSwatches } from './ColorSwatches'
 import { DIVS_Y } from '../render/draw'
 import { useTheme } from './ui/themeContext'
 
@@ -168,11 +169,26 @@ export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLay
       if ((c?.type === 'region' || c?.type === 'box') && c.t2 !== undefined && c.t2 < c.t) p.onUpdate(c.id, { t: c.t2, t2: c.t })
       setDrag(null)
     }
+    // Esc (or a cancelled pointer) puts the callout back where it was
+    const cancel = () => {
+      // Fields the drag may have added are cleared, then the callout as it was is restored
+      p.onUpdate(drag.id, { t2: undefined, v: undefined, v2: undefined, view: undefined, div: undefined, div2: undefined, dx: undefined, dy: undefined, ...drag.orig })
+      setDrag(null)
+    }
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      cancel()
+    }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', cancel)
+    window.addEventListener('keydown', key)
     return () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', cancel)
+      window.removeEventListener('keydown', key)
     }
   }, [drag, p, span, totalH, ref])
 
@@ -267,16 +283,7 @@ export const CalloutLayer = forwardRef<SVGSVGElement, Props>(function CalloutLay
             keepFocus
           />
           <div className="callout-editor-row">
-            {CALLOUT_COLORS.map((col) => (
-              <button
-                key={col}
-                className={`swatch ${editing.color === col ? 'active' : ''}`}
-                style={{ background: col }}
-                title="Colour"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => p.onUpdate(editing.id, { color: col })}
-              />
-            ))}
+            <ColorSwatches value={editing.color} onChange={(color) => p.onUpdate(editing.id, { color })} keepFocus />
             <span className="spacer" />
             <button className="text-btn danger" onMouseDown={(e) => e.preventDefault()} onClick={() => p.onDelete(editing.id)}>
               Delete

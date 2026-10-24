@@ -1,13 +1,12 @@
 import { useLayoutEffect, useMemo, useSyncExternalStore } from 'react'
 import { Moon, Sun, SunMoon } from 'lucide-react'
-import { THEMES, type Appearance } from '../../render/theme'
+import { PAGE_COLORS } from '../../render/pageColors'
+import { THEMES } from '../../render/theme'
 import { usePersistentState } from '../../util/usePersistentState'
 import { IconButton } from './IconButton'
 import { THEME_KEY, THEME_LABEL, ThemeContext, isThemePreference, resolveAppearance, useTheme, type ThemePreference } from './themeContext'
 
 const DARK_QUERY = '(prefers-color-scheme: dark)'
-/** Window title bar of the installed app: the colour of the top bar (--chrome) */
-const TITLE_BAR: Record<Appearance, string> = { dark: '#0f1318', light: '#f8f9fb' }
 
 function subscribeSystem(onChange: () => void) {
   const mq = window.matchMedia(DARK_QUERY)
@@ -28,7 +27,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = appearance
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', TITLE_BAR[appearance])
+    // Window title bar of the installed app: the colour of the top bar
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', PAGE_COLORS[appearance].chrome)
   }, [appearance])
 
   const value = useMemo(() => ({ preference, appearance, theme: THEMES[appearance], setPreference }), [preference, appearance, setPreference])

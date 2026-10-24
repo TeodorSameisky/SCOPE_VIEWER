@@ -1,48 +1,80 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check } from 'lucide-react'
-import { MenuContext, normalizeMenu, type MenuItem, type OpenMenu } from './menuContext'
+import { MenuContext, normalizeMenu, type DropdownOptions, type MenuItem, type Menus, type OpenMenu } from './menuContext'
+import { fitInWindow } from './placement'
 import { useDismiss } from './useDismiss'
 import { useTheme } from './themeContext'
 
 /** Text fields keep the browser's own menu (copy, paste, spelling) */
 const NATIVE = 'input, textarea, select, [contenteditable="true"]'
 
+interface Open {
+  x: number
+  y: number
+  items: (MenuItem | '-')[]
+  id: number
+  /** Drop-down: aligned with the button that opened it (x is its left or right edge) */
+  align?: 'left' | 'right'
+  button?: HTMLElement
+  onClose?: () => void
+}
+
 export function ContextMenuProvider({ children }: { children: React.ReactNode }) {
-  const [menu, setMenu] = useState<{ x: number; y: number; items: (MenuItem | '-')[]; id: number } | null>(null)
-  const open = useCallback<OpenMenu>((e, entries) => {
-    // The innermost element with a menu wins: containers skip an event that already opened one
-    if ((e.nativeEvent ?? e).defaultPrevented) return
-    if ((e.target as Element | null)?.closest?.(NATIVE)) return
-    const items = normalizeMenu(entries)
-    if (!items.some((it) => it !== '-' && it.kind !== 'heading')) return
-    e.preventDefault()
-    setMenu({ x: e.clientX, y: e.clientY, items, id: performance.now() })
+  const [menu, setMenu] = useState<Open | null>(null)
+  const current = useRef<Open | null>(null)
+  const show = useCallback((m: Open | null) => {
+    // The menu that was open is closed first (its button learns that it closed)
+    if (current.current !== m) current.current?.onClose?.()
+    current.current = m
+    setMenu(m)
   }, [])
-  const close = useCallback(() => setMenu(null), [])
+  const close = useCallback(() => show(null), [show])
+  const open = useCallback<OpenMenu>(
+    (e, entries) => {
+      // The innermost element with a menu wins: containers skip an event that already opened one
+      if ((e.nativeEvent ?? e).defaultPrevented) return
+      if ((e.target as Element | null)?.closest?.(NATIVE)) return
+      const items = normalizeMenu(entries)
+      if (!items.some((it) => it !== '-' && it.kind !== 'heading')) return
+      e.preventDefault()
+      show({ x: e.clientX, y: e.clientY, items, id: performance.now() })
+    },
+    [show],
+  )
+  const openBelow = useCallback(
+    (button: HTMLElement, entries: Parameters<OpenMenu>[1], o: DropdownOptions = {}) => {
+      const r = button.getBoundingClientRect()
+      const align = o.align ?? 'left'
+      show({ x: align === 'left' ? r.left : r.right, y: r.bottom + 6, items: normalizeMenu(entries), id: performance.now(), align, button, onClose: o.onClose })
+    },
+    [show],
+  )
+  const value = useMemo<Menus>(() => ({ open, openBelow, close }), [open, openBelow, close])
   return (
-    <MenuContext.Provider value={open}>
+    <MenuContext.Provider value={value}>
       {children}
-      {menu && <ContextMenu key={menu.id} x={menu.x} y={menu.y} items={menu.items} onClose={close} />}
+      {menu && <ContextMenu key={menu.id} menu={menu} onClose={close} />}
     </MenuContext.Provider>
   )
 }
 
-function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: (MenuItem | '-')[]; onClose: () => void }) {
+function ContextMenu({ menu, onClose }: { menu: Open; onClose: () => void }) {
+  const { x, y, items, align, button } = menu
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
   const { ink } = useTheme().theme
-  useDismiss(ref, true, onClose)
+  // A press on the button of a drop-down is left to the button (it closes the menu)
+  useDismiss(ref, true, onClose, button)
 
   // Keep the menu inside the window: open to the left / upwards when there is no room
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
     const r = el.getBoundingClientRect()
-    const left = x + r.width > window.innerWidth - 4 ? Math.max(4, x - r.width) : x
-    const top = y + r.height > window.innerHeight - 4 ? Math.max(4, window.innerHeight - 4 - r.height) : y
-    setPos({ left, top })
-  }, [x, y])
+    const fit = fitInWindow(align === 'right' ? x - r.width : x, y, r.width, r.height)
+    setPos({ left: Math.max(4, fit.left), top: fit.top })
+  }, [x, y, align])
   // The menu takes the keyboard once it is placed (a hidden element cannot be focused)
   useEffect(() => {
     if (pos) ref.current?.focus({ preventScroll: true })
@@ -69,6 +101,12 @@ function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: (M
   const onKeyDown = (e: React.KeyboardEvent) => {
     // The menu has the keyboard: no workspace shortcuts while it is open
     e.stopPropagation()
+    if (e.key === 'Escape' || e.key === 'Tab') {
+      e.preventDefault()
+      onClose()
+      button?.focus()
+      return
+    }
     const buttons = [...ref.current!.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')]
     if (!buttons.length) return
     const i = buttons.indexOf(document.activeElement as HTMLButtonElement)
@@ -77,7 +115,6 @@ function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: (M
     else if (e.key === 'ArrowUp') focus(i < 0 ? -1 : i - 1)
     else if (e.key === 'Home') focus(0)
     else if (e.key === 'End') focus(-1)
-    else if (e.key === 'Tab') return onClose()
     else return
     e.preventDefault()
   }
@@ -118,7 +155,8 @@ function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: (M
                     title={o.title ?? o.label}
                     disabled={o.disabled}
                     className={`${o.checked ? 'active' : ''} ${o.color ? 'swatch' : ''}`}
-                    style={o.color ? { background: o.color } : undefined}
+                    // Colours as drawn in the plot (pale ones darkened in the light appearance)
+                    style={o.color ? { background: ink(o.color) } : undefined}
                     onPointerMove={(e) => e.currentTarget.focus({ preventScroll: true })}
                     onClick={() => run(o.onClick)}
                   >
@@ -144,6 +182,7 @@ function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: (M
           >
             <span className="cm-icon">{Icon && <Icon size={15} strokeWidth={1.8} aria-hidden />}</span>
             <span className="cm-label">{it.label}</span>
+            {it.note && <small className="cm-note">{it.note}</small>}
             {it.hint && <kbd>{it.hint}</kbd>}
           </button>
         )

@@ -1,9 +1,10 @@
 import { isMeasureRange, type CursorState, type MeasureRange, type TimeWindow } from './view'
 import type { MeasurementKey } from '../dsp/measure'
 import { MEASUREMENT_DEFS } from '../dsp/measureDefs'
-import { loadCallouts, sanitizeCallouts, type Callout } from './callouts'
-import { MATH_COLORS, loadMath, type MathDef } from './math'
-import { DEFAULT_SPECTRUM_OPTIONS, loadSpectra, parseStoredSpectra, type SpectrumDef, type SpectrumOptions } from './spectrum'
+import { sanitizeCallouts, type Callout } from './callouts'
+import { LEGACY_PREFIXES, loadLegacy } from './legacy'
+import { MATH_COLORS, type MathDef } from './math'
+import { DEFAULT_SPECTRUM_OPTIONS, parseStoredSpectra, type SpectrumDef, type SpectrumOptions } from './spectrum'
 import type { ChannelDisplay, Session } from './types'
 
 /**
@@ -206,7 +207,6 @@ export function sanitizeWorkspace(raw: unknown, session: Session): Workspace {
 
 const WS_PREFIX = 'scope-viewer:ws:'
 const INDEX_KEY = 'scope-viewer:index'
-const LEGACY_PREFIXES = ['scope-viewer:callouts:', 'scope-viewer:math:', 'scope-viewer:spectra:']
 /** Sessions kept in the browser; the least recently saved ones are removed beyond that */
 export const MAX_STORED_SESSIONS = 50
 
@@ -262,10 +262,9 @@ export function loadWorkspace(session: Session): { workspace: Workspace; source:
     // fall through to legacy / defaults
   }
   // Earlier versions stored callouts, math channels and spectra separately
-  const callouts = loadCallouts(fp)
-  const math = loadMath(fp)
-  const spectra = loadSpectra(fp)
-  if (!callouts.length && !math.length && !spectra.defs.length) return { workspace: defaultWorkspace(session), source: 'default' }
+  const legacy = loadLegacy(fp)
+  if (!legacy) return { workspace: defaultWorkspace(session), source: 'default' }
+  const { callouts, math } = legacy
   const def = defaultWorkspace(session)
   const views = def.views.map((v) => [...v])
   for (const m of math) {
@@ -278,8 +277,8 @@ export function loadWorkspace(session: Session): { workspace: Workspace; source:
       channels: [...def.channels, ...math.map((m) => ({ ...m.display, id: m.def.id }))],
       views,
       math: math.map((m) => m.def),
-      spectra: spectra.defs,
-      spectrumOptions: spectra.options,
+      spectra: legacy.spectra,
+      spectrumOptions: legacy.spectrumOptions,
       callouts,
     },
     session,
@@ -288,6 +287,9 @@ export function loadWorkspace(session: Session): { workspace: Workspace; source:
 }
 
 export type SaveResult = { ok: true; savedAt: string } | { ok: false; error: string }
+
+/** Whether the changes to the open session are remembered (shown next to the file name) */
+export type SaveStatus = { state: 'clean' } | { state: 'saved'; at: string } | { state: 'error'; error: string }
 
 /**
  * Save a session's workspace. When storage is full the least recently saved other

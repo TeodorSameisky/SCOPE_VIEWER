@@ -65,8 +65,6 @@ export const DEFAULT_CALLOUT_COLOR: Record<CalloutType, string> = {
   span: '#c86bff',
 }
 
-export const CALLOUT_ICON: Record<CalloutType, string> = { note: '✎', marker: '⚑', region: '↔', box: '▭', span: '⟼' }
-
 export const CALLOUT_TYPE_LABEL: Record<CalloutType, string> = { note: 'Note', marker: 'Marker', region: 'Region', box: 'Box', span: 'Span' }
 
 /** Type and running number, e.g. "Marker 3" */
@@ -96,20 +94,6 @@ export function newCalloutId(): string {
 
 export function nextCalloutNumber(list: Callout[]): number {
   return list.reduce((m, c) => Math.max(m, c.n), 0) + 1
-}
-
-// ---------- reading what earlier versions stored (migrated into the workspace) ----------
-
-const STORAGE_PREFIX = 'scope-viewer:callouts:'
-
-export function loadCallouts(fingerprint: string | undefined): Callout[] {
-  if (!fingerprint) return []
-  try {
-    const raw = localStorage.getItem(STORAGE_PREFIX + fingerprint)
-    return raw ? sanitizeCallouts(JSON.parse(raw)) : []
-  } catch {
-    return []
-  }
 }
 
 export function sanitizeCallouts(list: unknown): Callout[] {

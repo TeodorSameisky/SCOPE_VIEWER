@@ -6,7 +6,6 @@ import { calloutsSvg, flagsBottom, layoutCallouts } from '../render/callouts'
 import {
   AXIS_GUTTER,
   DIVS_Y,
-  PLOT_FONT,
   divToValue,
   drawTimeAxis,
   drawView,
@@ -17,14 +16,18 @@ import {
   valueToDiv,
   type ViewDrawOptions,
 } from '../render/draw'
+import { PLOT_FONT, SANS, font } from '../render/fonts'
 import { loadTex, useTexVersion } from '../render/tex'
 import type { Theme } from '../render/theme'
 import { si } from '../util/format'
-import { channelName } from '../util/names'
+import { channelName, displayUnit } from '../util/names'
 import { CalloutLayer } from './CalloutLayer'
 import { useTheme } from './ui/themeContext'
+import { panShare, wheelPan, wheelPixels, wheelZoomFactor } from './ui/wheel'
 import {
+  POSITION_STEP,
   snapToGrid,
+  stepPosition,
   stepScale,
   timeTicks,
   zoomAround,
@@ -108,13 +111,14 @@ export interface PlotAreaHandle extends PlotImageSource {
   size: () => { w: number; h: number }
 }
 
+/** What a press in the plot does until the pointer is released (Esc or a cancelled pointer drops it) */
 type Drag =
   | { kind: 'pan'; x0: number; win: TimeWindow }
-  | { kind: 'cursor'; which: 'a' | 'b' }
+  | { kind: 'cursor'; which: 'a' | 'b'; orig: CursorState }
   /** time-only zoom band */
   | { kind: 'band'; x0: number; x1: number }
-  /** time + vertical zoom rectangle inside one view, or a new box callout */
-  | { kind: 'rect'; view: number; x0: number; y0: number; x1: number; y1: number }
+  /** time + vertical zoom rectangle inside one view, or (`box`) a new box callout */
+  | { kind: 'rect'; box: boolean; view: number; x0: number; y0: number; x1: number; y1: number }
   /** new span callout from end `a`; `b` follows the pointer */
   | { kind: 'span'; a: { ch: string; t: number }; b?: { ch: string; t: number } }
   /** new region callout */
@@ -222,9 +226,15 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
           ? (spanEndAt(hover!.x, hover!.y, hover!.alt)?.t ?? pointerT)
           : pointerT
   // Callout geometry (formulas render asynchronously: lay out again when one is ready)
-  useTexVersion()
+  const texVersion = useTexVersion()
   const { theme } = useTheme()
-  const calloutGeo = layoutCallouts(p.callouts, { channels: p.channels, views: p.views, win: p.win, plotW, viewH })
+  // Laid out again only when something it depends on changes (not on every pointer move)
+  const calloutGeo = useMemo(
+    () => layoutCallouts(p.callouts, { channels: p.channels, views: p.views, win: p.win, plotW, viewH }),
+    // texVersion: a formula has been rendered meanwhile
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [p.callouts, p.channels, p.views, p.win, plotW, viewH, texVersion],
+  )
 
   useLayoutEffect(() => {
     const el = containerRef.current
@@ -314,15 +324,15 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     }
     ctx.save()
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    const color = drag.kind === 'region' ? '63, 182, 255' : '80, 160, 255'
-    ctx.fillStyle = `rgba(${color}, 0.15)`
-    ctx.strokeStyle = `rgba(${color}, 0.85)`
+    // A new region has a solid edge, a zoom range a dashed one
+    ctx.fillStyle = theme.bandFill
+    ctx.strokeStyle = theme.band
     ctx.setLineDash(drag.kind === 'region' ? [] : [4, 3])
     ctx.fillRect(x0, y0, x1 - x0, y1 - y0)
     ctx.strokeRect(x0 + 0.5, y0 + 0.5, x1 - x0, y1 - y0 - 1)
     if (vi === 0 || drag.kind === 'rect') {
       ctx.setLineDash([])
-      ctx.font = '11px system-ui, sans-serif'
+      ctx.font = font(11, SANS)
       ctx.fillStyle = theme.bandText
       ctx.textBaseline = 'top'
       ctx.fillText(si(Math.abs(xToT(drag.x1) - xToT(drag.x0)), 's'), x0 + 4, y0 + 4)
@@ -358,7 +368,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2)
       ctx.fill()
     }
-    ctx.font = '12px system-ui, sans-serif'
+    ctx.font = font(12, SANS)
     ctx.textAlign = 'center'
     ctx.textBaseline = 'bottom'
     ctx.fillText(`Δt ${si(drag.b.t - drag.a.t, 's')}`, (a.x + b.x) / 2, Math.min(a.y, b.y) - 6)
@@ -385,10 +395,10 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       const y = viewH / 2 - valueToDiv(0, ch.display) * divH
       if (y >= 0 && y <= viewH) line(y)
     } else if (drag.target === vi) {
-      ctx.fillStyle = 'rgba(80, 160, 255, 0.1)'
+      ctx.fillStyle = theme.bandFill
       ctx.fillRect(0, 0, plotW, viewH)
       line(drag.y - vi * viewH)
-      ctx.strokeStyle = 'rgba(80, 160, 255, 0.85)'
+      ctx.strokeStyle = theme.band
       ctx.strokeRect(0.5, 0.5, plotW - 1, viewH - 1)
     }
     ctx.restore()
@@ -440,8 +450,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       const rect = el.getBoundingClientRect()
       const x = e.clientX - rect.left
       const y = e.clientY - rect.top
-      const dir = e.deltaY > 0 ? 1 : -1
-      const delta = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY
+      const delta = wheelPixels(e).y
       const onTag = tagUnder(x, y)
       const pointed = onTag ? byId.get(onTag.id) : x > plotW && y >= 0 && y < viewsH ? viewChannels(Math.floor(y / viewH)).axis : undefined
       if (pointed && !e.ctrlKey && !e.altKey && !e.shiftKey) {
@@ -454,18 +463,18 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
         const step = wheelStep(delta)
         if (!ch || !step) return
         if (e.ctrlKey) p.onAdjust(ch.wave.id, { scale: stepScale(ch.display.scale, step) })
-        else p.onAdjust(ch.wave.id, { position: Math.round((ch.display.position - step * 0.2) * 100) / 100 })
+        else p.onAdjust(ch.wave.id, { position: stepPosition(ch.display.position, -step * POSITION_STEP) })
         return
       }
-      if (e.shiftKey) {
-        const shift = span * 0.1 * dir
-        p.onNavigate({ start: p.win.start + shift, end: p.win.end + shift }, 'pan')
+      // Shift+wheel or a sideways swipe pans, the wheel zooms
+      const pan = wheelPan(e)
+      if (pan !== undefined) {
+        const shift = span * panShare(pan)
+        if (shift) p.onNavigate({ start: p.win.start + shift, end: p.win.end + shift }, 'pan')
         return
       }
       const t = xToT(Math.min(plotW, Math.max(0, x)))
-      // Proportional to the wheel delta so trackpads and fast wheels feel natural
-      const f = Math.min(4, Math.max(0.25, Math.pow(1.0022, delta)))
-      p.onNavigate(zoomAround(p.win, t, f, p.minSpan, maxSpan), 'wheel')
+      p.onNavigate(zoomAround(p.win, t, wheelZoomFactor(delta), p.minSpan, maxSpan), 'wheel')
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
@@ -513,7 +522,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       const da = Math.abs(tToX(p.cursors.a) - x)
       const db = Math.abs(tToX(p.cursors.b) - x)
       if (Math.min(da, db) < GRAB_PX) {
-        setDrag({ kind: 'cursor', which: da <= db ? 'a' : 'b' })
+        setDrag({ kind: 'cursor', which: da <= db ? 'a' : 'b', orig: p.cursors })
         return
       }
     }
@@ -522,7 +531,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     else if (p.tool === 'pan') setDrag({ kind: 'pan', x0: x, win: p.win })
     else if (p.tool === 'zoom' || p.tool === 'box') {
       const view = Math.min(nViews - 1, Math.floor(y / viewH))
-      setDrag({ kind: 'rect', view, x0: x, y0: y, x1: x, y1: y })
+      setDrag({ kind: 'rect', box: p.tool === 'box', view, x0: x, y0: y, x1: x, y1: y })
     } else if (p.tool === 'region') {
       const xs = snapX(clampX(x), e.altKey)
       setDrag({ kind: 'region', x0: xs, x1: xs })
@@ -625,6 +634,22 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     setDrag({ ...drag, x, y, moved: true, target: undefined })
   }
 
+  /** Esc or a cancelled pointer: the drag is dropped, and what it moved goes back */
+  const cancelDrag = () => {
+    const d = drag
+    if (!d) return
+    setDrag(null)
+    if (d.kind === 'tag' && d.moved) p.onAdjust(d.id, { position: d.pos0 })
+    else if (d.kind === 'cursor') p.setCursors(d.orig)
+    else if (d.kind === 'pan') p.onNavigate(d.win, 'pan')
+  }
+  useEffect(() => {
+    if (!drag) return
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && cancelDrag()
+    window.addEventListener('keydown', key)
+    return () => window.removeEventListener('keydown', key)
+  })
+
   const onPointerUp = (e: React.PointerEvent) => {
     const { x, y } = local(e)
     const d = drag
@@ -640,7 +665,8 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     }
     const wide = (a: number, b: number) => Math.abs(a - b) >= MIN_BOX_PX
 
-    if (d.kind === 'rect' && p.tool === 'box') {
+    // The kind of rectangle was decided when it was started: a later tool change does not turn a box into a zoom
+    if (d.kind === 'rect' && d.box) {
       if (wide(d.x0, d.x1) && wide(d.y0, d.y1)) p.onAddCallout(newBox(d, e.altKey))
       return
     }
@@ -779,12 +805,13 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   return (
     <div
       ref={containerRef}
-      className={`plot-area tool-${p.tool}`}
+      className="plot-area"
       style={{ cursor: cursorStyle }}
       title={pointerTip}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerCancel={cancelDrag}
       onPointerLeave={() => setHover(undefined)}
       // no auto-scroll on a middle click
       onMouseDown={(e) => e.button === 1 && e.preventDefault()}
@@ -809,7 +836,6 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       ))}
       <canvas
         ref={axisRef}
-        className="time-axis"
         width={Math.round(size.w * (window.devicePixelRatio || 1))}
         height={Math.round(AXIS_H * (window.devicePixelRatio || 1))}
         style={{ width: size.w, height: AXIS_H, display: 'block' }}
@@ -908,7 +934,7 @@ function cursorDeltas(p: Props) {
   const dt = p.cursors.b - p.cursors.a
   const src = p.channels.find((c) => c.wave.id === p.cursors.source)
   const dv = src ? valueAt(src.wave, p.cursors.b) - valueAt(src.wave, p.cursors.a) : NaN
-  return { dt, dv, src, unit: src?.wave.yUnit ?? 'V', name: src ? channelName(src.wave.id) : '?' }
+  return { dt, dv, src, unit: src?.wave.yUnit ?? '', name: src ? channelName(src.wave.id) : '?' }
 }
 
 function cursorSummary(p: Props, theme: Theme) {
@@ -920,7 +946,7 @@ function cursorSummary(p: Props, theme: Theme) {
       <span>
         Δv: {si(dv, unit)} <small style={{ color: src && theme.ink(src.display.color) }}>{src && name}</small>
       </span>
-      <span>Δv/Δt: {si(dv / dt, `${unit}/s`)}</span>
+      <span>Δv/Δt: {si(dv / dt, `${displayUnit(unit)}/s`)}</span>
     </>
   )
 }
@@ -943,7 +969,7 @@ async function svgToImage(xml: string): Promise<HTMLImageElement | null> {
 /** The Δt / Δv box of the cursors, drawn into exported images (on screen it is HTML) */
 function drawCursorReadout(ctx: CanvasRenderingContext2D, scale: number, p: Props, tToX: (t: number) => number, theme: Theme, top: number) {
   const { dt, dv, unit, name } = cursorDeltas(p)
-  const lines = [`Δt: ${si(dt, 's')}   1/Δt: ${si(1 / Math.abs(dt), 'Hz')}`, `Δv: ${si(dv, unit)} (${name})   Δv/Δt: ${si(dv / dt, `${unit}/s`)}`]
+  const lines = [`Δt: ${si(dt, 's')}   1/Δt: ${si(1 / Math.abs(dt), 'Hz')}`, `Δv: ${si(dv, unit)} (${name})   Δv/Δt: ${si(dv / dt, `${displayUnit(unit)}/s`)}`]
   ctx.save()
   ctx.setTransform(scale, 0, 0, scale, 0, 0)
   ctx.font = PLOT_FONT

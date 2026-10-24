@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Channel } from '../model/types'
-import { channelName, channelTag, slopeSymbol, triggerText } from './names'
+import { channelName, channelTag, displayUnit, perDiv, slopeSymbol, sourceUnit, triggerText } from './names'
 
 const channel = (id: string, yUnit: string): Channel => ({
   wave: { id, data: new Float32Array(2), t0: 0, dt: 1, yUnit, xUnit: 's' },
@@ -32,5 +32,15 @@ describe('names', () => {
     expect(triggerText({ channels, trigger: { source: 'AUX', level: 2 } })).toBe('AUX 2.00 V')
     expect(triggerText({ channels, trigger: { source: 'LINE' } })).toBe('LINE')
     expect(triggerText({ channels })).toBe('')
+  })
+
+  it('shows compound units of values without a unit with U, as the scope does', () => {
+    expect(displayUnit('V')).toBe('V')
+    expect(displayUnit('')).toBe('U')
+    expect(perDiv(0.5, 'V')).toBe('500 mV/div')
+    expect(perDiv(2, '')).toBe('2.00 U/div')
+    // A channel without a unit stays without one; only sources without a waveform are volts
+    expect(sourceUnit([channel('MATH1', '')], 'MATH1')).toBe('')
+    expect(sourceUnit([channel('MATH1', '')], 'AUX')).toBe('V')
   })
 })

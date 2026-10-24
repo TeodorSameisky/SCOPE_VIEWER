@@ -30,6 +30,8 @@ export function sampleRange(w: { t0: number; dt: number; data: { length: number 
 }
 
 export const RANGE_LABEL: Record<MeasureRange, string> = { screen: 'On screen', cursors: 'Between cursors', record: 'Whole record' }
+/** The same in a word, for the small choice buttons of the menus */
+export const RANGE_SHORT: Record<MeasureRange, string> = { screen: 'Screen', cursors: 'Cursors', record: 'Record' }
 
 export function isMeasureRange(v: unknown): v is MeasureRange {
   return MEASURE_RANGES.includes(v as MeasureRange)
@@ -58,6 +60,20 @@ export function stepScale(scale: number, dir: 1 | -1): number {
 }
 
 export type DisplayPatch = Partial<Omit<ChannelDisplay, 'id'>>
+
+/** One step of a channel's position (div): arrow keys, Alt+wheel and the ± buttons; Shift+arrow moves a whole division */
+export const POSITION_STEP = 0.1
+
+/** A position moved by `divs`, rounded to 0.01 div */
+export function stepPosition(position: number, divs: number): number {
+  return Math.round((position + divs) * 100) / 100
+}
+
+/** The cursors switched on at 30 % and 70 % of the view */
+export function cursorsInView(c: CursorState, win: TimeWindow): CursorState {
+  const span = win.end - win.start
+  return { ...c, on: true, a: win.start + span * 0.3, b: win.start + span * 0.7 }
+}
 
 /** Active mouse tool in the plot */
 export type Tool = 'pan' | 'zoom' | 'note' | 'marker' | 'region' | 'box' | 'span'

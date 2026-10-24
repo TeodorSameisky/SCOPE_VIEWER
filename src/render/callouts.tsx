@@ -8,12 +8,12 @@ import { si } from '../util/format'
 import type { LiveChannel, TimeWindow } from '../model/view'
 import { DIVS_Y, textWidth, valueAt, valueToDiv } from './draw'
 import { MATH_SCALE, splitTex, texSource, texSvg, type TexSvg } from './tex'
+import { SANS, font } from './fonts'
 import type { Theme } from './theme'
 
 const FONT_SIZE = 12
-const FONT_FAMILY = "system-ui, 'Segoe UI', Roboto, sans-serif"
-const FONT = `${FONT_SIZE}px ${FONT_FAMILY}`
-const FLAG_FONT = `600 ${FONT}`
+const FONT = font(FONT_SIZE, SANS)
+const FLAG_FONT = font(FONT_SIZE, SANS, 600)
 /** px per em of formulas */
 const MATH_EM = FONT_SIZE * MATH_SCALE
 /** Ascent and descent of a text line of notes (16 px) and of the flags of markers and regions (18 px) */
@@ -93,7 +93,7 @@ function lineElements(line: TextLine, x: number, y: number, fill: string, fontWe
         dangerouslySetInnerHTML={{ __html: r.tex.body }}
       />
     ) : (
-      <text key={i} x={x + r.x} y={y} fill={fill} fontSize={FONT_SIZE} fontWeight={fontWeight} fontFamily={FONT_FAMILY} xmlSpace="preserve" style={{ pointerEvents: 'none' }}>
+      <text key={i} x={x + r.x} y={y} fill={fill} fontSize={FONT_SIZE} fontWeight={fontWeight} fontFamily={SANS} xmlSpace="preserve" style={{ pointerEvents: 'none' }}>
         {r.text}
       </text>
     ),
@@ -411,7 +411,7 @@ export function calloutShapes(
           {arrow ? (
             <polygon points={`${g.ax},${g.ay} ${baseX - uy * ARROW_W},${baseY + ux * ARROW_W} ${baseX + uy * ARROW_W},${baseY - ux * ARROW_W}`} fill={ink} />
           ) : (
-            <circle cx={g.ax} cy={g.ay} r={selected ? 5 : 4} fill={ink} stroke="#000" strokeWidth={1} />
+            <circle cx={g.ax} cy={g.ay} r={selected ? 5 : 4} fill={ink} stroke={theme.bg} strokeWidth={1} />
           )}
           <rect x={g.bx} y={g.by} width={g.bw} height={g.bh} rx={4} fill={theme.noteBox} stroke={ink} strokeWidth={1.2} {...handlers('box')} />
           {selected && <rect x={g.bx - 3} y={g.by - 3} width={g.bw + 6} height={g.bh + 6} rx={6} fill="none" stroke={theme.selection} strokeDasharray="3 3" />}

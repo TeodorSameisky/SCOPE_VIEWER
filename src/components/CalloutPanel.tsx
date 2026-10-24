@@ -1,17 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
-import { CALLOUT_COLORS, CALLOUT_ICON, CALLOUT_TYPES, CALLOUT_TYPE_LABEL, calloutName, calloutSpan, calloutTitle, hasTimeSpan, type Callout } from '../model/callouts'
+import { CALLOUT_TYPES, CALLOUT_TYPE_LABEL, calloutName, calloutSpan, calloutTitle, hasTimeSpan, type Callout, type CalloutType } from '../model/callouts'
 import { si } from '../util/format'
 import { channelName } from '../util/names'
 import { CalloutValueEditor } from './CalloutValueEditor'
-import { useTheme } from './ui/themeContext'
+import { ColorSwatches } from './ColorSwatches'
+import { TOOLS } from './keymap'
+import type { Action } from './ui/action'
+import { chipStyle, useTheme } from './ui/themeContext'
 import type { LiveChannel, Tool } from '../model/view'
 
 interface Props {
   callouts: Callout[]
   channels: LiveChannel[]
   selectedId?: string
+  /** The mouse tools (as in the toolbar) and the active one */
+  tools: Record<Tool, Action>
   tool: Tool
-  setTool: (t: Tool) => void
   onSelect: (id: string) => void
   onUpdate: (id: string, patch: Partial<Callout>) => void
   onDelete: (id: string) => void
@@ -20,20 +24,11 @@ interface Props {
   onContextMenu?: (e: React.MouseEvent, c: Callout) => void
 }
 
-/** What to do in the plot with the chosen callout tool */
-const TOOL_TIP: Partial<Record<Tool, string>> = {
-  note: 'Click on a trace to attach a note.',
-  marker: 'Click in the plot to place a marker.',
-  region: 'Drag in the plot to mark a time region.',
-  box: 'Drag a box around an event: it stays with the trace that runs through it (the selected one if several do).',
-  span: 'Drag from a point on one trace to a point on another to measure the time between them.',
-}
-
 export function CalloutPanel(p: Props) {
   // Search in the text, the title and the type ("marker" lists all markers)
   const [query, setQuery] = useState('')
   const q = query.trim().toLowerCase()
-  const { ink } = useTheme().theme
+  const { ink, onInk } = useTheme().theme
   const sorted = [...p.callouts]
     .filter((c) => !q || `${calloutTitle(c)} ${c.text} ${CALLOUT_TYPE_LABEL[c.type]}`.toLowerCase().includes(q))
     .sort((a, b) => calloutSpan(a)[0] - calloutSpan(b)[0])
@@ -44,14 +39,18 @@ export function CalloutPanel(p: Props) {
   }, [p.selectedId])
   return (
     <div className="panel-body" ref={listRef}>
-      <div className="callout-tools">
-        {CALLOUT_TYPES.map((t) => (
-          <button key={t} className={p.tool === t ? 'active' : ''} onClick={() => p.setTool(p.tool === t ? 'pan' : t)}>
-            {CALLOUT_ICON[t]} {CALLOUT_TYPE_LABEL[t]}
-          </button>
-        ))}
+      <div className="callout-tools" role="group" aria-label="Callout tools">
+        {CALLOUT_TYPES.map((t) => {
+          const a = p.tools[t]
+          const Icon = TOOLS[t].icon
+          return (
+            <button key={t} type="button" className={a.checked ? 'active' : ''} aria-pressed={!!a.checked} title={`${a.label} (${a.hint})`} onClick={a.run}>
+              <Icon size={14} strokeWidth={1.8} aria-hidden /> {a.label}
+            </button>
+          )
+        })}
       </div>
-      <p className="hint">{TOOL_TIP[p.tool] ?? 'Pick a callout type, then click (or drag) in the plot. Double-click a callout to edit it. Write TeX math between $…$.'}</p>
+      <p className="hint">{TOOLS[p.tool].tip ?? 'Pick a callout type, then click (or drag) in the plot. Double-click a callout to edit it. Write TeX math between $…$.'}</p>
 
       {p.callouts.length > 1 && (
         <div className="callout-search">
@@ -82,22 +81,22 @@ export function CalloutPanel(p: Props) {
             }}
           >
             <div className="callout-card-head">
-              <span className="callout-icon">{CALLOUT_ICON[c.type]}</span>
+              <TypeIcon type={c.type} />
               <span className="mono">{si(c.type === 'span' ? c.t : calloutSpan(c)[0], 's', 5)}</span>
               {hasTimeSpan(c) && c.t2 !== undefined && <span className="mono muted">Δt {si(c.type === 'span' ? c.t2 - c.t : Math.abs(c.t2 - c.t), 's')}</span>}
               {[ch, ch2].map(
                 (x, i) =>
                   x && (
-                    <span key={i} className="chip" style={{ ['--ch' as string]: ink(x.display.color) }} title={c.type === 'span' ? (i ? 'End' : 'Start') : undefined}>
+                    <span key={i} className="chip" style={chipStyle(ink(x.display.color), onInk)} title={c.type === 'span' ? (i ? 'End' : 'Start') : undefined}>
                       {channelName(x.wave.id)}
                     </span>
                   ),
               )}
               <span className="spacer" />
-              <button className="text-btn" title="Show in plot" onClick={(e) => (e.stopPropagation(), p.onJump(c))}>
+              <button type="button" className="text-btn" title="Show in plot" onClick={(e) => (e.stopPropagation(), p.onJump(c))}>
                 Go to
               </button>
-              <button className="text-btn danger" title="Delete" onClick={(e) => (e.stopPropagation(), p.onDelete(c.id))}>
+              <button type="button" className="text-btn danger" title="Delete" aria-label={`Delete ${calloutTitle(c)}`} onClick={(e) => (e.stopPropagation(), p.onDelete(c.id))}>
                 ✕
               </button>
             </div>
@@ -105,6 +104,7 @@ export function CalloutPanel(p: Props) {
               rows={Math.min(4, Math.max(1, c.text.split('\n').length))}
               value={c.text}
               placeholder={calloutName(c)}
+              aria-label={`Text of ${calloutName(c)}`}
               onChange={(e) => p.onUpdate(c.id, { text: e.target.value })}
             />
             <CalloutValueEditor
@@ -114,15 +114,7 @@ export function CalloutPanel(p: Props) {
               onUpdate={(patch) => p.onUpdate(c.id, patch)}
             />
             <div className="callout-editor-row">
-              {CALLOUT_COLORS.map((col) => (
-                <button
-                  key={col}
-                  className={`swatch ${c.color === col ? 'active' : ''}`}
-                  style={{ background: col }}
-                  title="Colour"
-                  onClick={() => p.onUpdate(c.id, { color: col })}
-                />
-              ))}
+              <ColorSwatches value={c.color} onChange={(color) => p.onUpdate(c.id, { color })} />
             </div>
           </div>
         )
@@ -136,5 +128,15 @@ export function CalloutPanel(p: Props) {
       </div>
       <p className="hint">Callouts are saved with the session and included in image and report exports. To share them, use File → Save analysis file.</p>
     </div>
+  )
+}
+
+/** The icon of a callout type: the one of its tool in the toolbar */
+function TypeIcon({ type }: { type: CalloutType }) {
+  const Icon = TOOLS[type].icon
+  return (
+    <span className="callout-icon" title={CALLOUT_TYPE_LABEL[type]}>
+      <Icon size={14} strokeWidth={1.8} aria-label={CALLOUT_TYPE_LABEL[type]} />
+    </span>
   )
 }

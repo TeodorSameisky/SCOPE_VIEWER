@@ -1,143 +1,62 @@
-import {
-  AlertTriangle,
-  Archive,
-  ArrowLeft,
-  Check,
-  Crosshair,
-  Download,
-  FileJson,
-  FileSpreadsheet,
-  FileText,
-  Flag,
-  FolderOpen,
-  Hand,
-  HardDrive,
-  Home,
-  Image,
-  Maximize2,
-  MonitorDown,
-  MoveHorizontal,
-  RotateCcw,
-  Ruler,
-  RulerDimensionLine,
-  Search,
-  SquareDashed,
-  StickyNote,
-  Table2,
-  Redo2,
-  Undo2,
-  Upload,
-  Waves,
-  X,
-  ZoomIn,
-} from 'lucide-react'
-import { installApp, useCanInstall } from '../pwa/install'
-import type { ExportKind } from '../export/sessionExport'
-import { IconButton } from './ui/IconButton'
+import { AlertTriangle, Check, Download, FolderOpen, HardDrive } from 'lucide-react'
+import type { Tool } from '../model/view'
+import type { SaveStatus } from '../model/workspace'
+import { TOOL_ORDER } from './keymap'
+import { exportMenu, fileMenu, type ScopeActions } from './scopeCommands'
+import { ActionButton } from './ui/IconButton'
 import { Logo } from './ui/Logo'
 import { Menu } from './ui/Menu'
-import type { Tool } from '../model/view'
-
-export type SaveStatus = { state: 'clean' } | { state: 'saved'; at: string } | { state: 'error'; error: string }
 
 interface Props {
   fileName: string
   saveStatus: SaveStatus
-  onOpen: () => void
-  onOpenAnalysis: () => void
-  onSaveAnalysis: () => void
-  onSaveBundle: () => void
-  onReset: () => void
-  onShowStorage: () => void
-  onClose: () => void
-  tool: Tool
-  setTool: (t: Tool) => void
-  canGoBack: boolean
-  onBack: () => void
-  onSavedView: () => void
-  onFullRecord: () => void
-  zoomed: boolean
-  cursorsOn: boolean
-  onToggleCursors: () => void
-  readoutOn: boolean
-  onToggleReadout: () => void
-  canUndo: boolean
-  canRedo: boolean
-  onUndo: () => void
-  onRedo: () => void
-  onExport: (kind: ExportKind) => void
-  hasSpectra: boolean
-  /** Open the command palette */
-  onCommands: () => void
+  actions: ScopeActions
 }
 
-export function TopBar(p: Props) {
-  const toggle = (t: Tool) => p.setTool(p.tool === t ? 'pan' : t)
-  const canInstall = useCanInstall()
+const isNavTool = (t: Tool) => t === 'pan' || t === 'zoom'
+const NAV_TOOLS = TOOL_ORDER.filter(isNavTool)
+const CALLOUT_TOOLS = TOOL_ORDER.filter((t) => !isNavTool(t))
+
+export function TopBar({ fileName, saveStatus, actions: a }: Props) {
   return (
     <header className="topbar">
       <div className="brand" title="Scope Viewer">
         <Logo size={22} />
       </div>
-      <Menu
-        icon={FolderOpen}
-        label="File"
-        align="left"
-        items={[
-          { label: 'Open session file…', hint: '.tss .wfm .isf .scopeview', icon: FolderOpen, onClick: p.onOpen },
-          { label: 'Open analysis file…', hint: '.scopeview.json', icon: Upload, onClick: p.onOpenAnalysis },
-          { label: 'Save analysis file', hint: 'settings, math, callouts', icon: FileJson, divider: true, onClick: p.onSaveAnalysis },
-          { label: 'Save session with analysis', hint: '.scopeview', icon: Archive, onClick: p.onSaveBundle },
-          { label: 'Reset to file defaults…', icon: RotateCcw, divider: true, onClick: p.onReset },
-          { label: 'Saved in this browser…', icon: HardDrive, onClick: p.onShowStorage },
-          ...(canInstall ? [{ label: 'Install Scope Viewer…', hint: 'own window, offline', icon: MonitorDown, divider: true, onClick: () => void installApp() }] : []),
-          { label: 'Close session', icon: X, divider: true, onClick: p.onClose },
-        ]}
-      />
-      <span className="file-name" title={p.fileName}>
-        {p.fileName}
+      <Menu icon={FolderOpen} label="File" align="left" items={fileMenu(a)} />
+      <span className="file-name" title={fileName}>
+        {fileName}
       </span>
-      <SaveIndicator status={p.saveStatus} onClick={p.onShowStorage} />
-      <IconButton icon={Undo2} label="Undo" shortcut="Ctrl+Z" disabled={!p.canUndo} onClick={p.onUndo} />
-      <IconButton icon={Redo2} label="Redo" shortcut="Ctrl+Y" disabled={!p.canRedo} onClick={p.onRedo} />
+      <SaveIndicator status={saveStatus} onClick={a.storage.run} />
+      <ActionButton action={a.undo} />
+      <ActionButton action={a.redo} />
 
       <div className="spacer" />
 
       <div className="tool-group" role="group" aria-label="Mouse tool">
-        <IconButton icon={Hand} label="Pan" shortcut="P" showLabel active={p.tool === 'pan'} onClick={() => p.setTool('pan')} />
-        <IconButton icon={ZoomIn} label="Zoom" shortcut="Z" showLabel active={p.tool === 'zoom'} onClick={() => p.setTool('zoom')} />
+        {NAV_TOOLS.map((t) => (
+          <ActionButton key={t} action={a.tools[t]} showLabel />
+        ))}
       </div>
       <div className="tool-group" role="group" aria-label="Callouts">
-        <IconButton icon={StickyNote} label="Note" shortcut="N" showLabel active={p.tool === 'note'} onClick={() => toggle('note')} />
-        <IconButton icon={Flag} label="Marker" shortcut="M" showLabel active={p.tool === 'marker'} onClick={() => toggle('marker')} />
-        <IconButton icon={MoveHorizontal} label="Region" shortcut="R" showLabel active={p.tool === 'region'} onClick={() => toggle('region')} />
-        <IconButton icon={SquareDashed} label="Box" shortcut="B" showLabel active={p.tool === 'box'} onClick={() => toggle('box')} />
-        <IconButton icon={RulerDimensionLine} label="Span" shortcut="D" showLabel active={p.tool === 'span'} onClick={() => toggle('span')} />
+        {CALLOUT_TOOLS.map((t) => (
+          <ActionButton key={t} action={a.tools[t]} showLabel />
+        ))}
       </div>
 
       <div className="sep" />
-      <IconButton icon={ArrowLeft} label="Back to the previous view" shortcut="Backspace" disabled={!p.canGoBack} onClick={p.onBack} />
-      <IconButton icon={Home} label="Saved view" onClick={p.onSavedView} />
-      <IconButton icon={Maximize2} label="Full record" shortcut="F" disabled={!p.zoomed} onClick={p.onFullRecord} />
+      <ActionButton action={a.back} />
+      <ActionButton action={a.savedView} />
+      <ActionButton action={a.fullRecord} />
       <div className="sep" />
-      <IconButton icon={Ruler} label="Cursors" shortcut="C" showLabel active={p.cursorsOn} onClick={p.onToggleCursors} />
-      <IconButton icon={Crosshair} label="Values at the pointer" shortcut="V" active={p.readoutOn} onClick={p.onToggleReadout} />
+      <ActionButton action={a.cursors} showLabel />
+      <ActionButton action={a.readout} />
 
       <div className="spacer" />
 
-      <IconButton icon={Search} label="Commands" shortcut="Ctrl+K" onClick={p.onCommands} />
-      <Menu
-        icon={Download}
-        label="Export"
-        items={[
-          { label: 'Image…', hint: 'PNG', icon: Image, onClick: () => p.onExport('image') },
-          { label: 'Report…', hint: 'HTML / PDF', icon: FileText, onClick: () => p.onExport('report') },
-          { label: 'Waveform data…', hint: 'CSV', icon: Waves, divider: true, onClick: () => p.onExport('waveforms') },
-          { label: 'Measurements…', hint: 'CSV', icon: Table2, onClick: () => p.onExport('measurements') },
-          { label: 'Spectra…', hint: 'CSV', icon: FileSpreadsheet, disabled: !p.hasSpectra, onClick: () => p.onExport('spectra') },
-        ]}
-      />
-      <IconButton icon={X} label="Close session" onClick={p.onClose} />
+      <ActionButton action={a.palette} />
+      <Menu icon={Download} label="Export" items={exportMenu(a)} />
+      <ActionButton action={a.close} />
     </header>
   )
 }

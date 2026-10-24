@@ -1,8 +1,10 @@
 /**
  * Self-contained HTML report of a session: notes, the exported image, channel and math
- * settings, measurements, cursors, callouts and spectrum peaks. Light and print-friendly,
- * so it can be printed to PDF from the browser.
+ * settings, measurements, cursors, callouts and spectrum peaks. Light and print-friendly (in the
+ * colours and fonts of the light appearance), so it can be printed to PDF from the browser.
  */
+import { MONO, SANS } from '../render/fonts'
+import { LIGHT_THEME as L } from '../render/theme'
 import { escapeHtml } from '../util/html'
 
 export interface ReportTable {
@@ -54,25 +56,25 @@ export function buildReport(r: ReportContent): string {
 <title>${escapeHtml(r.title)}</title>
 <style>
   :root { color-scheme: light; }
-  body { font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #1d2430; background: #fff; margin: 0; }
+  body { font: 14px/1.5 ${SANS}; color: ${L.text}; background: ${L.page}; margin: 0; }
   main { max-width: 1100px; margin: 0 auto; padding: 28px 24px 48px; }
   h1 { font-size: 22px; margin: 0 0 4px; }
-  h2 { font-size: 15px; margin: 28px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #d9dee6; }
-  .sub { color: #5d6776; margin: 0 0 18px; }
-  .notes { white-space: pre-wrap; background: #f4f6f9; border-left: 3px solid #1d7fc4; padding: 10px 14px; border-radius: 4px; }
+  h2 { font-size: 15px; margin: 28px 0 8px; padding-bottom: 4px; border-bottom: 1px solid ${L.border}; }
+  .sub { color: ${L.muted}; margin: 0 0 18px; }
+  .notes { white-space: pre-wrap; background: ${L.panel}; border-left: 3px solid ${L.windowBox}; padding: 10px 14px; border-radius: 4px; }
   dl.meta { display: grid; grid-template-columns: max-content 1fr; gap: 3px 18px; margin: 0; }
-  dl.meta dt { color: #5d6776; }
-  dl.meta dd { margin: 0; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  dl.meta dt { color: ${L.muted}; }
+  dl.meta dd { margin: 0; font-family: ${MONO}; font-size: 13px; }
   figure { margin: 18px 0 0; }
-  figure img { width: 100%; border-radius: 4px; border: 1px solid #d9dee6; }
+  figure img { width: 100%; border-radius: 4px; border: 1px solid ${L.border}; }
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  th, td { padding: 5px 8px; border-bottom: 1px solid #e3e7ed; text-align: left; vertical-align: top; }
-  th { color: #5d6776; font-weight: 600; }
-  .num { text-align: right; font-family: ui-monospace, Consolas, monospace; white-space: nowrap; }
+  th, td { padding: 5px 8px; border-bottom: 1px solid ${L.border}; text-align: left; vertical-align: top; }
+  th { color: ${L.muted}; font-weight: 600; }
+  .num { text-align: right; font-family: ${MONO}; white-space: nowrap; }
   td:first-child { white-space: nowrap; }
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; vertical-align: 0; border: 1px solid rgba(0,0,0,.25); }
-  .note { color: #5d6776; margin: 0 0 6px; font-size: 13px; }
-  footer { margin-top: 36px; color: #8a93a1; font-size: 12px; }
+  .note { color: ${L.muted}; margin: 0 0 6px; font-size: 13px; }
+  footer { margin-top: 36px; color: ${L.muted}; font-size: 12px; }
   @media print {
     main { padding: 0; max-width: none; }
     section, figure { break-inside: avoid; }

@@ -1,5 +1,3 @@
-import type { ChannelDisplay } from './types'
-
 /** Definition of a math channel; its display settings live with the other channels. */
 export interface MathDef {
   id: string
@@ -36,28 +34,3 @@ export const MATH_PRESETS: { label: string; title: string; build: (a: string, b:
   { label: 'Low-pass', title: 'Filter out high-frequency noise (edit the cut-off)', build: (a) => `lowpass(${a}, 1M)` },
   { label: 'Average', title: 'Moving average (edit the window)', build: (a) => `avg(${a}, 10u)` },
 ]
-
-// ---------- persistence per session file ----------
-
-export interface StoredMath {
-  def: MathDef
-  display: Omit<ChannelDisplay, 'id'>
-  view: number
-}
-
-const PREFIX = 'scope-viewer:math:'
-
-export function loadMath(fingerprint: string | undefined): StoredMath[] {
-  if (!fingerprint) return []
-  try {
-    const raw = localStorage.getItem(PREFIX + fingerprint)
-    const list = raw ? JSON.parse(raw) : []
-    if (!Array.isArray(list)) return []
-    return list.filter(
-      (m): m is StoredMath =>
-        m && typeof m.def?.id === 'string' && /^MATH\d+$/.test(m.def.id) && typeof m.def.expr === 'string' && typeof m.display === 'object' && typeof m.view === 'number',
-    )
-  } catch {
-    return []
-  }
-}

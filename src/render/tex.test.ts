@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mathjax } from '@mathjax/src/js/mathjax.js'
 import { texToSvg } from './mathjax'
-import { hasTex, loadTex, splitTex, texHtml } from './tex'
+import { loadTex, splitTex, texHtml } from './tex'
 
 describe('tex', () => {
   it('splits text and formulas', () => {
@@ -15,8 +15,7 @@ describe('tex', () => {
     expect(splitTex('\\$5 and \\$6')).toEqual([{ text: '$5 and $6' }])
     expect(splitTex('empty $$ and $ $')).toEqual([{ text: 'empty $$ and $ $' }])
     expect(splitTex('no math')).toEqual([{ text: 'no math' }])
-    expect(hasTex('price: $5\nline two')).toBe(false)
-    expect(hasTex('note\n$\\Delta t$')).toBe(true)
+    expect(splitTex('price: $5')).toEqual([{ text: 'price: $5' }])
   })
 
   it('does not close a formula at an escaped dollar', () => {

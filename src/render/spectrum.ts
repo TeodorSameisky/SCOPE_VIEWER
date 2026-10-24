@@ -1,7 +1,7 @@
 import { toDb, type Peak, type Spectrum } from '../math/fft'
 import type { FreqAxis, SpectrumScale } from '../model/spectrum'
 import { niceStep, siTick } from '../util/format'
-import { PLOT_FONT } from './draw'
+import { MONO, PLOT_FONT, font } from './fonts'
 import type { Theme } from './theme'
 
 /** Height of the frequency axis below the spectrum plot */
@@ -189,7 +189,7 @@ export function drawSpectrum(ctx: CanvasRenderingContext2D, o: SpectrumDrawOptio
   }
 
   // Peak markers: numbered triangles above each peak
-  ctx.font = '10px "JetBrains Mono", ui-monospace, Consolas, monospace'
+  ctx.font = font(10, MONO)
   ctx.textAlign = 'center'
   ctx.textBaseline = 'bottom'
   for (const tr of o.traces) {
@@ -229,8 +229,8 @@ export function drawSpectrum(ctx: CanvasRenderingContext2D, o: SpectrumDrawOptio
   if (o.band) {
     const x0 = Math.min(o.band.x0, o.band.x1)
     const x1 = Math.max(o.band.x0, o.band.x1)
-    ctx.fillStyle = 'rgba(80, 160, 255, 0.15)'
-    ctx.strokeStyle = 'rgba(80, 160, 255, 0.85)'
+    ctx.fillStyle = theme.bandFill
+    ctx.strokeStyle = theme.band
     ctx.setLineDash([4, 3])
     ctx.fillRect(x0, 0, x1 - x0, plotH)
     ctx.strokeRect(x0 + 0.5, 0.5, x1 - x0, plotH - 1)

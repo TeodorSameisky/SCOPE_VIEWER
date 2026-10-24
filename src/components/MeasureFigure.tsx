@@ -17,12 +17,11 @@ const RISE2 = { p50: 180 }
 const ACCENT = '#3fb6ff'
 /** The example signal, in the colour of CH1 */
 const SIGNAL = '#f2e32c'
-const GUIDE = 'rgba(160, 170, 185, 0.55)'
 
 /** Small schematic that shows what a measurement measures on an example pulse train. */
 export function MeasureFigure({ highlight }: { highlight: MeasurementKey }) {
-  // Darkened on a light background, like the traces
-  const { ink } = useTheme().theme
+  // Darkened on a light background, like the traces; the guides in the theme's colour
+  const { ink, guide: GUIDE } = useTheme().theme
   const HL = ink(ACCENT)
   const uid = useId().replace(/:/g, '')
   const arrow = `url(#arr-${uid})`

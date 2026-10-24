@@ -8,6 +8,8 @@ export interface MenuAction {
   icon?: LucideIcon
   /** Keyboard shortcut shown on the right */
   hint?: string
+  /** Short description shown on the right instead (e.g. the file types of an Open command) */
+  note?: string
   disabled?: boolean
   danger?: boolean
   /** Shown with a check mark (toggle that is on) */
@@ -39,10 +41,27 @@ export type MenuEntry = MenuItem | '-' | false | null | undefined | 0 | ''
 export type MenuPointer = Pick<MouseEvent, 'clientX' | 'clientY' | 'target' | 'preventDefault'> & { nativeEvent?: Event; defaultPrevented?: boolean }
 export type OpenMenu = (e: MenuPointer, entries: MenuEntry[]) => void
 
-export const MenuContext = createContext<OpenMenu>(() => {})
+export interface DropdownOptions {
+  /** Which edge of the menu lines up with the button */
+  align?: 'left' | 'right'
+  /** Called when the menu closes, however it closes */
+  onClose?: () => void
+}
+
+/** One menu at a time: right-click menus and the drop-down menus of the toolbar look and work the same */
+export interface Menus {
+  /** Open a context menu at the pointer of a `contextmenu` event */
+  open: OpenMenu
+  /** Open a drop-down menu below a button */
+  openBelow: (button: HTMLElement, entries: MenuEntry[], o?: DropdownOptions) => void
+  close: () => void
+}
+
+export const MenuContext = createContext<Menus>({ open: () => {}, openBelow: () => {}, close: () => {} })
 
 /** Opens a context menu at the pointer of a `contextmenu` event */
-export const useContextMenu = () => useContext(MenuContext)
+export const useContextMenu = () => useContext(MenuContext).open
+export const useMenus = () => useContext(MenuContext)
 
 /** Drop skipped entries, and separators at the start, at the end or next to each other */
 export function normalizeMenu(entries: MenuEntry[]): (MenuItem | '-')[] {

@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type { Session } from '../model/types'
 import { si } from '../util/format'
 import { triggerText } from '../util/names'
+import { useDismiss } from './ui/useDismiss'
 
 export function InfoPanel({ session, storage }: { session: Session; storage?: React.ReactNode }) {
   const [filter, setFilter] = useState('')
@@ -59,11 +60,7 @@ export function InfoPanel({ session, storage }: { session: Session; storage?: Re
         <>
           <h4>Instrument screenshot</h4>
           <img className="screenshot" src={shotUrl} alt="Scope screen at time of saving" onClick={() => setZoomShot(true)} />
-          {zoomShot && (
-            <div className="modal" onClick={() => setZoomShot(false)}>
-              <img src={shotUrl} alt="Scope screen at time of saving" />
-            </div>
-          )}
+          {zoomShot && <ScreenshotModal url={shotUrl} onClose={() => setZoomShot(false)} />}
         </>
       )}
 
@@ -83,6 +80,18 @@ export function InfoPanel({ session, storage }: { session: Session; storage?: Re
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+/** The screenshot over the whole window: a click or Esc closes it, as the other dialogs */
+function ScreenshotModal({ url, onClose }: { url: string; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const close = useCallback(() => onClose(), [onClose])
+  useDismiss(ref, true, close)
+  return (
+    <div ref={ref} className="modal" role="dialog" aria-modal="true" aria-label="Instrument screenshot" onClick={close}>
+      <img src={url} alt="Scope screen at time of saving" />
     </div>
   )
 }

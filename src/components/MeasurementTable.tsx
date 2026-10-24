@@ -7,7 +7,10 @@ import { channelName } from '../util/names'
 import { measurementTable } from '../export/measureRows'
 import { MeasureInfo } from './MeasureInfo'
 import { MEASURE_RANGES, RANGE_LABEL, sampleRange, type CursorState, type LiveChannel, type MeasureRange, type TimeWindow } from '../model/view'
+import { rangeChoices } from './scopeCommands'
 import { useContextMenu, type MenuEntry } from './ui/menuContext'
+import { placeNear } from './ui/placement'
+import { ResizeHandle } from './ui/ResizeHandle'
 import { useDismiss } from './ui/useDismiss'
 import { useTheme } from './ui/themeContext'
 
@@ -30,14 +33,9 @@ interface Props {
   onCopy: (text: string, what: string) => void
 }
 
-interface Anchor {
-  left: number
-  /** just below the clicked element */
-  top: number
-  /** just above the clicked element */
-  above: number
-}
-type Popup = ({ kind: 'info'; key: MeasurementKey } | { kind: 'add' }) & Anchor
+/** Width of the popovers (explanation, add a measurement) */
+const POPUP_W = 340
+type Popup = ({ kind: 'info'; key: MeasurementKey } | { kind: 'add' }) & { style: React.CSSProperties }
 
 export function MeasurementTable(p: Props) {
   // Deferred so panning/zooming stays smooth on long records
@@ -79,9 +77,7 @@ export function MeasurementTable(p: Props) {
     openAtRect((e.currentTarget as HTMLElement).getBoundingClientRect(), popup)
   }
   const openAtRect = (r: DOMRect, popup: { kind: 'info'; key: MeasurementKey } | { kind: 'add' }) => {
-    const width = 340
-    const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8))
-    setPopup({ ...popup, left, top: r.bottom + 6, above: r.top - 6 })
+    setPopup({ ...popup, style: placeNear(r, POPUP_W, 'below') })
   }
 
   // ---------- drag a column header to move the column ----------
@@ -170,16 +166,7 @@ export function MeasurementTable(p: Props) {
       '-',
       { label: 'Copy table', icon: ClipboardList, disabled: !rows.length || !p.keys.length, onClick: copyTable },
       { label: 'Add measurement…', icon: Plus, disabled: !unused.length, onClick: () => openAtRect(at, { kind: 'add' }) },
-      {
-        kind: 'choices',
-        label: 'Range',
-        options: MEASURE_RANGES.map((r) => ({
-          label: r === 'screen' ? 'Screen' : r === 'cursors' ? 'Cursors' : 'Record',
-          title: RANGE_LABEL[r],
-          checked: p.range === r,
-          onClick: () => p.setRange(r),
-        })),
-      },
+      rangeChoices(p.range, p.setRange),
       { label: 'Hide measurements', icon: X, hint: 'T', onClick: p.onClose },
     ]
   }
@@ -218,42 +205,15 @@ export function MeasurementTable(p: Props) {
     ])
   }
 
-  // Drag the top edge to resize the panel
-  const resize = useRef<{ y0: number; h0: number } | null>(null)
-  const onResizeDown = (e: React.PointerEvent) => {
-    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-    resize.current = { y0: e.clientY, h0: p.height }
-  }
-  const onResizeMove = (e: React.PointerEvent) => {
-    if (!resize.current) return
-    p.setHeight(Math.round(Math.min(window.innerHeight * 0.6, Math.max(90, resize.current.h0 - (e.clientY - resize.current.y0)))))
-  }
-
-  const popupStyle = (pp: Popup): React.CSSProperties => {
-    // open on the side with more room; scroll inside if it still does not fit
-    const below = window.innerHeight - pp.top - 8
-    const above = pp.above - 8
-    return below >= 360 || below >= above
-      ? { left: pp.left, top: pp.top, maxHeight: below, overflowY: 'auto' }
-      : { left: pp.left, bottom: window.innerHeight - pp.above, maxHeight: above, overflowY: 'auto' }
-  }
 
   return (
     <div className="measure" style={{ height: p.height }} onContextMenu={(e) => menu(e, common(e))}>
-      <div
-        className="resize-handle"
-        role="separator"
-        aria-orientation="horizontal"
-        title="Drag to resize"
-        onPointerDown={onResizeDown}
-        onPointerMove={onResizeMove}
-        onPointerUp={() => (resize.current = null)}
-      />
+      <ResizeHandle height={p.height} setHeight={p.setHeight} />
       <div className="measure-bar">
         <span className="section-title">Measurements</span>
         <div className="segmented">
           {MEASURE_RANGES.map((r) => (
-            <button key={r} className={p.range === r ? 'active' : ''} onClick={() => p.setRange(r)}>
+            <button key={r} type="button" className={p.range === r ? 'active' : ''} aria-pressed={p.range === r} onClick={() => p.setRange(r)}>
               {RANGE_LABEL[r]}
             </button>
           ))}
@@ -298,7 +258,7 @@ export function MeasurementTable(p: Props) {
                     {d.label}
                     <Info size={12} aria-hidden />
                   </button>
-                  <button className="x" title="Remove" aria-label={`Remove ${d.label}`} onClick={() => p.setKeys(p.keys.filter((k) => k !== d.key))}>
+                  <button type="button" className="x" title="Remove" aria-label={`Remove ${d.label}`} onClick={() => p.setKeys(p.keys.filter((k) => k !== d.key))}>
                     ×
                   </button>
                 </th>
@@ -337,7 +297,7 @@ export function MeasurementTable(p: Props) {
       </div>
 
       {popup && (
-        <div ref={popRef} className="popover" style={{ position: 'fixed', width: 340, ...popupStyle(popup) }}>
+        <div ref={popRef} className="popover" style={{ width: POPUP_W, ...popup.style }}>
           {popup.kind === 'info' ? (
             <>
               <MeasureInfo def={measurementDef(popup.key)} compact />

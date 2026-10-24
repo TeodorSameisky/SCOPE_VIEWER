@@ -3,6 +3,7 @@
  * plot (and spectrum) rendered at the requested resolution, and the measurement table.
  * All sizes are in CSS pixels and multiplied by `scale`.
  */
+import { MONO, SANS as FONT } from '../render/fonts'
 import type { Theme } from '../render/theme'
 
 export interface LegendItem {
@@ -31,8 +32,6 @@ export interface ImageContent {
   theme: Theme
 }
 
-const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
-const MONO = '"JetBrains Mono", ui-monospace, Consolas, monospace'
 const PAD = 14
 
 export function composeImage(c: ImageContent): HTMLCanvasElement {

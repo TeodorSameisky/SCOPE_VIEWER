@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { calloutSpan, calloutTitle, hasTimeSpan, type Callout } from '../model/callouts'
-import { AXIS_GUTTER, DIVS_Y, PLOT_FONT, valueToDiv } from '../render/draw'
+import { AXIS_GUTTER, DIVS_Y, valueToDiv } from '../render/draw'
+import { PLOT_FONT } from '../render/fonts'
 import { useTheme } from './ui/themeContext'
+import { panShare, wheelPan, wheelPixels, wheelZoomFactor } from './ui/wheel'
 import { zoomAround, type LiveChannel, type NavKind, type TimeWindow } from '../model/view'
 
 const HEIGHT = 46
@@ -146,9 +148,9 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
     if (drag?.kind === 'select') {
       const a = Math.min(drag.x0, drag.x1)
       const b = Math.max(drag.x0, drag.x1)
-      ctx.fillStyle = 'rgba(80, 160, 255, 0.25)'
+      ctx.fillStyle = theme.bandFill
       ctx.fillRect(a, 0, b - a, HEIGHT)
-      ctx.strokeStyle = 'rgba(80, 160, 255, 0.9)'
+      ctx.strokeStyle = theme.band
       ctx.strokeRect(a + 0.5, 0.5, b - a, HEIGHT - 1)
     }
     // Callouts along the bottom: regions, boxes and spans as bars, markers as lines, notes as dots
@@ -289,17 +291,21 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
     setDrag(null)
   }
 
-  // Wheel zooms around the pointed time
+  // As in the plot: the wheel zooms around the pointed time, Shift+wheel or a sideways swipe pans
   useEffect(() => {
     const el = wrapRef.current
     if (!el) return
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
+      const pan = wheelPan(e)
+      if (pan !== undefined) {
+        const shift = (win.end - win.start) * panShare(pan)
+        if (shift) onNavigate({ start: win.start + shift, end: win.end + shift }, 'pan')
+        return
+      }
       const x = e.clientX - el.getBoundingClientRect().left
       const t = record.start + (Math.min(plotW, Math.max(0, x)) / plotW) * recSpan
-      const delta = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY
-      const f = Math.min(4, Math.max(0.25, Math.pow(1.0022, delta)))
-      onNavigate(zoomAround(win, t, f, minSpan, recSpan * 4), 'wheel')
+      onNavigate(zoomAround(win, t, wheelZoomFactor(wheelPixels(e).y), minSpan, recSpan * 4), 'wheel')
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
@@ -331,6 +337,7 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerCancel={() => setDrag(null)}
       onPointerLeave={() => {
         if (drag) return
         setHoverPart(null)
