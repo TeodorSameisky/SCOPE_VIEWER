@@ -558,7 +558,12 @@ code {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
+  /* One row exactly as high as the space between the top bar and the channel bar: in a low window
+     nothing in it (the rail's buttons, the plot's minimum height) may grow past it and over the
+     channel bar */
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
+  overflow: hidden;
 }
 /* Column of overview / plot / spectrum / measurements: the plot takes the space the others leave,
    and the resizable panels give way when the window gets too low */
@@ -723,6 +728,16 @@ code {
   padding: 8px 0;
   background: var(--chrome);
   border-left: 1px solid var(--border);
+  /* In a window too low for all its buttons it scrolls (wheel) instead of growing */
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.rail::-webkit-scrollbar {
+  display: none;
+}
+.rail > * {
+  flex-shrink: 0;
 }
 .rail .icon-btn {
   width: 32px;
