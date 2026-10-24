@@ -1,12 +1,13 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { inputItems } from '../model/input'
-import type { Session } from '../model/types'
+import type { Channel, Session } from '../model/types'
 import { si } from '../util/format'
 import { channelName, triggerText } from '../util/names'
 import { useTheme } from './ui/themeContext'
 import { useDismiss } from './ui/useDismiss'
 
-export function InfoPanel({ session, storage }: { session: Session; storage?: React.ReactNode }) {
+/** `channels`: the input channels with their current settings (colour, label), not those of the file */
+export function InfoPanel({ session, channels, storage }: { session: Session; channels: Channel[]; storage?: React.ReactNode }) {
   const [filter, setFilter] = useState('')
   const [zoomShot, setZoomShot] = useState(false)
   const shotUrl = session.screenshot ? screenshotUrl(session.screenshot) : undefined
@@ -58,7 +59,7 @@ export function InfoPanel({ session, storage }: { session: Session; storage?: Re
         )}
       </dl>
 
-      <ChannelInputs session={session} />
+      <ChannelInputs channels={channels} />
 
       {shotUrl && (
         <>
@@ -89,9 +90,9 @@ export function InfoPanel({ session, storage }: { session: Session; storage?: Re
 }
 
 /** How each channel was connected and set on the scope: one column per setting any channel has */
-function ChannelInputs({ session }: { session: Session }) {
+function ChannelInputs({ channels }: { channels: Channel[] }) {
   const { ink } = useTheme().theme
-  const rows = session.channels.flatMap((c) => (c.input ? [{ c, items: new Map(inputItems(c.input).map((it) => [it.label, it.value])) }] : []))
+  const rows = channels.flatMap((c) => (c.input ? [{ c, items: new Map(inputItems(c.input).map((it) => [it.label, it.value])) }] : []))
   if (!rows.length) return null
   // In the order of inputItems, only settings at least one channel has
   const columns = [...new Set(rows.flatMap((r) => [...r.items.keys()]))]
@@ -111,7 +112,7 @@ function ChannelInputs({ session }: { session: Session }) {
           <tbody>
             {rows.map(({ c, items }) => (
               <tr key={c.wave.id}>
-                <td>
+                <td title={c.display.label || undefined}>
                   <span className="dot" style={{ background: ink(c.display.color) }} />
                   {channelName(c.wave.id)}
                 </td>

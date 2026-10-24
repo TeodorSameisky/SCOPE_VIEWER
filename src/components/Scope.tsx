@@ -223,6 +223,18 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
   const onAdjust = useCallback((id: string, patch: DisplayPatch) => {
     setDisplays((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d)))
   }, [])
+  /**
+   * Change a channel's settings from its badge or a menu. A new colour also goes to the notes on its
+   * trace that still have its old colour (one undo step); a note given a colour of its own keeps it.
+   */
+  const adjustChannel = (id: string, patch: DisplayPatch) => {
+    const old = displayById.get(id)?.color
+    onAdjust(id, patch)
+    const color = patch.color
+    if (color !== undefined && old !== undefined && color !== old) {
+      setCallouts((cs) => cs.map((c) => (c.type === 'note' && c.channel === id && c.color === old ? { ...c, color } : c)))
+    }
+  }
   const showOnly = (id: string) => setDisplays((ds) => ds.map((x) => ({ ...x, visible: x.id === id })))
   const showAll = () => setDisplays((ds) => ds.map((x) => ({ ...x, visible: true })))
   const onMoveToView = (id: string, view: number) => {
@@ -633,7 +645,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     themePreference,
     setThemePreference,
     select: setSelected,
-    adjust: onAdjust,
+    adjust: adjustChannel,
     showOnly,
     showAll,
     autoscale: onAutoscale,
@@ -829,6 +841,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
             {layout.panel === 'info' && (
               <InfoPanel
                 session={session}
+                channels={inputChannels}
                 storage={
                   <StorageSection
                     fingerprint={session.fingerprint}
@@ -867,7 +880,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
         views={views}
         selected={selected}
         setSelected={setSelected}
-        onAdjust={onAdjust}
+        onAdjust={adjustChannel}
         onMoveToView={onMoveToView}
         onAutoscale={onAutoscale}
         win={win}

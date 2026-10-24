@@ -101,7 +101,8 @@ The **middle mouse button** pans the plot with any tool.
 
 Mark events directly on the waveforms:
 
-- **Note** — text attached to a point on a trace; it follows the trace when zooming or changing V/div
+- **Note** — text attached to a point on a trace; it follows the trace when zooming or changing V/div, and
+  it is drawn in the trace's colour (also after the channel's colour is changed) until you give it another one
 - **Marker** — vertical line at an event time across all views
 - **Region** — a marked time span with its Δt
 - **Box** — a frame around an event in time *and* amplitude (a glitch, ringing, an overshoot), drawn as a
