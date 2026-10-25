@@ -11,9 +11,12 @@ const SAVE_DELAY_MS = 400
  * a file that is only opened is not stored (saving starts with the first change), an imported or
  * migrated workspace is not in storage yet and is saved right away.
  *
+ * When storage is full, saving removes the saved analyses of other sessions: `onRemoved` is told
+ * their file names.
+ *
  * Returns the save status and `cancel`, which drops a pending save (before the workspace is replaced).
  */
-export function useAutosave(session: Session, workspace: Workspace, boot: { workspace: Workspace; source: LoadSource | 'file' }) {
+export function useAutosave(session: Session, workspace: Workspace, boot: { workspace: Workspace; source: LoadSource | 'file' }, onRemoved?: (fileNames: string[]) => void) {
   const [status, setStatus] = useState<SaveStatus>(() => (boot.source === 'saved' ? { state: 'saved', at: new Date().toISOString() } : { state: 'clean' }))
   // Comparing with the initial state (instead of skipping the first effect run) also holds when
   // effects run twice in development
@@ -21,6 +24,10 @@ export function useAutosave(session: Session, workspace: Workspace, boot: { work
   const changed = useRef(initialJson === null)
   const latest = useRef(workspace)
   const timer = useRef<number | undefined>(undefined)
+  const removedRef = useRef(onRemoved)
+  useEffect(() => {
+    removedRef.current = onRemoved
+  })
 
   const cancel = useCallback(() => {
     window.clearTimeout(timer.current)
@@ -30,6 +37,7 @@ export function useAutosave(session: Session, workspace: Workspace, boot: { work
     cancel()
     const res = saveWorkspace(session, latest.current)
     setStatus(res.ok ? { state: 'saved', at: res.savedAt } : { state: 'error', error: res.error })
+    if (res.ok && res.removed) removedRef.current?.(res.removed)
   }, [session, cancel])
 
   useEffect(() => {

@@ -180,6 +180,23 @@ describe('compute engine', () => {
     expect(engine.measured(long, 1, n, 'edges:CH3')).toEqual(measure(long.data, 1, n, 0, 1e-6))
   })
 
+  it('keeps each slot’s measurement when many slots measure one channel (callouts)', async () => {
+    const { engine, requests } = setup([ch1, ch2, long])
+    const n = long.data.length
+    // More regions on one channel than ranges are remembered per channel
+    const spans = Array.from({ length: 12 }, (_, i) => [i * 100, n - i * 100] as const)
+    const ask = () => spans.map(([i0, i1], i) => engine.measured(long, i0, i1, `callout:${i}`))
+    expect(ask().every((m) => m === undefined)).toBe(true)
+    // One job after the other
+    for (let i = 0; i < 3; i++) await settle()
+    // All arrived and stay: asking again (on the next render) measures nothing again
+    const results = ask()
+    expect(results.every((m) => m !== undefined)).toBe(true)
+    expect(results[11]).toEqual(measure(long.data, 1100, n - 1100, 0, 1e-6))
+    await settle()
+    expect(requests()).toHaveLength(12)
+  })
+
   it('stops its worker; the next job starts a new one', async () => {
     const { engine, workers, latest } = setup()
     engine.setMath([{ id: 'MATH1', expr: 'CH1 - CH2' }])

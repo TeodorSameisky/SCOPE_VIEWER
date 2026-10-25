@@ -117,11 +117,12 @@ export class ComputeEngine {
    * channel), as far as they are known. Short ranges are measured at once; a longer one is
    * measured in the worker and is undefined until then: `subscribeMeasured` tells when results
    * arrive. They are remembered per sample array and range, so whoever asks for the same range
-   * (the measurement table, edge snapping) shares them. `slot` names who asks, as for `spectrum`.
+   * (the measurement table, edge snapping) shares them. `slot` names who asks, as for `spectrum`;
+   * the range a slot asked for last stays remembered however many others ask (callouts).
    */
   measured(w: Pick<Waveform, 'data' | 't0' | 'dt'>, i0: number, i1: number, slot: string): Measurements | undefined {
     const key = `${w.t0}:${w.dt}:${i0}:${i1}`
-    if (i1 - i0 <= PAGE_MEASURE_MAX) return this.measurements.get(w.data, key, () => ({ m: measure(w.data, i0, i1, w.t0, w.dt) })).m
+    if (i1 - i0 <= PAGE_MEASURE_MAX) return this.measurements.get(w.data, key, () => ({ m: measure(w.data, i0, i1, w.t0, w.dt) }), slot).m
     const ref = this.refFor(w.data)
     if (ref === undefined) return undefined
     return this.measurements.get(w.data, key, () => {
@@ -137,7 +138,7 @@ export class ComputeEngine {
         if (replaced) queueMicrotask(() => this.notifyMeasured())
       })
       return entry
-    }).m
+    }, slot).m
   }
 
   /** For useSyncExternalStore (with `measuredVersion`): `listener` is called when measurements arrive */

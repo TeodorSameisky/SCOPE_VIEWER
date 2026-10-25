@@ -29,6 +29,15 @@ describe('calloutValueText', () => {
     expect(calloutValueText(region, [step])).toBe('Ch 2: max 4.000 V · min 0 V · pk-pk 4.000 V')
   })
 
+  it('measures the samples of the span with the measurer it is given, which may not have them yet', () => {
+    const step = wave('CH2', [0, 0, 4, 4, 4])
+    const region: Callout = { ...base, id: 'r1', type: 'region', t: 3e-3, t2: 1e-3, measure: { channel: 'CH2', keys: ['pkpk'] } }
+    const asked: unknown[] = []
+    // Still being measured (in the worker)
+    expect(calloutValueText(region, [step], (w, i0, i1, id) => void asked.push([w.id, i0, i1, id]))).toBe('Ch 2: measuring…')
+    expect(asked).toEqual([['CH2', 1, 4, 'r1']])
+  })
+
   it('says so when the measured channel has no waveform', () => {
     expect(calloutValueText({ ...base, type: 'region', t2: 1, measure: { channel: 'MATH1', keys: ['mean'] } }, [ramp])).toBe('Math 1: no waveform')
   })

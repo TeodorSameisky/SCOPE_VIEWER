@@ -28,23 +28,26 @@ export const MEASURE_SHORT: Record<MeasurementKey, string> = {
 /** What a region measures when a channel is chosen for it */
 export const DEFAULT_REGION_KEYS: MeasurementKey[] = ['pkpk', 'mean']
 
+/**
+ * Measurements of the samples [i0, i1) of a waveform for the region or box `id`, or undefined
+ * while they are being measured (on screen, long spans are measured in the compute worker)
+ */
+export type SpanMeasure = (w: Waveform, i0: number, i1: number, id: string) => Measurements | undefined
+
 // Measurements of region spans per sample array: a region is measured again only when it moves.
 // Dragging a region measures many spans: only the latest are kept
 const cache = new SampleCache<Measurements>(32)
 
-function measureSpan(w: Waveform, ta: number, tb: number): Measurements {
-  const i0 = Math.max(0, Math.ceil((ta - w.t0) / w.dt - 1e-9))
-  const i1 = Math.min(w.data.length, Math.floor((tb - w.t0) / w.dt + 1e-9) + 1)
-  return cache.get(w.data, `${w.t0}:${w.dt}:${i0}:${i1}`, () => measure(w.data, i0, i1, w.t0, w.dt))
-}
+/** Measured at once, for exports, which cannot wait */
+export const measureNow: SpanMeasure = (w, i0, i1, id) => cache.get(w.data, `${w.t0}:${w.dt}:${i0}:${i1}`, () => measure(w.data, i0, i1, w.t0, w.dt), id)
 
 /**
  * The value line of a callout, or undefined when it has none: a note with `showValue` shows the
  * value of its trace at the anchor (only the time when it is not on a trace), a region or box with
- * `measure` the measurements of that channel over its time span, a span with `showValue` Δv
- * between its ends (when both channels have the same unit) and 1/Δt.
+ * `measure` the measurements of that channel over its time span (by `measureSpan`), a span with
+ * `showValue` Δv between its ends (when both channels have the same unit) and 1/Δt.
  */
-export function calloutValueText(c: Callout, waves: Waveform[]): string | undefined {
+export function calloutValueText(c: Callout, waves: Waveform[], measureSpan: SpanMeasure = measureNow): string | undefined {
   if (c.type === 'note' && c.showValue) {
     const t = `t = ${si(c.t, 's', 5)}`
     const w = c.channel ? waves.find((x) => x.id === c.channel) : undefined
@@ -63,7 +66,11 @@ export function calloutValueText(c: Callout, waves: Waveform[]): string | undefi
     const w = waves.find((x) => x.id === channel)
     if (!w) return `${channelName(channel)}: no waveform`
     const t2 = c.t2 ?? c.t
-    const m = measureSpan(w, Math.min(c.t, t2), Math.max(c.t, t2))
+    // The samples inside its time span
+    const i0 = Math.max(0, Math.ceil((Math.min(c.t, t2) - w.t0) / w.dt - 1e-9))
+    const i1 = Math.min(w.data.length, Math.floor((Math.max(c.t, t2) - w.t0) / w.dt + 1e-9) + 1)
+    const m = measureSpan(w, i0, i1, c.id)
+    if (!m) return `${channelName(w.id)}: measuring…`
     return `${channelName(w.id)}: ${keys.map((k) => `${MEASURE_SHORT[k]} ${formatMeasurement(k, m[k], w.yUnit)}`).join(' · ')}`
   }
   return undefined

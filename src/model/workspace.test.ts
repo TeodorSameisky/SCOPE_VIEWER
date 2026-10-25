@@ -145,13 +145,21 @@ describe('autosave', () => {
     // room for about three workspaces plus the index
     const one = JSON.stringify(defaultWorkspace(session())).length + 40
     ;(globalThis as { localStorage?: unknown }).localStorage = new MemoryStorage(one * 3 + 600)
+    const removed: string[] = []
     for (let i = 1; i <= 5; i++) {
       const s = session(`fp${i}`, `f${i}.tss`)
-      expect(saveWorkspace(s, defaultWorkspace(s)).ok).toBe(true)
+      const res = saveWorkspace(s, defaultWorkspace(s))
+      expect(res.ok).toBe(true)
+      if (res.ok) removed.push(...(res.removed ?? []))
     }
     const kept = listStoredSessions().map((x) => x.fingerprint)
     expect(kept).toContain('fp5')
     expect(kept.length).toBeLessThan(5)
+    // Each removed analysis is named, so the user can be told
+    const gone = [1, 2, 3, 4, 5].filter((i) => !kept.includes(`fp${i}`)).map((i) => `f${i}.tss`)
+    expect([...removed].sort()).toEqual(gone)
+    // Saving again with room to spare removes nothing
+    expect(saveWorkspace(session('fp5', 'f5.tss'), defaultWorkspace(session('fp5')))).not.toHaveProperty('removed')
     // a single workspace that can never fit reports an error instead of throwing
     ;(globalThis as { localStorage?: unknown }).localStorage = new MemoryStorage(100)
     const res = saveWorkspace(session(), defaultWorkspace(session()))

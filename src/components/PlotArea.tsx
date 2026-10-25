@@ -3,6 +3,7 @@ import type { ComputeEngine } from '../compute/engine'
 import { levelsOf, nearestEdge, type EdgeLevels } from '../dsp/edges'
 import type { PlotImageSource } from '../export/sessionExport'
 import { DEFAULT_CALLOUT_COLOR, calloutSpan, type Callout } from '../model/callouts'
+import type { SpanMeasure } from '../model/calloutValues'
 import { calloutsSvg, flagsBottom, layoutCallouts } from '../render/callouts'
 import {
   AXIS_GUTTER,
@@ -246,12 +247,15 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   // Callout geometry (formulas render asynchronously: lay out again when one is ready)
   const texVersion = useTexVersion()
   const { theme } = useTheme()
+  // Regions and boxes measure their channel over their span, long spans in the worker (so dragging
+  // one over a long record stays smooth); each callout is a slot of its own
+  const measureSpan = useCallback<SpanMeasure>((w, i0, i1, id) => p.engine.measured(w, i0, i1, `callout:${id}`), [p.engine])
   // Laid out again only when something it depends on changes (not on every pointer move)
   const calloutGeo = useMemo(
-    () => layoutCallouts(p.callouts, { channels: p.channels, views: p.views, win: p.win, plotW, viewH }),
-    // texVersion: a formula has been rendered meanwhile
+    () => layoutCallouts(p.callouts, { channels: p.channels, views: p.views, win: p.win, plotW, viewH, measure: measureSpan }),
+    // texVersion: a formula has been rendered meanwhile; measuredVersion: measurements arrived
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [p.callouts, p.channels, p.views, p.win, plotW, viewH, texVersion],
+    [p.callouts, p.channels, p.views, p.win, plotW, viewH, measureSpan, texVersion, measuredVersion],
   )
 
   useLayoutEffect(() => {

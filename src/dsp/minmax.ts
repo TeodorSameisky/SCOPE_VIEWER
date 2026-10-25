@@ -24,13 +24,16 @@ function buildLevels(data: Float32Array): PyramidLevel[] {
     for (let j = 0; j < n; j++) {
       const s = j * FACTOR
       const e = Math.min(s + FACTOR, srcMin.length)
-      // NaN never wins a comparison, so invalid samples (gaps of math channels) are skipped;
-      // a block without valid samples stores NaN and is left out when drawing
+      // NaN never wins a comparison and ±Infinity is passed over, so invalid samples (gaps of
+      // math channels, a division by 0) are skipped; a block without valid samples stores NaN
+      // and is left out when drawing
       let lo = Infinity
       let hi = -Infinity
       for (let i = s; i < e; i++) {
-        if (srcMin[i] < lo) lo = srcMin[i]
-        if (srcMax[i] > hi) hi = srcMax[i]
+        const a = srcMin[i]
+        const b = srcMax[i]
+        if (a < lo && a !== -Infinity) lo = a
+        if (b > hi && b !== Infinity) hi = b
       }
       min[j] = lo === Infinity ? NaN : lo
       max[j] = hi === -Infinity ? NaN : hi
@@ -75,10 +78,11 @@ export class MinMaxPyramid {
       }
     }
     if (li < 0) {
+      // Invalid samples are skipped as in the levels
       for (let i = i0; i < i1; i++) {
         const v = d[i]
-        if (v < lo) lo = v
-        if (v > hi) hi = v
+        if (v < lo && v !== -Infinity) lo = v
+        if (v > hi && v !== Infinity) hi = v
       }
     } else {
       const { block, min, max } = this.levels[li]

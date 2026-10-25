@@ -28,4 +28,21 @@ describe('SampleCache', () => {
     get('2')
     expect(runs).toBe(4)
   })
+
+  it('keeps what each slot asked for last, however many slots ask', () => {
+    const cache = new SampleCache<string>(2)
+    const a = new Float32Array(1)
+    let runs = 0
+    const get = (key: string, slot?: string) => cache.get(a, key, () => (runs++, key), slot)
+    // Five callouts each measure their own span: more than the cache keeps
+    for (let round = 0; round < 3; round++) for (let i = 0; i < 5; i++) get(`span${i}`, `callout${i}`)
+    expect(runs).toBe(5)
+    // A slot that moves on releases its old key
+    get('span0b', 'callout0')
+    get('x')
+    get('y')
+    expect(runs).toBe(8)
+    get('span0')
+    expect(runs).toBe(9)
+  })
 })

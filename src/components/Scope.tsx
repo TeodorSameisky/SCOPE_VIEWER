@@ -518,7 +518,10 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     if (u && edits.steps > u.steps + 1) dropUndoNotice()
   }, [edits.steps, dropUndoNotice])
 
-  const { status: saveStatus, cancel: cancelSave } = useAutosave(session, workspace, boot)
+  const { status: saveStatus, cancel: cancelSave } = useAutosave(session, workspace, boot, (names) => {
+    const list = names.map((n) => `“${n}”`).join(', ')
+    notify({ kind: 'error', message: `Browser storage was full: to save this session, the saved analyses of ${list} were removed from this browser.` })
+  })
 
   const saveAnalysis = () => {
     downloadBlob(new Blob([analysisToJson(session, workspace)], { type: 'application/json' }), `${stem(session.fileName)}${ANALYSIS_EXT}`)

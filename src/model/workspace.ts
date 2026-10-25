@@ -314,20 +314,22 @@ export function loadWorkspace(session: Session): { workspace: Workspace; source:
   return { workspace: migrated, source: 'migrated' }
 }
 
-export type SaveResult = { ok: true; savedAt: string } | { ok: false; error: string }
+/** `removed`: file names of other sessions whose saved analyses were removed to make room */
+export type SaveResult = { ok: true; savedAt: string; removed?: string[] } | { ok: false; error: string }
 
 /** Whether the changes to the open session are remembered (shown next to the file name) */
 export type SaveStatus = { state: 'clean' } | { state: 'saved'; at: string } | { state: 'error'; error: string }
 
 /**
  * Save a session's workspace. When storage is full the least recently saved other
- * sessions are removed until it fits.
+ * sessions are removed until it fits; the result names them, so the user can be told.
  */
 export function saveWorkspace(session: Session, ws: Workspace): SaveResult {
   const fp = session.fingerprint
   if (!fp) return { ok: false, error: 'The file could not be identified, so changes cannot be remembered' }
   const json = JSON.stringify(ws)
   const savedAt = new Date().toISOString()
+  const removed: string[] = []
   try {
     for (let attempt = 0; ; attempt++) {
       try {
@@ -336,7 +338,9 @@ export function saveWorkspace(session: Session, ws: Workspace): SaveResult {
       } catch (e) {
         const others = listStoredSessions().filter((s) => s.fingerprint !== fp)
         if (!isQuotaError(e) || !others.length || attempt > 100) throw e
-        deleteStoredSession(others[others.length - 1].fingerprint)
+        const oldest = others[others.length - 1]
+        deleteStoredSession(oldest.fingerprint)
+        removed.push(oldest.fileName)
       }
     }
     for (const p of LEGACY_PREFIXES) localStorage.removeItem(p + fp)
@@ -349,7 +353,7 @@ export function saveWorkspace(session: Session, ws: Workspace): SaveResult {
       delete index[old]
     }
     writeIndex(index)
-    return { ok: true, savedAt }
+    return removed.length ? { ok: true, savedAt, removed } : { ok: true, savedAt }
   } catch (e) {
     return { ok: false, error: isQuotaError(e) ? 'Browser storage is full' : 'Browser storage is not available (private mode?)' }
   }

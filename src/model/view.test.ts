@@ -79,5 +79,9 @@ describe('view', () => {
       expect(autoscalePatches([live('CH1', [3.5, 3.5])], [['CH1']], ['CH1'], all, 10)).toEqual({ CH1: { scale: 7, offset: 3.5, position: 0 } })
       expect(autoscalePatches([live('MATH1', [NaN, NaN])], [['MATH1']], ['MATH1', 'CH9'], all, 10)).toEqual({})
     })
+
+    it('fits a math channel with infinite samples (CH1 / CH2 where CH2 is 0) to its finite ones', () => {
+      expect(autoscalePatches([live('MATH1', [-1, Infinity, 3, -Infinity, 1])], [['MATH1']], ['MATH1'], all, 10)).toEqual({ MATH1: { scale: 0.5, offset: 1, position: 0 } })
+    })
   })
 })

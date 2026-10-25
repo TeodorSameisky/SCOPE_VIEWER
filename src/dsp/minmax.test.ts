@@ -20,4 +20,23 @@ describe('min/max pyramid', () => {
       expect(b).toEqual(a)
     }
   })
+
+  it('skips infinite samples like NaN, in the levels and in short ranges', () => {
+    // A division by 0 in a math channel: ±Infinity where the divisor is exactly 0
+    const data = Float32Array.from({ length: 5000 }, (_, i) => (i % 500 === 0 ? (i % 1000 ? -Infinity : Infinity) : Math.sin(i / 50)))
+    const p = new MinMaxPyramid(data)
+    const mm: [number, number] = [0, 0]
+    for (const [i0, i1] of [
+      [0, 5000],
+      [495, 505],
+    ]) {
+      p.range(i0, i1, mm)
+      expect(mm.every(Number.isFinite)).toBe(true)
+      expect(mm[0]).toBeGreaterThanOrEqual(-1)
+      expect(mm[1]).toBeLessThanOrEqual(1)
+    }
+    // Only invalid samples: no range, like a gap
+    p.range(500, 501, mm)
+    expect(mm).toEqual([NaN, NaN])
+  })
 })

@@ -72,6 +72,8 @@ function Main() {
     if (r.kept) setFilesVersion((v) => v + 1)
   }, [])
 
+  /** The files being read; opening others meanwhile cancels them (the latest opened is shown) */
+  const reading = useRef<AbortController | null>(null)
   /**
    * Open session files. An analysis file (.scopeview.json) can be opened together with
    * its session file, or on its own to apply it to the open session. `expected`: the stored
@@ -88,9 +90,12 @@ function Main() {
         else setError('Open the session file (.tss, .wfm, .isf or .scopeview) together with the analysis file.')
         return
       }
+      reading.current?.abort(new DOMException('Another file was opened', 'AbortError'))
+      const run = new AbortController()
+      reading.current = run
       setBusy(true)
       try {
-        const loaded = await loadSession(data)
+        const loaded = await loadSession(data, run.signal)
         let initial: InitialState = { kind: 'stored' }
         const text = jsons.length ? await jsons[0].text() : loaded.analysis
         if (text) {
@@ -103,6 +108,8 @@ function Main() {
             initial = parsed.kind === 'analysis' ? { kind: 'analysis', workspace: parsed.workspace } : { kind: 'stored', addCallouts: parsed.callouts }
           }
         }
+        // Other files were opened while asking
+        if (run.signal.aborted) return
         // Keep the session files for "Save bundle": the dropped files, or the files inside a bundle
         const sources: SourceFile[] = loaded.analysis !== undefined || isBundleName(data[0].name)
           ? loaded.sources.map((s) => ({ name: s.name, blob: new Blob([s.data]) }))
@@ -119,9 +126,13 @@ function Main() {
         if (notes.length) notify({ kind: 'error', message: notes.join(' ') })
         void keepFiles(loaded.session, sources)
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e))
+        // Cancelled by a newer open: its result or error is what counts
+        if (!run.signal.aborted) setError(e instanceof Error ? e.message : String(e))
       } finally {
-        setBusy(false)
+        if (reading.current === run) {
+          reading.current = null
+          setBusy(false)
+        }
       }
     },
     [hasSession, keepFiles, setError, confirm, notify],

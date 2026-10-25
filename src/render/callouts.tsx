@@ -2,7 +2,7 @@ import type { CSSProperties, DOMAttributes, ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { calloutTitle, type BoxShape, type Callout } from '../model/callouts'
-import { calloutValueText } from '../model/calloutValues'
+import { calloutValueText, type SpanMeasure } from '../model/calloutValues'
 import type { Waveform } from '../model/types'
 import { si } from '../util/format'
 import type { LiveChannel, TimeWindow } from '../model/view'
@@ -31,6 +31,8 @@ export interface CalloutLayout {
   win: TimeWindow
   plotW: number
   viewH: number
+  /** Measures regions and boxes; without it they are measured at once (exports) */
+  measure?: SpanMeasure
 }
 
 /**
@@ -244,7 +246,7 @@ function regionGeometry(c: Callout, p: CalloutLayout, waves: Waveform[]): Region
   const xa = tToX(Math.min(c.t, t2))
   const xb = tToX(Math.max(c.t, t2))
   if (xb < -1 || xa > p.plotW + 1) return null
-  const { label, value, w, h } = labelBlock(`${calloutTitle(c)}  Δt ${si(Math.abs(t2 - c.t), 's')}`, calloutValueText(c, waves))
+  const { label, value, w, h } = labelBlock(`${calloutTitle(c)}  Δt ${si(Math.abs(t2 - c.t), 's')}`, calloutValueText(c, waves, p.measure))
   const totalH = p.viewH * Math.max(1, p.views.length)
   return { type: 'region', xa, xb, lx: Math.min(Math.max(xa, 0) + 4, p.plotW - w - 2), ly: totalH - h - 6, w, h, label, value }
 }
@@ -277,7 +279,7 @@ function boxGeometry(c: Callout, p: CalloutLayout, waves: Waveform[]): BoxGeo | 
   if (yBottom < top || yTop > top + p.viewH) return null
   const y = clamp(yTop, top, top + p.viewH - 2)
   const h = Math.max(2, clamp(yBottom, top, top + p.viewH) - y)
-  const { label, value, w: lw, h: lh } = labelBlock(calloutTitle(c), calloutValueText(c, waves))
+  const { label, value, w: lw, h: lh } = labelBlock(calloutTitle(c), calloutValueText(c, waves, p.measure))
   const totalH = p.viewH * Math.max(1, p.views.length)
   const ly = y - lh - 3 >= 2 ? y - lh - 3 : y + h + 3 + lh <= totalH - 2 ? y + h + 3 : y + 3
   return { type: 'box', x: xa, y, w: Math.max(2, xb - xa), h, shape: c.shape ?? 'rect', lx: clamp(xa, 2, p.plotW - lw - 2), ly, lw, lh, label, value }

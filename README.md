@@ -208,7 +208,8 @@ panel and the start page list the sessions known to this browser – click one t
 saved analysis. Files up to 300 MB each and 1 GB in total are kept (the least recently opened are dropped
 first; their analyses stay and can be reopened with *Locate…*, which asks for the file). Keeping files can
 be switched off in the Session panel, which also deletes the kept files. The 50 most recently changed
-analyses are kept.
+analyses are kept; should the browser's storage for them be full, the least recently changed analyses of
+other sessions are removed so the open session can be saved, and a notice names them.
 
 **Reloading** the page (or *Reload* for a new version) reopens the session that was open in that tab,
 from its kept file. A new tab or window starts on the start page with the recent sessions.
