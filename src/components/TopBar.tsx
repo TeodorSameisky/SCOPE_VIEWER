@@ -48,6 +48,7 @@ export function TopBar({ fileName, saveStatus, actions: a }: Props) {
       <ActionButton action={a.back} />
       <ActionButton action={a.savedView} />
       <ActionButton action={a.fullRecord} />
+      <ActionButton action={a.autoscale} />
       <div className="sep" />
       <ActionButton action={a.cursors} showLabel />
       <ActionButton action={a.readout} />

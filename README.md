@@ -34,6 +34,11 @@ Which panels are open is remembered in the browser.
 - Stacked waveform views with the scope's colours, labels, ground markers, trigger point and level
 - Min/max decimation pyramid, so long records stay responsive
 - Click a trace to select it; Ctrl+wheel changes its V/div, Alt+wheel its position
+- **Autoscale** (`A`, or the button next to *Full record*): fits what is on screen of every visible channel into
+  its view – V/div in 1-2-5 steps, up to 8 of the 10 divisions. Channels that share a view get a band each, top to
+  bottom, so they do not overlap; a channel whose waveform is not on screen is fitted over its whole record. One
+  undo step. Right-click in the plot to autoscale only that view, or a channel's badge for that channel alone (into
+  its band); new math channels are fitted over the whole record
 - **Moving and scaling traces** with the channel tags on the left edge of the plot (C1, C2, … at each
   channel's 0 level, as on the scope):
   - **drag a tag** up or down to move its trace; it snaps to the grid lines (hold Alt to place it freely),
@@ -72,7 +77,7 @@ Right-click (on a Mac also Ctrl+click) opens the commands for what is under the 
 
 | Where | Commands |
 | --- | --- |
-| Plot | time at the pointer; zoom in / out here, back, full record; put cursor A or B here; add a note or marker here, mark the region between the cursors; copy the values of all visible channels at that time; export image |
+| Plot | time at the pointer; zoom in / out here, back, full record, autoscale this view or all; put cursor A or B here; add a note or marker here, mark the region between the cursors; copy the values of all visible channels at that time; export image |
 | A trace in the plot | additionally that channel's value and commands (see channel badge) |
 | Channel badge | settings, hide, show only this channel / show all, autoscale, move to another view, show/remove its spectrum, use it for the cursor Δv, delete (math channels) |
 | Callout (plot or Callouts panel) | edit text, colour, shape (box), values or measurements, go to, zoom to box, cursors to the callout, region, box or span ends, duplicate, delete |
@@ -236,7 +241,7 @@ or tab separated.
 ### Command palette
 
 `Ctrl+K` (`⌘K` on a Mac, also `Ctrl+Shift+P`) or the search button in the top bar opens a search over every
-command: tools, views and panels, channels (select, show/hide, show only, autoscale, settings), callouts
+command: tools, views and panels, autoscale, channels (select, show/hide, show only, autoscale, settings), callouts
 (*Go to …* by their text), measurements (add, remove, range), files, exports and the appearance. Type a
 few letters of any word (`rise`, `ch2`, `hide pulse`), choose with ↑ ↓ and run with Enter. Recently used
 commands are listed first.
@@ -253,7 +258,7 @@ Exports keep their own Dark / Light option.
 
 `Ctrl+K` command palette · `P` pan · `Z` zoom tool · `N` note · `M` marker · `R` region · `B` box · `D` span (a tool's key
 again: back to pan) · `Esc` cancel a drag, back to pan ·
-`Ctrl+Z` undo · `Ctrl+Y` redo · `F` full record · `+`/`-` zoom · `←`/`→` pan · `Backspace` back to the previous view · `C` cursors ·
+`Ctrl+Z` undo · `Ctrl+Y` redo · `F` full record · `A` autoscale · `+`/`-` zoom · `←`/`→` pan · `Backspace` back to the previous view · `C` cursors ·
 `V` values at the pointer · `O` overview · `T` measurements · `\` focus mode ·
 `Enter` edit / `Delete` (on a Mac `fn`+`⌫`) delete the selected callout · `,` / `.` previous / next callout ·
 `Shift+←`/`→` move the selected callout · `Alt` while placing a marker or region: no snapping ·

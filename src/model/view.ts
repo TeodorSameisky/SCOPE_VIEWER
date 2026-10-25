@@ -81,6 +81,45 @@ export function patchDisplays(displays: ChannelDisplay[], patches: Record<string
   return changed ? next : displays
 }
 
+/** Share of its view (or band) an autoscaled trace may fill */
+const AUTOSCALE_FILL = 0.8
+
+/**
+ * Autoscale: V/div (1-2-5), offset and position that fit the samples of the channels `ids` in the
+ * time window `win` into their views (`divs` high), up to 80 % of the height; a waveform with no
+ * sample in the window is fitted over the whole record. Visible channels that share a view get a
+ * band each, top to bottom in the order of the view, so they do not overlap – the same band whether
+ * one of them is autoscaled or all of them. A flat trace keeps its V/div and goes to its band's middle.
+ */
+export function autoscalePatches(channels: LiveChannel[], views: string[][], ids: string[], win: TimeWindow, divs: number): Record<string, DisplayPatch> {
+  const byId = new Map(channels.map((c) => [c.wave.id, c]))
+  const patches: Record<string, DisplayPatch> = {}
+  for (const id of ids) {
+    const c = byId.get(id)
+    const range = c && valueRange(c, win)
+    if (!c || !range) continue
+    // Its band among the traces of its view (itself also when it is hidden)
+    const band = (views.find((v) => v.includes(id)) ?? [id]).filter((x) => x === id || byId.get(x)?.display.visible)
+    const h = divs / band.length
+    const position = Math.round(h * ((band.length - 1) / 2 - band.indexOf(id)) * 100) / 100
+    const [lo, hi] = range
+    const scale = hi > lo ? parseFloat(niceStep(Math.max(hi - lo, Math.abs(lo) * 1e-3) / (h * AUTOSCALE_FILL)).toPrecision(6)) : c.display.scale
+    // The offset rounded to a tenth of a division so it reads nicely
+    const offset = parseFloat((Math.round((lo + hi) / 2 / (scale / 10)) * (scale / 10)).toPrecision(6))
+    patches[id] = { scale, offset, position }
+  }
+  return patches
+}
+
+/** Min and max of a channel's samples in the window, else of the whole record; undefined without finite samples */
+function valueRange(c: LiveChannel, win: TimeWindow): [number, number] | undefined {
+  const { t0, dt, data } = c.wave
+  const mm: [number, number] = [NaN, NaN]
+  c.pyramid.range(Math.floor((win.start - t0) / dt), Math.ceil((win.end - t0) / dt) + 1, mm)
+  if (Number.isNaN(mm[0])) c.pyramid.range(0, data.length, mm)
+  return Number.isFinite(mm[0]) && Number.isFinite(mm[1]) ? mm : undefined
+}
+
 /** One step of a channel's position (div): arrow keys, Alt+wheel and the ± buttons; Shift+arrow moves a whole division */
 export const POSITION_STEP = 0.1
 

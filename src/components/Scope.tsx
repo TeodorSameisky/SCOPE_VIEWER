@@ -21,6 +21,7 @@ import {
   Search,
   Table2,
   Undo2,
+  UnfoldVertical,
   Upload,
   Waves,
   X,
@@ -52,7 +53,6 @@ import { runExport, waveformRows, type ExportContext, type ExportKind } from '..
 import { AXIS_GUTTER, DIVS_Y } from '../render/draw'
 import { copyText } from '../util/clipboard'
 import { downloadBlob, stem } from '../util/download'
-import { niceStep } from '../util/format'
 import { channelName } from '../util/names'
 import { usePersistentState } from '../util/usePersistentState'
 import type { RecentSession } from '../model/recent'
@@ -73,7 +73,19 @@ import { calloutMenu, channelItems, channelMenu, overviewMenu, paletteCommands, 
 import { SpectrumView, type SpectrumViewHandle } from './SpectrumView'
 import { StorageSection } from './StorageSection'
 import { TopBar } from './TopBar'
-import { cursorsInView, sampleRange, timeTicks, type CursorState, type DisplayPatch, type LiveChannel, type MeasureRange, type TimeWindow, type Tool } from '../model/view'
+import {
+  autoscalePatches,
+  cursorsInView,
+  patchDisplays,
+  sampleRange,
+  timeTicks,
+  type CursorState,
+  type DisplayPatch,
+  type LiveChannel,
+  type MeasureRange,
+  type TimeWindow,
+  type Tool,
+} from '../model/view'
 import type { Action } from './ui/action'
 import { useFeedback } from './ui/feedbackContext'
 import { useContextMenu } from './ui/menuContext'
@@ -245,22 +257,31 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
       return next.filter((v) => v.length > 0)
     })
   }
-  const onAutoscale = (id: string) => {
-    const c = channels.find((ch) => ch.wave.id === id)
-    if (c) onAdjust(id, autoscalePatch(c.pyramid, c.wave.data.length))
-  }
   const openSettings = (id: string) => channelBarRef.current?.openSettings(id)
 
-  // New or changed math channels are scaled to fit once their result is available
+  // ---------- navigation ----------
+  // A zoom that scales channels (or Back from it) is an undo step that takes the window with it
+  const nav = useNavigation(session, ws0.window, displays, setDisplays, (from, to) => editHistory.moveView(from, to))
+  const { win, record, minSpan } = nav
+  const ticks = timeTicks(win)
+  const tPerDiv = ticks.length > 1 ? ticks[1] - ticks[0] : (win.end - win.start) / 10
+
+  /** Fit channels into their views (one undo step): what is in `range`, by default what is on screen */
+  const autoscale = (ids: string[], range: TimeWindow = win) => {
+    const patches = autoscalePatches(channels, views, ids, range, DIVS_Y)
+    setDisplays((ds) => patchDisplays(ds, patches))
+  }
+  const onAutoscale = (id: string) => autoscale([id])
+
+  // New or changed math channels are fitted over the whole record once their result is available
   const pendingAutoscale = useRef(new Set<string>())
   useEffect(() => {
-    for (const id of [...pendingAutoscale.current]) {
-      const r = mathResults.get(id)
-      const pyr = mathPyramids.get(id)
-      if (r?.wave && pyr) onAdjust(id, autoscalePatch(pyr, r.wave.data.length))
-      if (r) pendingAutoscale.current.delete(id)
-    }
-  }, [mathResults, mathPyramids, onAdjust])
+    const ready = [...pendingAutoscale.current].filter((id) => mathResults.has(id))
+    if (!ready.length) return
+    for (const id of ready) pendingAutoscale.current.delete(id)
+    const patches = autoscalePatches(channels, views, ready, record, DIVS_Y)
+    setDisplays((ds) => patchDisplays(ds, patches))
+  }, [mathResults, channels, views, record])
 
   const addMath = (): string | undefined => {
     if (mathDefs.length >= MAX_MATH) return
@@ -296,13 +317,6 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     if (selected === id) setSelected(firstId)
     if (cursors.source === id) setCursors({ ...cursors, source: firstId })
   }
-
-  // ---------- navigation ----------
-  // A zoom that scales channels (or Back from it) is an undo step that takes the window with it
-  const nav = useNavigation(session, ws0.window, displays, setDisplays, (from, to) => editHistory.moveView(from, to))
-  const { win, record, minSpan } = nav
-  const ticks = timeTicks(win)
-  const tPerDiv = ticks.length > 1 ? ticks[1] - ticks[0] : (win.end - win.start) / 10
 
   // ---------- callouts ----------
   const addCallout = (nc: NewCallout) => {
@@ -603,6 +617,14 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     back: { label: 'Back to the previous view', icon: ArrowLeft, hint: KEYS.back, disabled: !nav.canGoBack, run: nav.zoomBack },
     savedView: { label: 'Saved view', icon: Home, title: 'The view the scope showed when the session was saved', run: () => nav.zoomTo(nav.savedWin) },
     fullRecord: { label: 'Full record', icon: Maximize2, hint: KEYS.fullRecord, disabled: !nav.zoomed, run: () => nav.zoomTo(record) },
+    autoscale: {
+      label: 'Autoscale all channels',
+      icon: UnfoldVertical,
+      hint: KEYS.autoscale,
+      title: 'Fit what is on screen of every visible channel into its view; channels that share a view get a band each',
+      disabled: !visibleChannels.length,
+      run: () => autoscale(visibleChannels.map((c) => c.wave.id)),
+    },
     zoomIn: { label: 'Zoom in', icon: ZoomIn, hint: KEYS.zoomIn, run: () => nav.zoomAt(mid, 0.5) },
     zoomOut: { label: 'Zoom out', icon: ZoomOut, hint: KEYS.zoomOut, run: () => nav.zoomAt(mid, 2) },
     cursors: { label: 'Cursors', icon: Ruler, hint: KEYS.cursors, checked: cursors.on, run: () => setCursors({ ...cursors, on: !cursors.on }) },
@@ -655,7 +677,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     adjust: adjustChannel,
     showOnly,
     showAll,
-    autoscale: onAutoscale,
+    autoscale: (ids) => autoscale(ids),
     moveToView: onMoveToView,
     toggleSpectrum,
     addSpectrum: () => addSpectrum(),
@@ -937,15 +959,4 @@ function undoDocOf(w: UndoDoc): UndoDoc {
     measurements: { keys: w.measurements.keys, range: w.measurements.range },
     notes: w.notes,
   }
-}
-
-/** V/div and offset that fit the whole waveform into ~8 divisions */
-function autoscalePatch(pyramid: MinMaxPyramid, n: number): DisplayPatch {
-  const mm: [number, number] = [0, 0]
-  pyramid.range(0, n, mm)
-  if (!Number.isFinite(mm[0]) || !Number.isFinite(mm[1])) return {}
-  const scale = niceStep(Math.max(mm[1] - mm[0], Math.abs(mm[0]) * 1e-3, 1e-12) / 8)
-  // Round the offset to a tenth of a division so it reads nicely
-  const offset = Math.round((mm[0] + mm[1]) / 2 / (scale / 10)) * (scale / 10)
-  return { scale: parseFloat(scale.toPrecision(6)), offset: parseFloat(offset.toPrecision(6)), position: 0 }
 }

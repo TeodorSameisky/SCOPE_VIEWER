@@ -84,7 +84,7 @@ export function ChannelSettings({ display: d, unit, input, hasWave, views, onAdj
             ))}
             <option value={views.length}>New view</option>
           </select>
-          <button type="button" className="text-btn" disabled={!hasWave} onClick={() => onAutoscale(id)} title={hasWave ? 'Fit this channel into its view' : 'No waveform (the expression has an error)'}>
+          <button type="button" className="text-btn" disabled={!hasWave} onClick={() => onAutoscale(id)} title={hasWave ? 'Fit what is on screen of this channel into its view' : 'No waveform (the expression has an error)'}>
             Autoscale
           </button>
         </div>

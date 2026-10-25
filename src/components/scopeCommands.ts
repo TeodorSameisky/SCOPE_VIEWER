@@ -56,6 +56,8 @@ export interface ScopeActions {
   back: Action
   savedView: Action
   fullRecord: Action
+  /** Every visible channel fitted into its view */
+  autoscale: Action
   zoomIn: Action
   zoomOut: Action
   cursors: Action
@@ -105,7 +107,8 @@ export interface ScopeApi {
   adjust: (id: string, patch: DisplayPatch) => void
   showOnly: (id: string) => void
   showAll: () => void
-  autoscale: (id: string) => void
+  /** Fit what is on screen of these channels into their views (a band each where visible ones share a view) */
+  autoscale: (ids: string[]) => void
   moveToView: (id: string, view: number) => void
   toggleSpectrum: (id: string) => void
   addSpectrum: () => void
@@ -190,7 +193,7 @@ export function channelItems(api: ScopeApi, id: string, compact = false): MenuEn
     solo
       ? { label: 'Show all channels', icon: Eye, disabled: !others.length, onClick: api.showAll }
       : { label: 'Show only this channel', icon: ScanEye, onClick: () => api.showOnly(id) },
-    { label: 'Autoscale', icon: UnfoldVertical, title: 'Fit the whole waveform into its view', disabled: !wave, onClick: () => api.autoscale(id) },
+    { label: 'Autoscale', icon: UnfoldVertical, title: 'Fit what is on screen of it into its view (its band, where it shares the view)', disabled: !wave, onClick: () => api.autoscale([id]) },
     !compact && {
       kind: 'choices',
       label: 'View',
@@ -235,16 +238,28 @@ function viewItems(a: ScopeActions): MenuEntry[] {
 }
 
 export function plotMenu(api: ScopeApi, at: PlotPoint): MenuEntry[] {
-  const { t, note, edgeT } = at
+  const { t, note, edgeT, view } = at
   const a = api.actions
   const ch = at.channel ? api.channels.find((c) => c.wave.id === at.channel) : undefined
   const { cursors, record } = api
+  // The visible traces of the view under the pointer
+  const inView = view === undefined ? [] : api.channels.filter((c) => c.display.visible && api.views[view]?.includes(c.wave.id)).map((c) => c.wave.id)
   return [
     { kind: 'heading', label: 'Time', detail: si(t, 's', 5) },
     { label: 'Zoom in here', icon: ZoomIn, onClick: () => api.zoomAt(t, 0.5) },
     { label: 'Zoom out here', icon: ZoomOut, onClick: () => api.zoomAt(t, 2) },
     menuItem(a.back, { label: 'Back' }),
     menuItem(a.fullRecord),
+    api.views.length > 1
+      ? {
+          kind: 'choices',
+          label: 'Autoscale',
+          options: [
+            { label: 'This view', title: 'Fit the visible channels of this view (what is on screen)', disabled: !inView.length, onClick: () => api.autoscale(inView) },
+            { label: 'All', title: `${a.autoscale.title} (${a.autoscale.hint})`, disabled: a.autoscale.disabled, onClick: a.autoscale.run },
+          ],
+        }
+      : menuItem(a.autoscale, { label: 'Autoscale' }),
     '-',
     {
       kind: 'choices',
@@ -385,6 +400,7 @@ export function paletteCommands(api: ScopeApi): Command[] {
     ...TOOL_ORDER.map((t) => command(`tool:${t}`, 'Tool', a.tools[t], { label: `${a.tools[t].label} tool`, keywords: t === 'span' ? 'delta t Δt' : undefined })),
 
     command('view:full', 'View', a.fullRecord),
+    command('view:autoscale', 'View', a.autoscale, { keywords: 'fit vertical scale autoset' }),
     command('view:back', 'View', a.back),
     command('view:saved', 'View', a.savedView, { keywords: 'as on the scope home' }),
     command('view:in', 'View', a.zoomIn),
@@ -447,7 +463,7 @@ export function paletteCommands(api: ScopeApi): Command[] {
         { id: `ch:settings:${d.id}`, group: 'Channel', label: `Settings of ${name}…`, keywords: d.id, icon: SlidersHorizontal, run: () => api.openSettings(d.id) },
         { id: `ch:visible:${d.id}`, group: 'Channel', label: `${d.visible ? 'Hide' : 'Show'} ${name}`, keywords: d.id, icon: d.visible ? EyeOff : Eye, run: () => api.adjust(d.id, { visible: !d.visible }) },
         { id: `ch:only:${d.id}`, group: 'Channel', label: `Show only ${name}`, keywords: d.id, icon: ScanEye, run: () => api.showOnly(d.id) },
-        hasWave(api, d.id) && { id: `ch:autoscale:${d.id}`, group: 'Channel', label: `Autoscale ${name}`, keywords: d.id, icon: UnfoldVertical, run: () => api.autoscale(d.id) },
+        hasWave(api, d.id) && { id: `ch:autoscale:${d.id}`, group: 'Channel', label: `Autoscale ${name}`, keywords: d.id, icon: UnfoldVertical, run: () => api.autoscale([d.id]) },
       ]
     }),
     api.displays.some((d) => !d.visible) && { id: 'ch:all', group: 'Channel', label: 'Show all channels', icon: Eye, run: api.showAll },

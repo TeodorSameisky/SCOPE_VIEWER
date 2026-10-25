@@ -33,6 +33,7 @@ function keyActions(a: ScopeActions): Record<string, Action> {
   for (const t of TOOL_ORDER) map[TOOLS[t].key.toLowerCase()] = a.tools[t]
   const single: [string, Action][] = [
     [KEYS.fullRecord, a.fullRecord],
+    [KEYS.autoscale, a.autoscale],
     [KEYS.cursors, a.cursors],
     [KEYS.readout, a.readout],
     [KEYS.overview, a.overview],

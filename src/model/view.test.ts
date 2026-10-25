@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest'
+import { MinMaxPyramid } from '../dsp/minmax'
 import type { ChannelDisplay } from './types'
-import { POSITION_STEP, cursorsInView, patchDisplays, stepPosition, stepScale, verticalsOf } from './view'
+import { POSITION_STEP, autoscalePatches, cursorsInView, patchDisplays, stepPosition, stepScale, verticalsOf, type LiveChannel } from './view'
 
 const display = (id: string, scale = 1): ChannelDisplay => ({ id, label: '', color: '#ff0', visible: true, scale, position: 0, offset: 0 })
+
+/** A channel with one sample per second from t = 0 */
+const live = (id: string, samples: number[], visible = true): LiveChannel => {
+  const data = Float32Array.from(samples)
+  return { wave: { id, data, t0: 0, dt: 1, yUnit: 'V', xUnit: 's' }, display: { ...display(id, 7), visible }, pyramid: new MinMaxPyramid(data) }
+}
 
 describe('view', () => {
   it('steps a position without floating-point noise', () => {
@@ -40,5 +47,37 @@ describe('view', () => {
     expect(next[0]).toBe(ds[0])
     expect(patchDisplays(ds, { CH2: { scale: 5, position: 0 } })).toBe(ds)
     expect(patchDisplays(ds, { MATH1: { scale: 1 } })).toBe(ds)
+  })
+
+  describe('autoscale', () => {
+    const all = { start: 0, end: 9 }
+
+    it('fits a channel alone in its view into 8 divisions, centred', () => {
+      const ch = live('CH1', [-1, 0, 3, 1])
+      // 4 V into 8 div: 0.5 V/div, the middle (1 V) at the centre
+      expect(autoscalePatches([ch], [['CH1']], ['CH1'], all, 10)).toEqual({ CH1: { scale: 0.5, offset: 1, position: 0 } })
+    })
+
+    it('fits what is on screen, and the whole record when nothing of it is', () => {
+      const ch = live('CH1', [0, 0.1, 0.2, 10, 10])
+      expect(autoscalePatches([ch], [['CH1']], ['CH1'], { start: 0, end: 2 }, 10).CH1.scale).toBe(0.05)
+      expect(autoscalePatches([ch], [['CH1']], ['CH1'], { start: 20, end: 30 }, 10).CH1.scale).toBe(2)
+    })
+
+    it('gives the visible channels of a shared view a band each, the same for one or all', () => {
+      const chs = [live('CH1', [0, 2]), live('CH2', [0, 2], false), live('CH3', [0, 2])]
+      const views = [['CH1', 'CH2', 'CH3']]
+      const both = autoscalePatches(chs, views, ['CH1', 'CH3'], all, 10)
+      // two bands of 5 div: 2 V into 4 div, the hidden CH2 takes no band
+      expect(both).toEqual({ CH1: { scale: 0.5, offset: 1, position: 2.5 }, CH3: { scale: 0.5, offset: 1, position: -2.5 } })
+      expect(autoscalePatches(chs, views, ['CH3'], all, 10)).toEqual({ CH3: both.CH3 })
+      // a hidden channel autoscaled on its own gets the band it would have when shown
+      expect(autoscalePatches(chs, views, ['CH2'], all, 10).CH2.position).toBe(0)
+    })
+
+    it('keeps the V/div of a flat trace and leaves channels without samples alone', () => {
+      expect(autoscalePatches([live('CH1', [3.5, 3.5])], [['CH1']], ['CH1'], all, 10)).toEqual({ CH1: { scale: 7, offset: 3.5, position: 0 } })
+      expect(autoscalePatches([live('MATH1', [NaN, NaN])], [['MATH1']], ['MATH1', 'CH9'], all, 10)).toEqual({})
+    })
   })
 })

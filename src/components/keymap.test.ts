@@ -3,7 +3,7 @@ import { KEYS, TOOLS, TOOL_ORDER } from './keymap'
 
 describe('keymap', () => {
   it('gives every single-key shortcut one meaning', () => {
-    const single = [...TOOL_ORDER.map((t) => TOOLS[t].key), KEYS.fullRecord, KEYS.cursors, KEYS.readout, KEYS.overview, KEYS.measurements, KEYS.focus, KEYS.prevCallout, KEYS.nextCallout, KEYS.zoomIn, KEYS.zoomOut]
+    const single = [...TOOL_ORDER.map((t) => TOOLS[t].key), KEYS.fullRecord, KEYS.autoscale, KEYS.cursors, KEYS.readout, KEYS.overview, KEYS.measurements, KEYS.focus, KEYS.prevCallout, KEYS.nextCallout, KEYS.zoomIn, KEYS.zoomOut]
     const lower = single.map((k) => k.toLowerCase())
     expect(new Set(lower).size).toBe(lower.length)
     // As KeyboardEvent.key gives them: one character each

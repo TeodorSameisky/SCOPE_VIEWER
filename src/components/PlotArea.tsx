@@ -56,6 +56,8 @@ export interface PlotPoint {
   t: number
   /** On the time axis below the views */
   onAxis: boolean
+  /** View under the pointer (not on the time axis) */
+  view?: number
   /** Trace under the pointer */
   channel?: string
   /** The note the Note tool would add at this point */
@@ -766,6 +768,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     p.onContextMenu(e, {
       t: xToT(x),
       onAxis,
+      view: onAxis ? undefined : Math.min(nViews - 1, Math.floor(yIn / viewH)),
       channel: onAxis ? undefined : nearestTrace(x, yIn, 24),
       note: onAxis ? undefined : noteAt(x, yIn),
       edgeT: e.altKey ? undefined : edgeNear(xToT(x)),
