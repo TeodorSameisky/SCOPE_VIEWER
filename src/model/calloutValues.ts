@@ -3,6 +3,7 @@ import { formatMeasurement } from '../dsp/measureDefs'
 import { sampleAt } from '../math/signal'
 import { si } from '../util/format'
 import { channelName } from '../util/names'
+import { SampleCache } from '../util/sampleCache'
 import type { Callout } from './callouts'
 import type { Waveform } from './types'
 
@@ -27,23 +28,14 @@ export const MEASURE_SHORT: Record<MeasurementKey, string> = {
 /** What a region measures when a channel is chosen for it */
 export const DEFAULT_REGION_KEYS: MeasurementKey[] = ['pkpk', 'mean']
 
-// Measurements of region spans per waveform: a region is measured again only when it moves
-const cache = new WeakMap<Waveform, Map<string, Measurements>>()
+// Measurements of region spans per sample array: a region is measured again only when it moves.
+// Dragging a region measures many spans: only the latest are kept
+const cache = new SampleCache<Measurements>(32)
 
 function measureSpan(w: Waveform, ta: number, tb: number): Measurements {
   const i0 = Math.max(0, Math.ceil((ta - w.t0) / w.dt - 1e-9))
   const i1 = Math.min(w.data.length, Math.floor((tb - w.t0) / w.dt + 1e-9) + 1)
-  const key = `${i0}:${i1}`
-  let perWave = cache.get(w)
-  if (!perWave) cache.set(w, (perWave = new Map()))
-  let m = perWave.get(key)
-  if (!m) {
-    m = measure(w.data, i0, i1, w.t0, w.dt)
-    perWave.set(key, m)
-    // Dragging a region measures many spans: keep only the latest
-    if (perWave.size > 32) perWave.delete(perWave.keys().next().value!)
-  }
-  return m
+  return cache.get(w.data, `${w.t0}:${w.dt}:${i0}:${i1}`, () => measure(w.data, i0, i1, w.t0, w.dt))
 }
 
 /**

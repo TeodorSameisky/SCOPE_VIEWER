@@ -185,11 +185,18 @@ function buildSession(fileName: string, format: string, waves: Waveform[], o: Bu
   return session
 }
 
-function readSetup(content: Uint8Array): Record<string, string> {
+function readSetup(file: InputFile): Record<string, string> {
+  const content = new Uint8Array(file.data)
   // Either a zip containing the learn file (4/5/6-Series sessions), or the setup text itself
   if (content[0] === 0x50 && content[1] === 0x4b) {
+    let inner: Record<string, Uint8Array>
+    try {
+      inner = unzipSync(content)
+    } catch {
+      throw new Error(`${file.name}: the setup file is damaged`)
+    }
     let setup: Record<string, string> = {}
-    for (const inner of Object.values(unzipSync(content))) setup = { ...setup, ...parseTekSetup(strFromU8(inner, true)) }
+    for (const text of Object.values(inner)) setup = { ...setup, ...parseTekSetup(strFromU8(text, true)) }
     return setup
   }
   return parseTekSetup(strFromU8(content, true))
@@ -231,34 +238,50 @@ export function loadFiles(files: InputFile[]): Session {
   const kinds = new Set<'wfm' | 'isf'>()
   let setup: Record<string, string> | undefined
   let screenshot: Blob | undefined
+  // A file that cannot be read (e.g. a waveform in a format not supported, a damaged setup) is
+  // left out and reported: the session opens with the others
+  const problems: string[] = []
   for (const { file, fromArchive } of entries) {
     const lower = file.name.toLowerCase()
-    if (lower.endsWith('.set')) {
-      setup = { ...setup, ...readSetup(new Uint8Array(file.data)) }
-    } else if (lower.endsWith('.wfm') || isTekWfm(file.data)) {
-      waves.push(parseTekWfm(file.data, channelIdFromName(file.name, ids)))
-      kinds.add('wfm')
-    } else if (lower.endsWith('.isf') || isTekIsf(file.data)) {
-      // The channel comes from the waveform id inside the file ("Ch1, DC coupling, …"), else from the name
-      const probe = parseTekIsf(file.data, file.name)
-      const id = channelIdFromName(file.name, ids, probe.channel && !ids.has(probe.channel) ? probe.channel : undefined)
-      waves.push({ ...probe.wave, id })
-      hints[id] = probe.hints
-      kinds.add('isf')
-    } else if (/\.(png|jpe?g|bmp)$/i.test(lower)) {
-      const type = lower.endsWith('.png') ? 'image/png' : lower.endsWith('.bmp') ? 'image/bmp' : 'image/jpeg'
-      screenshot ??= new Blob([file.data], { type })
-    } else if (!fromArchive) {
-      throw new Error(`${file.name}: unsupported file format`)
+    try {
+      if (lower.endsWith('.set')) {
+        setup = { ...setup, ...readSetup(file) }
+      } else if (lower.endsWith('.wfm') || isTekWfm(file.data)) {
+        // Its id is taken only once it has been read
+        const wave = parseTekWfm(file.data, file.name)
+        waves.push({ ...wave, id: channelIdFromName(file.name, ids) })
+        kinds.add('wfm')
+      } else if (lower.endsWith('.isf') || isTekIsf(file.data)) {
+        // The channel comes from the waveform id inside the file ("Ch1, DC coupling, …"), else from the name
+        const probe = parseTekIsf(file.data, file.name)
+        const id = channelIdFromName(file.name, ids, probe.channel && !ids.has(probe.channel) ? probe.channel : undefined)
+        waves.push({ ...probe.wave, id })
+        hints[id] = probe.hints
+        kinds.add('isf')
+      } else if (/\.(png|jpe?g|bmp)$/i.test(lower)) {
+        const type = lower.endsWith('.png') ? 'image/png' : lower.endsWith('.bmp') ? 'image/bmp' : 'image/jpeg'
+        screenshot ??= new Blob([file.data], { type })
+      } else if (!fromArchive) {
+        throw new Error(`${file.name}: unsupported file format`)
+      }
+      // Other files inside an archive (manifest.json, CSV copies, …) are ignored
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e)
+      problems.push(reason.startsWith(file.name) ? reason : `${file.name}: ${reason}`)
     }
-    // Other files inside an archive (manifest.json, CSV copies, …) are ignored
   }
-  if (!waves.length) throw new Error(archive ? 'The archive contains no waveform files (.wfm or .isf)' : 'No waveform files found')
+  if (!waves.length) {
+    // Nothing to show: the reason is what went wrong with the files
+    if (problems.length) throw new Error(problems.length > 1 ? `${problems[0]} (and ${problems.length - 1} more)` : problems[0])
+    throw new Error(archive ? 'The archive contains no waveform files (.wfm or .isf)' : 'No waveform files found')
+  }
 
   const name = files.length === 1 ? files[0].name : `${files.length} files`
   const format =
     archive === 'tss'
       ? 'Tektronix session (.tss)'
       : `Tektronix waveform${waves.length > 1 ? 's' : ''} (${[...kinds].map((k) => `.${k}`).join(', ')})${archive === 'zip' ? ' in .zip' : ''}`
-  return buildSession(name, format, waves, { setup, screenshot, hints, colors: kinds.has('isf') && !kinds.has('wfm') ? TEK_LEGACY_COLORS : TEK_COLORS })
+  const session = buildSession(name, format, waves, { setup, screenshot, hints, colors: kinds.has('isf') && !kinds.has('wfm') ? TEK_LEGACY_COLORS : TEK_COLORS })
+  if (problems.length) session.warnings = problems
+  return session
 }

@@ -17,6 +17,9 @@ const FORMAT_READERS: Record<number, { size: number; read: (dv: DataView, o: num
   7: { size: 1, read: (dv, o) => dv.getInt8(o) },
 }
 
+/** Size of the header, up to the end of the curve information (WFM#001: 2 bytes less) */
+const HEADER_SIZE = 0x346
+
 function readString(bytes: Uint8Array, offset: number, len: number): string {
   let end = offset
   while (end < offset + len && bytes[end] !== 0) end++
@@ -32,7 +35,7 @@ export function isTekWfm(buf: ArrayBuffer): boolean {
 export function parseTekWfm(buf: ArrayBuffer, id: string): Waveform {
   const bytes = new Uint8Array(buf)
   const dv = new DataView(buf)
-  const order = dv.getUint16(0, true)
+  const order = buf.byteLength >= 16 ? dv.getUint16(0, true) : 0
   if (order !== 0x0f0f && order !== 0xf0f0) throw new Error(`${id}: not a Tektronix WFM file`)
   const le = order === 0x0f0f
   const version = readString(bytes, 2, 8)
@@ -40,6 +43,7 @@ export function parseTekWfm(buf: ArrayBuffer, id: string): Waveform {
   if (!(v >= 1 && v <= 3)) throw new Error(`${id}: unsupported WFM version "${version}"`)
   // WFM#001 lacks the 2-byte "summary frame type" field at 0x09a.
   const s = v === 1 ? -2 : 0
+  if (buf.byteLength < HEADER_SIZE + s) throw new Error(`${id}: the file ends inside the WFM header`)
 
   const bytesPerPoint = dv.getUint8(0x00f)
   const curveOffset = dv.getInt32(0x010, le)
@@ -62,9 +66,13 @@ export function parseTekWfm(buf: ArrayBuffer, id: string): Waveform {
   const reader = FORMAT_READERS[format]
   if (!reader) throw new Error(`${id}: unsupported sample format ${format}`)
   if (reader.size !== bytesPerPoint) throw new Error(`${id}: inconsistent sample size`)
+  if (!(xScale > 0 && Number.isFinite(xScale))) throw new Error(`${id}: invalid sample interval`)
+  if (!Number.isFinite(yScale) || !Number.isFinite(yOffset)) throw new Error(`${id}: invalid vertical scale`)
+  if (curveOffset < 0 || postStart < dataStart) throw new Error(`${id}: invalid curve offsets`)
 
   const n = Math.floor((postStart - dataStart) / bytesPerPoint)
   const base = curveOffset + dataStart
+  if (!n) throw new Error(`${id}: the waveform has no samples`)
   if (base + n * bytesPerPoint > buf.byteLength) throw new Error(`${id}: truncated waveform data`)
 
   const data = new Float32Array(n)

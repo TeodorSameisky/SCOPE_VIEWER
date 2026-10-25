@@ -141,7 +141,7 @@ export function parseTekIsf(buf: ArrayBuffer, id: string): IsfWaveform {
       // Truncated file: use what is there
       length = Math.max(0, bytes.length - pos)
     }
-    if (![1, 2, 4, 8].includes(byteNr)) throw new Error(`${id}: unsupported sample size ${byteNr} bytes`)
+    if (![1, 2, 4, 8].includes(byteNr) || (format === 'FP' && byteNr < 4)) throw new Error(`${id}: unsupported sample size ${byteNr} bytes`)
     const n = Math.floor(length / byteNr)
     const dv = new DataView(buf, pos, n * byteNr)
     raw = new Float64Array(n)

@@ -2,7 +2,7 @@ import { useCallback, useDeferredValue, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, BookOpen, ClipboardList, Copy, Info, Plus, TableProperties, X } from 'lucide-react'
 import { measure, type MeasurementKey, type Measurements } from '../dsp/measure'
 import { MEASURE_GROUP_LABEL, MEASUREMENT_DEFS, formatMeasurement, measurementDef, type MeasurementDef } from '../dsp/measureDefs'
-import type { Waveform } from '../model/types'
+import { SampleCache } from '../util/sampleCache'
 import { channelName } from '../util/names'
 import { measurementTable } from '../export/measureRows'
 import { MeasureInfo } from './MeasureInfo'
@@ -44,23 +44,17 @@ export function MeasurementTable(p: Props) {
   const visible = p.channels.filter((c) => c.display.visible)
   const { ink } = useTheme().theme
 
-  // Results are cached per waveform and sample range, so changing a colour or label
+  // Results are cached per sample array and range, so changing a colour, label or unit
   // (which creates new channel objects) does not recompute anything.
-  const [cache] = useState(() => new WeakMap<Waveform, { key: string; m: Measurements }>())
+  const [cache] = useState(() => new SampleCache<Measurements>(4))
   const results = useMemo(() => {
     const out = new Map<string, Measurements>()
     for (const c of p.channels) {
       if (!c.display.visible) continue
       const w = c.wave
       const [i0, i1] = sampleRange(w, p.range, win, cursors)
-      const key = `${Math.max(0, Math.floor(i0))}:${Math.min(w.data.length, Math.ceil(i1))}`
-      const hit = cache.get(w)
-      if (hit?.key === key) out.set(w.id, hit.m)
-      else {
-        const m = measure(w.data, i0, i1, w.t0, w.dt)
-        cache.set(w, { key, m })
-        out.set(w.id, m)
-      }
+      const key = `${w.t0}:${w.dt}:${Math.max(0, Math.floor(i0))}:${Math.min(w.data.length, Math.ceil(i1))}`
+      out.set(w.id, cache.get(w.data, key, () => measure(w.data, i0, i1, w.t0, w.dt)))
     }
     return out
   }, [p.channels, p.range, win, cursors, cache])

@@ -32,7 +32,7 @@ import type { ChannelDisplay, Session } from '../model/types'
 import type { MeasurementKey } from '../dsp/measure'
 import { DEFAULT_CALLOUT_COLOR, calloutSpan, calloutTitle, hasTimeSpan, newCalloutId, nextCalloutNumber, type Callout } from '../model/callouts'
 import { MinMaxPyramid } from '../dsp/minmax'
-import { evaluateMath } from '../math/expr'
+import { evaluateMath, type MathCache } from '../math/expr'
 import { MATH_COLORS, MAX_MATH, nextMathId, type MathDef } from '../model/math'
 import { MAX_SPECTRA, newSpectrum, type SpectrumDef, type SpectrumOptions } from '../model/spectrum'
 import {
@@ -205,12 +205,20 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
   }
 
   // ---------- channels and math channels ----------
-  const mathResults = useMemo(() => evaluateMath(mathDefs, session.channels.map((c) => c.wave)), [mathDefs, session])
+  // Editing one math channel (or a unit) computes only what changed: the others keep their samples and pyramids
+  const [mathCache] = useState<MathCache>(() => new Map())
+  const mathResults = useMemo(() => evaluateMath(mathDefs, session.channels.map((c) => c.wave), mathCache), [mathDefs, session, mathCache])
+  const [mathPyramidCache] = useState(() => new WeakMap<Float32Array, MinMaxPyramid>())
   const mathPyramids = useMemo(() => {
     const m = new Map<string, MinMaxPyramid>()
-    for (const [id, r] of mathResults) if (r.wave) m.set(id, new MinMaxPyramid(r.wave.data))
+    for (const [id, r] of mathResults) {
+      if (!r.wave) continue
+      let pyramid = mathPyramidCache.get(r.wave.data)
+      if (!pyramid) mathPyramidCache.set(r.wave.data, (pyramid = new MinMaxPyramid(r.wave.data)))
+      m.set(id, pyramid)
+    }
     return m
-  }, [mathResults])
+  }, [mathResults, mathPyramidCache])
 
   const displayById = useMemo(() => new Map(displays.map((d) => [d.id, d])), [displays])
   const inputChannels: LiveChannel[] = useMemo(

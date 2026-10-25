@@ -106,9 +106,14 @@ function Main() {
           : data.map((f) => ({ name: f.name, blob: f }))
         setCurrent((c) => ({ session: loaded.session, sources, initial, generation: (c?.generation ?? 0) + 1 }))
         setErrorText(null)
+        // One notice for both (a newer notice of the same kind replaces an older one)
+        const notes: string[] = []
         if (expected && loaded.session.fingerprint && expected.fingerprint !== loaded.session.fingerprint) {
-          notify({ kind: 'error', message: `This is not the stored session “${expected.fileName}” (the content differs), so it was opened on its own.` })
+          notes.push(`This is not the stored session “${expected.fileName}” (the content differs), so it was opened on its own.`)
         }
+        const skipped = loaded.session.warnings ?? []
+        if (skipped.length) notes.push(`Left out what could not be read: ${skipped.join('; ')}.`)
+        if (notes.length) notify({ kind: 'error', message: notes.join(' ') })
         void keepFiles(loaded.session, sources)
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e))

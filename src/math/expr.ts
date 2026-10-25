@@ -468,10 +468,22 @@ export interface MathResult {
 }
 
 /**
- * Evaluate all math channels. They may reference input channels and each other;
- * evaluation follows the dependencies and reports cycles as errors.
+ * Results of earlier evaluations by math channel id. A channel whose expression and inputs are
+ * unchanged keeps its samples when another channel, or only its own unit, is edited, so nothing
+ * computed from them (pyramids, measurements, spectra) needs to be computed again either.
  */
-export function evaluateMath(defs: MathInput[], sources: Waveform[]): Map<string, MathResult> {
+export type MathCache = Map<string, { expr: string; inputs: Waveform[]; wave: Waveform; derivedUnit: string }>
+
+/** The same samples, time base and unit (the unit goes into the units derived from it) */
+const sameInputs = (a: Waveform[], b: Waveform[]) =>
+  a.length === b.length && a.every((w, i) => w.data === b[i].data && w.t0 === b[i].t0 && w.dt === b[i].dt && w.yUnit === b[i].yUnit)
+
+/**
+ * Evaluate all math channels. They may reference input channels and each other;
+ * evaluation follows the dependencies and reports cycles as errors. With a `cache` (the same
+ * map on every call), unchanged channels are taken from the previous evaluation.
+ */
+export function evaluateMath(defs: MathInput[], sources: Waveform[], cache?: MathCache): Map<string, MathResult> {
   const results = new Map<string, MathResult>()
   const env = new Map(sources.map((w) => [w.id.toUpperCase(), w]))
   const byId = new Map(defs.map((d) => [d.id.toUpperCase(), d]))
@@ -493,16 +505,27 @@ export function evaluateMath(defs: MathInput[], sources: Waveform[]): Map<string
           else throw new ExprError(`${ref} has an error`, 0)
         }
       }
-      const firstRef = [...references(ast)].map((r) => env.get(r)).find(Boolean)
-      const timeBase = firstRef ?? sources[0]
+      const refs = [...references(ast)].flatMap((r) => env.get(r) ?? [])
+      const timeBase = refs[0] ?? sources[0]
       if (!timeBase) throw new ExprError('No channel to take the time base from', 0)
-      let v = evaluate(ast, env, timeBase)
-      if (v.kind === 'num') {
-        // constant expression: a flat line on the time base of the record
-        v = { kind: 'sig', data: new Float32Array(timeBase.data.length).fill(v.value), t0: timeBase.t0, dt: timeBase.dt, unit: v.unit }
+      const inputs = [...refs, timeBase]
+      const hit = cache?.get(def.id)
+      if (hit && hit.expr === def.expr && sameInputs(hit.inputs, inputs)) {
+        // Unchanged: the same samples, with a new waveform only when the unit was changed
+        const yUnit = def.unit?.trim() || hit.derivedUnit
+        const wave = hit.wave.yUnit === yUnit ? hit.wave : { ...hit.wave, yUnit }
+        cache!.set(def.id, { ...hit, wave })
+        result = { wave, derivedUnit: hit.derivedUnit }
+      } else {
+        let v = evaluate(ast, env, timeBase)
+        if (v.kind === 'num') {
+          // constant expression: a flat line on the time base of the record
+          v = { kind: 'sig', data: new Float32Array(timeBase.data.length).fill(v.value), t0: timeBase.t0, dt: timeBase.dt, unit: v.unit }
+        }
+        const wave: Waveform = { id: def.id, data: v.data, t0: v.t0, dt: v.dt, yUnit: def.unit?.trim() || v.unit, xUnit: 's' }
+        cache?.set(def.id, { expr: def.expr, inputs, wave, derivedUnit: v.unit })
+        result = { wave, derivedUnit: v.unit }
       }
-      const unit = def.unit?.trim() || v.unit
-      result = { wave: { id: def.id, data: v.data, t0: v.t0, dt: v.dt, yUnit: unit, xUnit: 's' }, derivedUnit: v.unit }
     } catch (e) {
       result = e instanceof ExprError ? { error: e.message, errorPos: e.pos } : { error: e instanceof Error ? e.message : String(e) }
     }
@@ -513,6 +536,8 @@ export function evaluateMath(defs: MathInput[], sources: Waveform[]): Map<string
   }
 
   for (const d of defs) run(d.id.toUpperCase())
+  // Deleted math channels release their samples
+  if (cache) for (const id of cache.keys()) if (!defs.some((d) => d.id === id)) cache.delete(id)
   // Return keyed by the original ids
   return new Map(defs.map((d) => [d.id, results.get(d.id.toUpperCase())!]))
 }

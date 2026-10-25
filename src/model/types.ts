@@ -85,4 +85,6 @@ export interface Session {
   /** Raw setup key/values (SCPI) */
   setup?: Record<string, string>
   timestamp?: string
+  /** Files that could not be read and were left out, each with the reason ("ch2.wfm: unsupported sample format 3") */
+  warnings?: string[]
 }

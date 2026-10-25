@@ -5,7 +5,7 @@ import { MAX_SPECTRA, PEAK_COUNTS, levelUnit, type FreqAxis, type SpectrumDef, t
 import { rangeChoices } from './scopeCommands'
 import { ResizeHandle } from './ui/ResizeHandle'
 import { panShare, wheelPan, wheelPixels, wheelZoomFactor } from './ui/wheel'
-import type { Waveform } from '../model/types'
+import { SampleCache } from '../util/sampleCache'
 import type { SpectrumSource } from '../export/sessionExport'
 import { AXIS_GUTTER } from '../render/draw'
 import { FREQ_AXIS_H, drawSpectrum, levelValue, readLevel, xToF, type FreqMap, type FreqRange } from '../render/spectrum'
@@ -64,8 +64,8 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
   const cursors = useDeferredValue(p.cursors)
   const { range, scale, axis } = p.options
 
-  // One cached spectrum per waveform and window: changing a colour or label recomputes nothing
-  const [cache] = useState(() => new WeakMap<Waveform, Map<WindowKind, { key: string; spec?: Spectrum }>>())
+  // Spectra cached per sample array, window and range: changing a colour, label or unit recomputes nothing
+  const [cache] = useState(() => new SampleCache<Spectrum | undefined>(8))
   const results: Result[] = useMemo(
     () =>
       p.defs.map((def) => {
@@ -83,16 +83,9 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
         }
         const i0 = Math.max(0, Math.ceil((t0 - w.t0) / w.dt - 1e-9))
         const i1 = Math.min(w.data.length, Math.floor((t1 - w.t0) / w.dt + 1e-9) + 1)
-        const key = `${i0}:${i1}`
-        let perWave = cache.get(w)
-        if (!perWave) cache.set(w, (perWave = new Map()))
-        let hit = perWave.get(def.window)
-        if (hit?.key !== key) {
-          hit = { key, spec: computeSpectrum(w.data, i0, i1, w.dt, def.window) }
-          perWave.set(def.window, hit)
-        }
-        if (!hit.spec) return { def, channel, error: `Fewer than ${MIN_FFT_SAMPLES} samples in the range` }
-        return { def, channel, spec: hit.spec }
+        const spec = cache.get(w.data, `${def.window}:${w.dt}:${i0}:${i1}`, () => computeSpectrum(w.data, i0, i1, w.dt, def.window))
+        if (!spec) return { def, channel, error: `Fewer than ${MIN_FFT_SAMPLES} samples in the range` }
+        return { def, channel, spec }
       }),
     [p.defs, p.channels, range, win, cursors, cache],
   )

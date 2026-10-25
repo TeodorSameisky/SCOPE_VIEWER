@@ -57,6 +57,16 @@ export function InfoPanel({ session, channels, storage }: { session: Session; ch
             <dd className="mono">{triggerText(session, 4)}</dd>
           </>
         )}
+        {session.warnings?.length ? (
+          <>
+            <dt>Not read</dt>
+            <dd>
+              {session.warnings.map((w) => (
+                <div key={w}>{w}</div>
+              ))}
+            </dd>
+          </>
+        ) : null}
       </dl>
 
       <ChannelInputs channels={channels} />

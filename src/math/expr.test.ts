@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Waveform } from '../model/types'
-import { checkSyntax, evaluateMath, parse } from './expr'
+import { checkSyntax, evaluateMath, parse, type MathCache } from './expr'
 
 const wave = (id: string, f: (t: number) => number, n = 1000, dt = 1e-6, t0 = 0, yUnit = 'V'): Waveform => {
   const data = new Float32Array(n)
@@ -94,6 +94,28 @@ describe('math channels', () => {
     const coarse = wave('CH2', (t) => t * 1e6, 100, 1e-5)
     const r = one('CH1 - CH2', [fine, coarse])
     expect(Math.abs(r.wave!.data[505])).toBeLessThan(1e-3)
+  })
+
+  it('computes again only what changed', () => {
+    const cache: MathCache = new Map()
+    const sources = [ch1, ch2]
+    const a = { id: 'MATH1', expr: 'lowpass(CH1, 20k)' }
+    const b = { id: 'MATH2', expr: 'MATH1 * 2' }
+    const first = evaluateMath([a, b], sources, cache)
+    // Another channel edited: MATH1 is the same waveform, MATH2 is computed anew
+    const edited = evaluateMath([a, { ...b, expr: 'MATH1 * 3' }], sources, cache)
+    expect(edited.get('MATH1')!.wave).toBe(first.get('MATH1')!.wave)
+    expect(edited.get('MATH2')!.wave!.data[300]).toBeCloseTo(first.get('MATH2')!.wave!.data[300] * 1.5, 5)
+    // Only the unit of MATH1: the same samples under the new unit
+    const unit = evaluateMath([{ ...a, unit: 'mV' }, { ...b, expr: 'MATH1 * 3' }], sources, cache)
+    expect(unit.get('MATH1')!.wave!.data).toBe(first.get('MATH1')!.wave!.data)
+    expect(unit.get('MATH1')!.wave!.yUnit).toBe('mV')
+    expect(unit.get('MATH1')!.derivedUnit).toBe('V')
+    // MATH2 takes its unit from MATH1, so it follows
+    expect(unit.get('MATH2')!.wave!.yUnit).toBe('mV')
+    // A changed expression is computed again; a deleted channel leaves the cache
+    expect(evaluateMath([{ ...a, expr: 'lowpass(CH1, 10k)' }], sources, cache).get('MATH1')!.wave!.data).not.toBe(first.get('MATH1')!.wave!.data)
+    expect([...cache.keys()]).toEqual(['MATH1'])
   })
 
   it('resolves math-to-math references and reports cycles', () => {
