@@ -74,6 +74,21 @@ describe('math channels', () => {
     expect(one('delay(CH1, 5u)', [sq]).wave!.t0).toBeCloseTo(5e-6)
   })
 
+  it('keeps invalid samples out of running functions', () => {
+    // A deskewed difference has no value where the delayed channel has no samples (its first 5 µs)
+    const ch3 = wave('CH3', (t) => 5 * Math.sin(2 * Math.PI * 1000 * t + 0.3))
+    for (const expr of ['avg(CH1 - delay(CH3, 5u), 20u)', 'rms(CH1 - delay(CH3, 5u), 20u)', 'integ(CH1 - delay(CH3, 5u))', 'lowpass(CH1 - delay(CH3, 5u), 20k)', 'highpass(CH1 - delay(CH3, 5u), 1k)']) {
+      const d = one(expr, [ch1, ch3]).wave!.data
+      const gap = d.findIndex(Number.isFinite)
+      expect(gap, expr).toBeGreaterThanOrEqual(5)
+      expect(gap, expr).toBeLessThanOrEqual(6)
+      expect(d.subarray(gap).every(Number.isFinite), expr).toBe(true)
+    }
+    // ln of the negative half-waves: those stay gaps, the positive ones are averaged
+    const lnAvg = one('avg(ln(CH1), 20u)', [ch1]).wave!.data
+    for (let i = 0; i < lnAvg.length; i++) expect(Number.isFinite(lnAvg[i])).toBe(ch1.data[i] > 0)
+  })
+
   it('resamples operands with different time bases', () => {
     const fine = wave('CH1', (t) => t * 1e6, 1000, 1e-6)
     const coarse = wave('CH2', (t) => t * 1e6, 100, 1e-5)

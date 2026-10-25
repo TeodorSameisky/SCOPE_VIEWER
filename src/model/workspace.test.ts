@@ -97,6 +97,19 @@ describe('workspace defaults and validation', () => {
     expect(ws.selected).toBe('CH2')
     expect(sanitizeWorkspace('garbage', session())).toEqual(defaultWorkspace(session()))
   })
+
+  it('keeps a stored time window within the zoom limits', () => {
+    // Record -1 ms … -10 µs, 10 µs per sample: spans from 100 µs (10 samples) to 3.96 ms (4× the record)
+    const win = (window: unknown) => sanitizeWorkspace({ window }, session()).window
+    expect(win({ start: -8e-4, end: -2e-4 })).toEqual({ start: -8e-4, end: -2e-4 })
+    const narrow = win({ start: -5e-4, end: -5e-4 + 1e-12 })
+    expect(narrow.end - narrow.start).toBeCloseTo(1e-4, 12)
+    expect((narrow.start + narrow.end) / 2).toBeCloseTo(-5e-4, 9)
+    const wide = win({ start: -1, end: 1 })
+    expect(wide.end - wide.start).toBeCloseTo(3.96e-3, 12)
+    // Narrower than the precision of its times and far from the record: the file's view instead
+    expect(win({ start: 1, end: 1 + 2 ** -52 })).toEqual(defaultWorkspace(session()).window)
+  })
 })
 
 describe('autosave', () => {

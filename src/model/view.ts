@@ -4,7 +4,7 @@
  */
 import type { Channel, ChannelDisplay } from './types'
 import type { MinMaxPyramid } from '../dsp/minmax'
-import { niceStep } from '../util/format'
+import { niceStep, ticksBetween } from '../util/format'
 
 export interface TimeWindow {
   start: number
@@ -42,11 +42,7 @@ export interface LiveChannel extends Channel {
 }
 
 export function timeTicks(w: TimeWindow, target = 10): number[] {
-  const step = niceStep((w.end - w.start) / target)
-  const first = Math.ceil(w.start / step) * step
-  const ticks: number[] = []
-  for (let t = first; t <= w.end + step * 1e-9; t += step) ticks.push(Math.abs(t) < step * 1e-9 ? 0 : t)
-  return ticks
+  return ticksBetween(w.start, w.end, niceStep((w.end - w.start) / target))
 }
 
 /** Next value in the 1-2-5 sequence above (dir=1) or below (dir=-1) the given scale. */

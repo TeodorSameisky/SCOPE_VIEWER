@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { niceStep, parseTime, si, siTick } from './format'
+import { niceStep, parseTime, si, siTick, ticksBetween } from './format'
 import { snapToGrid, stepScale, timeTicks } from '../model/view'
 
 describe('format', () => {
@@ -15,6 +15,16 @@ describe('format', () => {
     expect(new Set(labels).size).toBe(labels.length)
     expect(siTick(-2e-3, 's', 1e-3)).toBe('-2 ms')
     expect(siTick(0, 's', 1e-3)).toBe('0 s')
+  })
+
+  it('ends tick lists that cannot advance', () => {
+    expect(timeTicks({ start: 0, end: 1 })).toHaveLength(11)
+    // A window narrower than the precision of its times (from a broken analysis file) used to loop forever
+    expect(timeTicks({ start: 1, end: 1 + 2 ** -52 }).length).toBeLessThanOrEqual(2)
+    expect(timeTicks({ start: 0, end: 0 })).toEqual([])
+    expect(timeTicks({ start: 1, end: 0 })).toEqual([])
+    expect(ticksBetween(0, 1, 0)).toEqual([])
+    expect(ticksBetween(0, 1, NaN)).toEqual([])
   })
 
   it('steps V/div in a 1-2-5 sequence', () => {

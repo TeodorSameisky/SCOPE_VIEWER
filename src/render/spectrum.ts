@@ -1,6 +1,6 @@
 import { toDb, type Peak, type Spectrum } from '../math/fft'
 import type { FreqAxis, SpectrumScale } from '../model/spectrum'
-import { niceStep, siTick } from '../util/format'
+import { niceStep, siTick, ticksBetween } from '../util/format'
 import { MONO, PLOT_FONT, font } from './fonts'
 import type { Theme } from './theme'
 
@@ -63,7 +63,7 @@ export interface FreqTick {
 /** Grid lines of the frequency axis: decades with 2…9 subdivisions (log), or a 1-2-5 step (linear) */
 export function freqTicks(m: FreqMap): FreqTick[] {
   const ticks: FreqTick[] = []
-  if (m.axis === 'log') {
+  if (m.axis === 'log' && m.lo > 0 && m.hi > m.lo && Number.isFinite(m.hi)) {
     const pxPerDecade = m.width / (Math.log10(m.hi) - Math.log10(m.lo))
     if (pxPerDecade < 700) {
       for (let e = Math.floor(Math.log10(m.lo)); e <= Math.ceil(Math.log10(m.hi)); e++) {
@@ -81,16 +81,14 @@ export function freqTicks(m: FreqMap): FreqTick[] {
     // Less than about a decade in view: nice linear steps read better
   }
   const step = niceStep((m.hi - m.lo) / Math.max(2, Math.round(m.width / 70)))
-  for (let f = Math.ceil(m.lo / step) * step; f <= m.hi + step * 1e-9; f += step) ticks.push({ f: Math.abs(f) < step * 1e-9 ? 0 : f, major: true, label: true })
+  for (const f of ticksBetween(m.lo, m.hi, step)) ticks.push({ f, major: true, label: true })
   return ticks
 }
 
 /** Level grid: steps of 1-2-5 at least ~22 px apart (10 or 20 dB for usual ranges) */
 export function levelTicks(lo: number, hi: number, height: number): { values: number[]; step: number } {
   const step = niceStep((hi - lo) / Math.max(2, Math.floor(height / 22)))
-  const values: number[] = []
-  for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + step * 1e-9; v += step) values.push(Math.abs(v) < step * 1e-9 ? 0 : v)
-  return { values, step }
+  return { values: ticksBetween(lo, hi, step), step }
 }
 
 export interface SpectrumTrace {

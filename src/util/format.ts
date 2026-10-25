@@ -56,6 +56,26 @@ export function niceStep(raw: number): number {
   return nice * exp
 }
 
+/** More ticks than any axis needs: only a broken range gets this far */
+const MAX_TICKS = 1000
+
+/**
+ * Axis ticks: the multiples of `step` from lo to hi, each worked out from its index; none when the
+ * step is not a positive number. The list ends where the step is too small to change the values
+ * any more (a range narrower than the precision of its numbers), instead of looping forever.
+ */
+export function ticksBetween(lo: number, hi: number, step: number): number[] {
+  const ticks: number[] = []
+  if (!(step > 0 && Number.isFinite(step) && Number.isFinite(lo) && Number.isFinite(hi))) return ticks
+  const first = Math.ceil(lo / step - 1e-9)
+  for (let k = 0; k < MAX_TICKS; k++) {
+    const v = (first + k) * step
+    if (v > hi + step * 1e-9 || (ticks.length && v <= ticks[ticks.length - 1])) break
+    ticks.push(Math.abs(v) < step * 1e-9 ? 0 : v)
+  }
+  return ticks
+}
+
 /** File / storage size for display: "512 B", "37 kB", "2.2 MB", "1.05 GB" (binary units) */
 export function formatBytes(n: number): string {
   if (n < 1024) return `${Math.round(n)} B`

@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import type { ChannelDisplay, Session } from '../model/types'
 import { patchDisplays, verticalsOf, zoomAround, type DisplayPatch, type NavKind, type TimeWindow, type Verticals } from '../model/view'
-import { recordWindow, scopeWindow } from '../model/workspace'
+import { recordWindow, scopeWindow, spanLimits } from '../model/workspace'
 
 /** A window to go Back to */
 interface ViewState {
@@ -29,9 +29,7 @@ export function useNavigation(
   const record = useMemo(() => recordWindow(session), [session])
   /** The view the scope showed when the session was saved */
   const savedWin = useMemo(() => scopeWindow(session), [session])
-  const minDt = useMemo(() => Math.min(...session.channels.map((c) => c.wave.dt)), [session])
-  const minSpan = minDt * 10
-  const maxSpan = (record.end - record.start) * 4
+  const { minDt, minSpan, maxSpan } = useMemo(() => spanLimits(session), [session])
   const [win, setWin] = useState(initial)
   const [history, setHistory] = useState<ViewState[]>([])
   const lastNav = useRef<{ kind: NavKind | null; time: number }>({ kind: null, time: 0 })

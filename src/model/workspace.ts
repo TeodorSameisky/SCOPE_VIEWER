@@ -67,6 +67,14 @@ export function recordWindow(session: Session): TimeWindow {
   return { start, end }
 }
 
+/** Zoom limits of the time window: 10 samples of the fastest channel, up to 4× the record */
+export function spanLimits(session: Session): { minDt: number; minSpan: number; maxSpan: number } {
+  const record = recordWindow(session)
+  const minDt = Math.min(...session.channels.map((c) => c.wave.dt))
+  const minSpan = minDt * 10
+  return { minDt, minSpan, maxSpan: Math.max(minSpan, (record.end - record.start) * 4) }
+}
+
 /** The time window the scope showed when the session was saved (or the whole record) */
 export function scopeWindow(session: Session): TimeWindow {
   const record = recordWindow(session)
@@ -179,8 +187,7 @@ export function sanitizeWorkspace(raw: unknown, session: Session): Workspace {
     source: typeof cur.source === 'string' && ids.includes(cur.source) ? cur.source : def.cursors.source,
   }
 
-  const w = (r.window ?? {}) as Partial<TimeWindow>
-  const window = isNum(w.start) && isNum(w.end) && w.end > w.start ? { start: w.start, end: w.end } : def.window
+  const window = sanitizeWindow(r.window, session) ?? def.window
 
   const m = (r.measurements ?? {}) as { keys?: unknown; range?: unknown }
   const known = new Set(MEASUREMENT_DEFS.map((d) => d.key))
@@ -201,6 +208,27 @@ export function sanitizeWorkspace(raw: unknown, session: Session): Workspace {
     selected: typeof r.selected === 'string' && ids.includes(r.selected) ? r.selected : def.selected,
     notes: typeof r.notes === 'string' ? r.notes.slice(0, 20000) : '',
   }
+}
+
+/**
+ * A stored time window within the zoom limits (a span beyond them is clamped around its centre),
+ * or undefined when it is broken or lies so far from the record that its times cannot resolve it.
+ */
+function sanitizeWindow(raw: unknown, session: Session): TimeWindow | undefined {
+  const w = (raw ?? {}) as Partial<TimeWindow>
+  if (!isNum(w.start) || !isNum(w.end) || !(w.end > w.start)) return undefined
+  const { minSpan, maxSpan } = spanLimits(session)
+  let start = w.start
+  let end = w.end
+  const span = Math.min(maxSpan, Math.max(minSpan, end - start))
+  if (span !== end - start) {
+    const mid = (start + end) / 2
+    start = mid - span / 2
+    end = mid + span / 2
+  }
+  const record = recordWindow(session)
+  if (!(end > start) || end < record.start - maxSpan || start > record.end + maxSpan) return undefined
+  return { start, end }
 }
 
 // ---------- autosave in the browser ----------
