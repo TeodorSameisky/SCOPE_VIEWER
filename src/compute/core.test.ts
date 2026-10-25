@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { measure } from '../dsp/measure'
 import type { MathInput } from '../math/expr'
 import { computeSpectrum } from '../math/fft'
 import type { Waveform } from '../model/types'
@@ -55,6 +56,16 @@ describe('compute worker', () => {
     math(c, [{ id: 'MATH1', expr: 'CH1 * 3' }], 2)
     expect(spectrum(ref)).toEqual({ type: 'spectrum', seq: 9, stale: true })
     expect(spectrum('src:CH2')).toEqual({ type: 'spectrum', seq: 9, stale: true })
+  })
+
+  it('measures the inputs and the current math results', () => {
+    const c = core(ch1)
+    const ref = math(c, [{ id: 'MATH1', expr: 'CH1 * 2' }]).get('MATH1')!.wave!.ref
+    const measured = (r: string) => c.handle({ type: 'measure', seq: 4, ref: r, t0: 0, dt: 1e-6, i0: 0, i1: 1000 })!.reply
+    expect(measured('src:CH1')).toEqual({ type: 'measure', seq: 4, m: measure(ch1.data, 0, 1000, 0, 1e-6) })
+    expect(measured(ref)).toMatchObject({ type: 'measure', m: { count: 1000 } })
+    expect((measured(ref) as Extract<ComputeReply, { type: 'measure' }>).m!.max).toBeCloseTo(2 * measure(ch1.data, 0, 1000, 0, 1e-6).max, 6)
+    expect(measured('src:CH2')).toEqual({ type: 'measure', seq: 4, stale: true })
   })
 
   it('reports errors per math channel', () => {

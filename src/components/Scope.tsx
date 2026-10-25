@@ -207,8 +207,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   }
 
   // ---------- channels and math channels ----------
-  // Math channels and spectra are computed in a worker, so long records do not block the page; the
-  // worker starts with the first math channel or spectrum and ends with the workspace
+  // Math channels, spectra and measurements of long ranges are computed in a worker, so long records
+  // do not block the page; the worker starts with the first such job and ends with the workspace
   const [engine] = useState(() => new ComputeEngine(session.channels.map((c) => c.wave), pyramids))
   useEffect(() => () => engine.stop(), [engine])
   const math = useMathResults(engine, mathDefs)
@@ -765,6 +765,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
           )}
           <PlotArea
             ref={plotRef}
+            engine={engine}
             channels={channels}
             views={views}
             win={win}
@@ -824,6 +825,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
           )}
           {layout.measurements && (
             <MeasurementTable
+              engine={engine}
               channels={channels}
               win={win}
               cursors={cursors}

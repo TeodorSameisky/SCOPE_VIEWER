@@ -1,5 +1,6 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { edgeLevels, nearestEdge, type EdgeLevels } from '../dsp/edges'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import type { ComputeEngine } from '../compute/engine'
+import { levelsOf, nearestEdge, type EdgeLevels } from '../dsp/edges'
 import type { PlotImageSource } from '../export/sessionExport'
 import { DEFAULT_CALLOUT_COLOR, calloutSpan, type Callout } from '../model/callouts'
 import { calloutsSvg, flagsBottom, layoutCallouts } from '../render/callouts'
@@ -69,6 +70,8 @@ export interface PlotPoint {
 export type NewCallout = Pick<Callout, 'type' | 't' | 't2' | 'channel' | 'channel2' | 'v' | 'v2' | 'view' | 'div' | 'div2' | 'dy'>
 
 interface Props {
+  /** Measures the samples on screen for edge snapping (long ranges in its worker) */
+  engine: Pick<ComputeEngine, 'measured' | 'subscribeMeasured' | 'measuredVersion'>
   channels: LiveChannel[]
   views: string[][]
   win: TimeWindow
@@ -181,8 +184,11 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
 
   /**
    * Edge finder of a trace: the time of its edge nearest to t (within SNAP_PX), or undefined. The
-   * reference levels come from the samples on screen and are worked out on first use.
+   * reference levels come from the measurements of the samples on screen, asked for on first use
+   * (the measurement table measures the same range). Many samples are measured in the worker:
+   * until their levels arrive (`measuredVersion` counts arrivals) nothing snaps.
    */
+  const measuredVersion = useSyncExternalStore(p.engine.subscribeMeasured, p.engine.measuredVersion)
   const edgesOf = useMemo(() => {
     const finders = new Map<string, (t: number) => number | undefined>()
     return (id: string | undefined): ((t: number) => number | undefined) => {
@@ -196,7 +202,12 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
         const maxN = (SNAP_PX * (p.win.end - p.win.start)) / Math.max(1, plotW) / w.dt
         let levels: EdgeLevels | undefined | null = null
         find = (t: number): number | undefined => {
-          if (levels === null) levels = edgeLevels(w.data, i0, i1)
+          if (levels === null) {
+            const m = p.engine.measured(w, i0, i1, `edges:${w.id}`)
+            // Still being measured: asked again once measurements arrive
+            if (!m) return undefined
+            levels = levelsOf(m)
+          }
           if (!levels) return undefined
           const x = nearestEdge(w.data, (t - w.t0) / w.dt, maxN, levels, i0, i1)
           return x === undefined ? undefined : w.t0 + x * w.dt
@@ -205,7 +216,9 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       }
       return find
     }
-  }, [p.channels, p.win, plotW])
+    // measuredVersion: levels that were still being measured may have arrived
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.channels, p.win, plotW, p.engine, measuredVersion])
   /** Markers and the edges of regions snap to edges of the selected trace */
   const edgeNear = useMemo(() => edgesOf(p.selected), [edgesOf, p.selected])
   /** Markers and region edges snap to edges; Alt places them freely */

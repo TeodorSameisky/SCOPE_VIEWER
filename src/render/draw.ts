@@ -353,14 +353,19 @@ function drawTrace(ctx: CanvasRenderingContext2D, tr: TraceInput, o: ViewDrawOpt
   ctx.beginPath()
 
   if (samplesPerPx <= 2) {
-    // Few samples per pixel: connect the real samples
+    // Few samples per pixel: connect the real samples. Invalid ones (gaps of math channels) break
+    // the line: canvas would ignore them and join the samples on both sides of a gap.
     const i0 = Math.max(0, Math.floor((o.tStart - wave.t0) / wave.dt) - 1)
     const i1 = Math.min(wave.data.length - 1, Math.ceil((o.tEnd - wave.t0) / wave.dt) + 1)
+    let started = false
     for (let i = i0; i <= i1; i++) {
       const x = ((wave.t0 + i * wave.dt - o.tStart) / span) * plotW
       const y = yOf(wave.data[i])
-      if (i === i0) ctx.moveTo(x, y)
-      else ctx.lineTo(x, y)
+      if (!Number.isFinite(y)) started = false
+      else if (!started) {
+        ctx.moveTo(x, y)
+        started = true
+      } else ctx.lineTo(x, y)
     }
     ctx.stroke()
     if (samplesPerPx < 0.12) {
@@ -372,7 +377,8 @@ function drawTrace(ctx: CanvasRenderingContext2D, tr: TraceInput, o: ViewDrawOpt
     return
   }
 
-  // Many samples per pixel: min/max envelope per device pixel column
+  // Many samples per pixel: min/max envelope per device pixel column; a column without valid
+  // samples (a gap of a math channel) breaks the line
   const cols = Math.ceil(plotW * o.dpr)
   const colT = span / cols
   const mm: [number, number] = [0, 0]
@@ -383,7 +389,10 @@ function drawTrace(ctx: CanvasRenderingContext2D, tr: TraceInput, o: ViewDrawOpt
     const i1 = Math.floor((ta + colT - wave.t0) / wave.dt) + 1
     if (i1 <= 0 || i0 >= wave.data.length) continue
     pyramid.range(i0, i1, mm)
-    if (!Number.isFinite(mm[0])) continue
+    if (!Number.isFinite(mm[0])) {
+      started = false
+      continue
+    }
     const x = (c + 0.5) / o.dpr
     const y0 = yOf(mm[1])
     const y1 = yOf(mm[0]) + 0.5

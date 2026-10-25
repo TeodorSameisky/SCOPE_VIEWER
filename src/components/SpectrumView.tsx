@@ -75,18 +75,20 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
   const cursors = useDeferredValue(p.cursors)
   const { range, scale, axis } = p.options
 
-  // Spectra are computed in the worker and cached per sample array, window and range: changing a
-  // colour, label or unit recomputes nothing. A finished job renders again (`done`); while one is
-  // computed, the previous spectrum of that channel and window stays (no flicker when zooming).
+  // Spectra are computed in the worker and cached per spectrum, sample array, window and range:
+  // changing a colour, label or unit recomputes nothing. A finished job renders again (`done`); while
+  // one is computed, the previous spectrum of that channel and window stays (no flicker when zooming).
+  // Each spectrum is its own slot in the worker's queue: while panning, only its latest range waits.
   const [cache] = useState(() => new SampleCache<SpectrumJob>(8))
   const [done, setDone] = useState(0)
   const previous = useRef(new Map<string, { source: string; window: WindowKind; spec: Spectrum }>())
-  const job = (w: LiveChannel['wave'], i0: number, i1: number, window: WindowKind): SpectrumJob => {
-    const key = `${window}:${w.dt}:${i0}:${i1}`
+  const job = (id: string, w: LiveChannel['wave'], i0: number, i1: number, window: WindowKind): SpectrumJob => {
+    const key = `${id}:${window}:${w.dt}:${i0}:${i1}`
     return cache.get(w.data, key, () => {
       const j: SpectrumJob = { done: false }
-      void p.engine.spectrum(w.data, w.dt, i0, i1, window).then((r) => {
-        // Not computed (samples replaced meanwhile, worker stopped): asked again on the next change
+      void p.engine.spectrum(w.data, w.dt, i0, i1, window, `spectrum:${id}`).then((r) => {
+        // Not computed (a newer range of this spectrum took its place, samples replaced meanwhile,
+        // worker stopped): asked again on the next change
         if (!r) return cache.delete(w.data, key)
         j.done = true
         j.spec = r.spec
@@ -112,7 +114,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
         }
         const i0 = Math.max(0, Math.ceil((t0 - w.t0) / w.dt - 1e-9))
         const i1 = Math.min(w.data.length, Math.floor((t1 - w.t0) / w.dt + 1e-9) + 1)
-        const j = job(w, i0, i1, def.window)
+        const j = job(def.id, w, i0, i1, def.window)
         if (!j.done) {
           const prev = previous.current.get(def.id)
           return { def, channel, spec: prev?.source === def.source && prev.window === def.window ? prev.spec : undefined, pending: true }

@@ -1,4 +1,5 @@
 import type { PyramidLevel } from '../dsp/minmax'
+import type { Measurements } from '../dsp/measure'
 import type { MathInput } from '../math/expr'
 import type { Spectrum, WindowKind } from '../math/fft'
 import type { Waveform } from '../model/types'
@@ -9,13 +10,19 @@ import type { Waveform } from '../model/types'
  * channel computed. Each array crosses once; afterwards both sides know it by its ref.
  */
 
+/** Work on the samples [i0, i1) of an array */
+export type ComputeJob =
+  /** Its spectrum */
+  | { type: 'spectrum'; ref: string; dt: number; i0: number; i1: number; window: WindowKind }
+  /** Its measurements (`t0`, `dt`: its time base, for the timing measurements) */
+  | { type: 'measure'; ref: string; t0: number; dt: number; i0: number; i1: number }
+
 export type ComputeRequest =
   /** Input channels the worker needs, each sent once */
   | { type: 'sources'; waves: Waveform[] }
   /** Evaluate the math channels; `order`: the ids of the input channels in the session's order */
   | { type: 'math'; seq: number; defs: MathInput[]; order: string[] }
-  /** Spectrum of samples [i0, i1) of an array */
-  | { type: 'spectrum'; seq: number; ref: string; dt: number; i0: number; i1: number; window: WindowKind }
+  | (ComputeJob & { seq: number })
 
 /** The result of one math channel */
 export interface MathOutput {
@@ -36,5 +43,7 @@ export type ComputeReply =
    * evaluation replaced it, or the input channel was not sent).
    */
   | { type: 'spectrum'; seq: number; spec?: Spectrum; stale?: boolean }
+  /** `stale` as for a spectrum */
+  | { type: 'measure'; seq: number; m?: Measurements; stale?: boolean }
   /** A request failed */
   | { type: 'error'; seq: number; message: string }

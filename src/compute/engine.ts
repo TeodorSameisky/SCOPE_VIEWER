@@ -1,8 +1,10 @@
+import { measure, type Measurements } from '../dsp/measure'
 import { MinMaxPyramid } from '../dsp/minmax'
 import { parse, references, type MathInput, type MathResult } from '../math/expr'
 import type { Spectrum, WindowKind } from '../math/fft'
 import type { Waveform } from '../model/types'
-import type { ComputeReply, ComputeRequest } from './protocol'
+import { SampleCache } from '../util/sampleCache'
+import type { ComputeJob, ComputeReply, ComputeRequest } from './protocol'
 
 /** What the engine needs of its worker (tests pass one that runs ComputeCore in place) */
 export interface WorkerLike {
@@ -26,13 +28,29 @@ interface Samples {
   pyramid: MinMaxPyramid
 }
 
+/** A spectrum or measurement waiting on the page until the worker is free */
+interface Waiting {
+  job: ComputeJob
+  slot?: string
+  /** The reply; null when it was not computed: the worker stopped or failed, or (`replaced`) a newer job of its slot took its place */
+  done: (r: ComputeReply | null, replaced?: boolean) => void
+}
+
+/** Ranges up to this many samples are measured at once on the page (well under a millisecond); longer ones in the worker */
+export const PAGE_MEASURE_MAX = 50_000
+
 const createWorker = (): WorkerLike => new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
 
 /**
- * The page's side of the compute worker, which evaluates math channels and computes spectra so
- * that long records do not block the page. The worker starts with the first job (a session without
- * math channels and spectra needs none) and is sent the input channels when a job first needs them.
- * Math evaluations do not pile up: while one runs, only the latest definitions wait for their turn.
+ * The page's side of the compute worker, which evaluates math channels and computes spectra and
+ * measurements so that long records do not block the page. The worker starts with the first job (a
+ * session without math channels, spectra and long measurements needs none) and is sent the input
+ * channels when a job first needs them.
+ *
+ * Work does not pile up while the view is panned or zoomed: the worker is given one request at a
+ * time, math channels first. Of the math definitions only the latest wait for their turn; a
+ * spectrum or measurement asked for by a `slot` (one spectrum, the measurements of one channel)
+ * takes the place of the one that slot asked for before, if that is still waiting.
  * `stop` ends the worker; the next job starts a new one.
  */
 export class ComputeEngine {
@@ -45,14 +63,22 @@ export class ComputeEngine {
   private sentSources = new Set<string>()
   private seq = 0
   private readonly pending = new Map<number, (r: ComputeReply | null) => void>()
+  /** A request is in the worker */
+  private busy = false
   /** Definitions being evaluated, and the latest ones waiting meanwhile */
   private running: MathInput[] | null = null
   private queued: MathInput[] | null = null
+  /** Spectra and measurements waiting for the worker, in turn */
+  private jobs: Waiting[] = []
   private state: MathState | null = null
   private readonly listeners = new Set<(s: MathState) => void>()
   /** Samples of the current math results by ref, and the refs by samples */
   private samples = new Map<string, Samples>()
   private refs = new WeakMap<Float32Array, string>()
+  /** Measurements by sample array and range; `m` is missing while the worker computes them */
+  private readonly measurements = new SampleCache<{ m?: Measurements }>(8)
+  private readonly measuredListeners = new Set<() => void>()
+  private measuredCount = 0
 
   constructor(channels: Waveform[], pyramids: Map<string, MinMaxPyramid>, worker: () => WorkerLike = createWorker) {
     this.channels = channels
@@ -71,28 +97,62 @@ export class ComputeEngine {
   /** Evaluate these math channel definitions (the results go to the `onMath` listeners) */
   setMath(defs: MathInput[]): void {
     if (!defs.length && !this.worker) return this.emit({ defs, results: new Map(), pyramids: new Map() })
-    if (this.running) this.queued = defs
-    else this.sendMath(defs)
+    this.queued = defs
+    this.pump()
   }
 
   /**
    * Spectrum of samples [i0, i1) of a waveform's `data` (an input or a current math channel). Null
-   * when it was not computed: the samples are not (or no longer) known, or the worker failed.
+   * when it was not computed: the samples are not (or no longer) known, the worker failed, or a
+   * newer spectrum of the same `slot` took its place before it was sent.
    */
-  spectrum(data: Float32Array, dt: number, i0: number, i1: number, window: WindowKind): Promise<{ spec?: Spectrum } | null> {
-    const source = this.sourceIds.get(data)
-    const ref = source !== undefined ? `src:${source}` : this.refs.get(data)
+  spectrum(data: Float32Array, dt: number, i0: number, i1: number, window: WindowKind, slot?: string): Promise<{ spec?: Spectrum } | null> {
+    const ref = this.refFor(data)
     if (ref === undefined) return Promise.resolve(null)
-    if (source !== undefined) this.sendSources(new Set([source]))
-    return new Promise((resolve) =>
-      this.request({ type: 'spectrum', seq: ++this.seq, ref, dt, i0, i1, window }, (r) => resolve(r?.type === 'spectrum' && !r.stale ? { spec: r.spec } : null)),
-    )
+    return new Promise((resolve) => this.enqueue({ type: 'spectrum', ref, dt, i0, i1, window }, slot, (r) => resolve(r?.type === 'spectrum' && !r.stale ? { spec: r.spec } : null)))
   }
 
-  /** End the worker (jobs still running are dropped); the next job starts a new one */
+  /**
+   * Measurements of samples [i0, i1) (whole indexes) of a waveform (an input or a current math
+   * channel), as far as they are known. Short ranges are measured at once; a longer one is
+   * measured in the worker and is undefined until then: `subscribeMeasured` tells when results
+   * arrive. They are remembered per sample array and range, so whoever asks for the same range
+   * (the measurement table, edge snapping) shares them. `slot` names who asks, as for `spectrum`.
+   */
+  measured(w: Pick<Waveform, 'data' | 't0' | 'dt'>, i0: number, i1: number, slot: string): Measurements | undefined {
+    const key = `${w.t0}:${w.dt}:${i0}:${i1}`
+    if (i1 - i0 <= PAGE_MEASURE_MAX) return this.measurements.get(w.data, key, () => ({ m: measure(w.data, i0, i1, w.t0, w.dt) })).m
+    const ref = this.refFor(w.data)
+    if (ref === undefined) return undefined
+    return this.measurements.get(w.data, key, () => {
+      const entry: { m?: Measurements } = {}
+      this.enqueue({ type: 'measure', ref, t0: w.t0, dt: w.dt, i0, i1 }, slot, (r, replaced) => {
+        if (r?.type === 'measure' && r.m) {
+          entry.m = r.m
+          return this.notifyMeasured()
+        }
+        // Not computed: asked for again when needed. Whoever shared the replaced one is told
+        // (later: this runs while the slot asks for its new range), the others ask on the next change
+        this.measurements.delete(w.data, key)
+        if (replaced) queueMicrotask(() => this.notifyMeasured())
+      })
+      return entry
+    }).m
+  }
+
+  /** For useSyncExternalStore (with `measuredVersion`): `listener` is called when measurements arrive */
+  subscribeMeasured = (listener: () => void): (() => void) => {
+    this.measuredListeners.add(listener)
+    return () => void this.measuredListeners.delete(listener)
+  }
+
+  measuredVersion = (): number => this.measuredCount
+
+  /** End the worker (jobs still running or waiting are dropped); the next job starts a new one */
   stop(): void {
     this.worker?.terminate()
     this.worker = null
+    this.busy = false
     this.sentSources = new Set()
     // The refs belong to the worker: samples shown now get new ones from the next evaluation
     this.samples = new Map()
@@ -101,7 +161,10 @@ export class ComputeEngine {
     this.queued = null
     const pending = [...this.pending.values()]
     this.pending.clear()
+    const jobs = this.jobs
+    this.jobs = []
     for (const done of pending) done(null)
+    for (const j of jobs) j.done(null)
   }
 
   private emit(state: MathState): void {
@@ -109,19 +172,43 @@ export class ComputeEngine {
     for (const l of this.listeners) l(state)
   }
 
-  private sendMath(defs: MathInput[]): void {
-    this.running = defs
-    this.sendSources(sourcesOf(defs, this.channels))
-    this.request({ type: 'math', seq: ++this.seq, defs, order: this.channels.map((w) => w.id) }, (r) => {
-      // Stopped meanwhile: the next setMath starts again
-      if (!r) return
-      if (r.type === 'math') this.emit(this.apply(defs, r))
-      else if (r.type === 'error') this.emit(failed(defs, r.message))
-      this.running = null
-      const next = this.queued
+  private notifyMeasured(): void {
+    this.measuredCount++
+    for (const l of this.measuredListeners) l()
+  }
+
+  /** Queue a spectrum or measurement; a waiting job of the same slot is replaced (it keeps its turn) */
+  private enqueue(job: ComputeJob, slot: string | undefined, done: Waiting['done']): void {
+    const waiting: Waiting = { job, slot, done }
+    const i = slot === undefined ? -1 : this.jobs.findIndex((j) => j.slot === slot)
+    if (i < 0) this.jobs.push(waiting)
+    else {
+      const replaced = this.jobs[i]
+      this.jobs[i] = waiting
+      replaced.done(null, true)
+    }
+    this.pump()
+  }
+
+  /** Give the worker its next request once it is free: the latest math definitions first, then the jobs in turn */
+  private pump(): void {
+    if (this.busy) return
+    const defs = this.queued
+    if (defs) {
       this.queued = null
-      if (next) this.sendMath(next)
-    })
+      this.running = defs
+      this.sendSources(sourcesOf(defs, this.channels))
+      this.request({ type: 'math', seq: ++this.seq, defs, order: this.channels.map((w) => w.id) }, (r) => {
+        // Stopped meanwhile: the next setMath starts again
+        if (!r) return
+        if (r.type === 'math') this.emit(this.apply(defs, r))
+        else if (r.type === 'error') this.emit(failed(defs, r.message))
+        this.running = null
+      })
+      return
+    }
+    const next = this.jobs.shift()
+    if (next) this.request({ ...next.job, seq: ++this.seq }, next.done)
   }
 
   /** The state of a math reply: waveforms on the samples it sent or the page has */
@@ -157,6 +244,14 @@ export class ComputeEngine {
     return { defs, results, pyramids }
   }
 
+  /** The worker's name of an array of samples, sending an input channel it does not have yet; undefined when it does not know them */
+  private refFor(data: Float32Array): string | undefined {
+    const source = this.sourceIds.get(data)
+    if (source === undefined) return this.refs.get(data)
+    this.sendSources(new Set([source]))
+    return `src:${source}`
+  }
+
   /** Send the input channels `ids` the worker does not have yet */
   private sendSources(ids: Set<string>): void {
     const waves = this.channels.filter((w) => ids.has(w.id) && !this.sentSources.has(w.id))
@@ -166,6 +261,7 @@ export class ComputeEngine {
   }
 
   private request(msg: Exclude<ComputeRequest, { type: 'sources' }>, done: (r: ComputeReply | null) => void): void {
+    this.busy = true
     this.pending.set(msg.seq, done)
     this.post(msg)
   }
@@ -174,9 +270,13 @@ export class ComputeEngine {
     if (!this.worker) {
       const worker = this.createWorker()
       worker.onmessage = (e) => {
+        // A reply of a worker that was stopped meanwhile
+        if (this.worker !== worker) return
         const done = this.pending.get(e.data.seq)
         this.pending.delete(e.data.seq)
+        this.busy = false
         done?.(e.data)
+        this.pump()
       }
       // The worker failed (e.g. out of memory): what was waiting fails with it, the next job starts a new one
       worker.onerror = (e) => {

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { measure } from '../dsp/measure'
 import { MinMaxPyramid } from '../dsp/minmax'
 import { computeSpectrum } from '../math/fft'
 import type { Waveform } from '../model/types'
 import { ComputeCore } from './core'
-import { ComputeEngine, type MathState, type WorkerLike } from './engine'
+import { ComputeEngine, PAGE_MEASURE_MAX, type MathState, type WorkerLike } from './engine'
 import type { ComputeReply, ComputeRequest } from './protocol'
 
 /** Runs ComputeCore in place: messages are copied and arrive later, as with a real worker */
@@ -32,16 +33,18 @@ class FakeWorker implements WorkerLike {
 const wave = (id: string, f: (i: number) => number, n = 2000): Waveform => ({ id, data: Float32Array.from({ length: n }, (_, i) => f(i)), t0: 0, dt: 1e-6, yUnit: 'V', xUnit: 's' })
 const ch1 = wave('CH1', (i) => Math.sin(i / 10))
 const ch2 = wave('CH2', (i) => i % 7)
+/** A pulse train longer than the page measures itself */
+const long = wave('CH3', (i) => (Math.floor(i / 1000) % 2) * 3.3, PAGE_MEASURE_MAX + 10_000)
 
 /** Let the fake worker answer (and the engine send what waited meanwhile) */
 const settle = async () => {
   for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r))
 }
 
-function setup() {
+function setup(channels = [ch1, ch2]) {
   const workers: FakeWorker[] = []
-  const pyramids = new Map([ch1, ch2].map((w) => [w.id, new MinMaxPyramid(w.data)]))
-  const engine = new ComputeEngine([ch1, ch2], pyramids, () => {
+  const pyramids = new Map(channels.map((w) => [w.id, new MinMaxPyramid(w.data)]))
+  const engine = new ComputeEngine(channels, pyramids, () => {
     const w = new FakeWorker()
     workers.push(w)
     return w
@@ -49,7 +52,9 @@ function setup() {
   const states: MathState[] = []
   engine.onMath((s) => states.push(s))
   const mathRequests = () => workers.flatMap((w) => w.posted).filter((m) => m.type === 'math')
-  return { engine, workers, pyramids, states, latest: () => states[states.length - 1], mathRequests }
+  /** Types of the requests the workers got (without the input channels they were sent) */
+  const requests = () => workers.flatMap((w) => w.posted).filter((m) => m.type !== 'sources')
+  return { engine, workers, pyramids, states, latest: () => states[states.length - 1], mathRequests, requests }
 }
 
 describe('compute engine', () => {
@@ -108,14 +113,83 @@ describe('compute engine', () => {
     expect(await engine.spectrum(new Float32Array(100), 1e-6, 0, 100, 'hann')).toBeNull()
   })
 
+  it('gives the worker one request at a time, the math channels first', async () => {
+    const { engine, latest, requests } = setup()
+    const a = engine.spectrum(ch1.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT1')
+    const b = engine.spectrum(ch2.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT2')
+    engine.setMath([{ id: 'MATH1', expr: 'CH1 + CH2' }])
+    expect(requests().map((m) => m.type)).toEqual(['spectrum'])
+    expect(await a).not.toBeNull()
+    expect(await b).not.toBeNull()
+    await settle()
+    // The math channels went before the spectrum that waited
+    expect(requests().map((m) => m.type)).toEqual(['spectrum', 'math', 'spectrum'])
+    expect(latest().results.get('MATH1')!.wave!.data[3]).toBeCloseTo(ch1.data[3] + 3, 6)
+  })
+
+  it('computes only the latest range a slot asked for while the worker was busy', async () => {
+    const { engine, requests } = setup()
+    // The first is sent at once; each later one of the same slot takes the place of the one waiting
+    const fft1 = [0, 1, 2, 3].map((k) => engine.spectrum(ch1.data, 1e-6, 0, 1000 + 100 * k, 'hann', 'spectrum:FFT1'))
+    const fft2 = engine.spectrum(ch2.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT2')
+    const replies = await Promise.all([...fft1, fft2])
+    expect(replies.map((r) => r !== null)).toEqual([true, false, false, true, true])
+    expect(replies[3]!.spec!.samples).toBe(1300)
+    // The waiting one of FFT1 kept its turn before FFT2
+    expect(requests().map((m) => m.type === 'spectrum' && m.i1)).toEqual([1000, 1300, 2000])
+  })
+
+  it('measures short ranges at once and long ones in the worker, once for everyone asking', async () => {
+    const { engine, workers, requests } = setup([ch1, ch2, long])
+    expect(engine.measured(ch1, 0, 2000, 'table:CH1')).toEqual(measure(ch1.data, 0, 2000, 0, 1e-6))
+    expect(workers).toHaveLength(0)
+
+    let arrived = 0
+    engine.subscribeMeasured(() => arrived++)
+    const n = long.data.length
+    expect(engine.measured(long, 0, n, 'table:CH3')).toBeUndefined()
+    // Edge snapping asks for the same range meanwhile: no second job
+    expect(engine.measured(long, 0, n, 'edges:CH3')).toBeUndefined()
+    await settle()
+    expect(arrived).toBe(1)
+    expect(engine.measuredVersion()).toBe(1)
+    const m = engine.measured(long, 0, n, 'edges:CH3')!
+    expect(m).toEqual(measure(long.data, 0, n, 0, 1e-6))
+    expect(m.frequency).toBeCloseTo(500, 6)
+    expect(requests()).toHaveLength(1)
+    // Only the input channel that was measured in the worker was sent to it
+    expect(workers[0].posted[0]).toMatchObject({ type: 'sources', waves: [{ id: 'CH3' }] })
+  })
+
+  it('tells who shared a measurement that was replaced, so they can ask again', async () => {
+    const { engine, requests } = setup([ch1, ch2, long])
+    const n = long.data.length
+    let arrived = 0
+    engine.subscribeMeasured(() => arrived++)
+    // Busy with the first; the second waits and is shared by the edges, then the table moves on
+    engine.measured(long, 0, n, 'table:CH3')
+    engine.measured(long, 1, n, 'table:CH3')
+    engine.measured(long, 1, n, 'edges:CH3')
+    engine.measured(long, 2, n, 'table:CH3')
+    await settle()
+    expect(requests().map((m) => m.type === 'measure' && m.i0)).toEqual([0, 2])
+    // Told about the replacement (and the two results): the edges ask again and get it measured
+    expect(arrived).toBe(3)
+    expect(engine.measured(long, 1, n, 'edges:CH3')).toBeUndefined()
+    await settle()
+    expect(engine.measured(long, 1, n, 'edges:CH3')).toEqual(measure(long.data, 1, n, 0, 1e-6))
+  })
+
   it('stops its worker; the next job starts a new one', async () => {
     const { engine, workers, latest } = setup()
     engine.setMath([{ id: 'MATH1', expr: 'CH1 - CH2' }])
     await settle()
     const running = engine.spectrum(ch1.data, 1e-6, 0, 2000, 'hann')
+    const waiting = engine.spectrum(ch2.data, 1e-6, 0, 2000, 'hann')
     engine.stop()
     expect(workers[0].stopped).toBe(true)
     expect(await running).toBeNull()
+    expect(await waiting).toBeNull()
     engine.setMath([{ id: 'MATH1', expr: 'CH1 - CH2' }])
     await settle()
     expect(workers).toHaveLength(2)

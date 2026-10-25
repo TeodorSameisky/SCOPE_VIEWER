@@ -1,4 +1,4 @@
-import { measure } from './measure'
+import { measure, type Measurements } from './measure'
 
 /** Reference levels of a bi-level signal: 10 %, 50 % and 90 % of its amplitude above base */
 export interface EdgeLevels {
@@ -9,7 +9,11 @@ export interface EdgeLevels {
 
 /** The reference levels of the samples [i0, i1), or undefined without clear signal levels (noise, flat line) */
 export function edgeLevels(data: Float32Array, i0: number, i1: number): EdgeLevels | undefined {
-  const m = measure(data, i0, i1, 0, 1)
+  return levelsOf(measure(data, i0, i1, 0, 1))
+}
+
+/** The reference levels of measured samples (their top and base), or undefined without clear signal levels */
+export function levelsOf(m: Measurements): EdgeLevels | undefined {
   if (!m.levelsOk) return undefined
   const a = m.top - m.base
   return { lo: m.base + 0.1 * a, mid: m.base + 0.5 * a, hi: m.base + 0.9 * a }

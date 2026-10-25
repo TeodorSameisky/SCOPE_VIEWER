@@ -1,8 +1,8 @@
-import { useCallback, useDeferredValue, useMemo, useRef, useState } from 'react'
+import { useCallback, useDeferredValue, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ArrowLeft, ArrowRight, BookOpen, ClipboardList, Copy, Info, Plus, TableProperties, X } from 'lucide-react'
-import { measure, type MeasurementKey, type Measurements } from '../dsp/measure'
+import type { ComputeEngine } from '../compute/engine'
+import type { MeasurementKey, Measurements } from '../dsp/measure'
 import { MEASURE_GROUP_LABEL, MEASUREMENT_DEFS, formatMeasurement, measurementDef, type MeasurementDef } from '../dsp/measureDefs'
-import { SampleCache } from '../util/sampleCache'
 import { channelName } from '../util/names'
 import { measurementTable } from '../export/measureRows'
 import { MeasureInfo } from './MeasureInfo'
@@ -15,6 +15,8 @@ import { useDismiss } from './ui/useDismiss'
 import { useTheme } from './ui/themeContext'
 
 interface Props {
+  /** Measures the channels (long ranges in its worker) */
+  engine: Pick<ComputeEngine, 'measured' | 'subscribeMeasured' | 'measuredVersion'>
   channels: LiveChannel[]
   win: TimeWindow
   cursors: CursorState
@@ -44,20 +46,27 @@ export function MeasurementTable(p: Props) {
   const visible = p.channels.filter((c) => c.display.visible)
   const { ink } = useTheme().theme
 
-  // Results are cached per sample array and range, so changing a colour, label or unit
-  // (which creates new channel objects) does not recompute anything.
-  const [cache] = useState(() => new SampleCache<Measurements>(4))
+  // Long ranges are measured in the worker, so the page stays responsive; the engine remembers
+  // results per sample array and range, so changing a colour, label or unit (which creates new
+  // channel objects) does not measure again. While a channel is measured, its previous values
+  // stay, dimmed (`pending`), so the table does not flicker while panning.
+  const measuredVersion = useSyncExternalStore(p.engine.subscribeMeasured, p.engine.measuredVersion)
+  const previous = useRef(new Map<string, Measurements>())
   const results = useMemo(() => {
-    const out = new Map<string, Measurements>()
+    const out = new Map<string, { m: Measurements; pending: boolean }>()
     for (const c of p.channels) {
       if (!c.display.visible) continue
       const w = c.wave
       const [i0, i1] = sampleRange(w, p.range, win, cursors)
-      const key = `${w.t0}:${w.dt}:${Math.max(0, Math.floor(i0))}:${Math.min(w.data.length, Math.ceil(i1))}`
-      out.set(w.id, cache.get(w.data, key, () => measure(w.data, i0, i1, w.t0, w.dt)))
+      const m = p.engine.measured(w, Math.max(0, Math.floor(i0)), Math.min(w.data.length, Math.ceil(i1)), `table:${w.id}`)
+      if (m) previous.current.set(w.id, m)
+      const shown = m ?? previous.current.get(w.id)
+      if (shown) out.set(w.id, { m: shown, pending: !m })
     }
     return out
-  }, [p.channels, p.range, win, cursors, cache])
+    // measuredVersion: measurements that were being computed may have arrived
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.channels, p.range, win, cursors, p.engine, measuredVersion])
 
   const defs = p.keys.map(measurementDef)
   const unused = MEASUREMENT_DEFS.filter((d) => !p.keys.includes(d.key))
@@ -133,8 +142,8 @@ export function MeasurementTable(p: Props) {
   // ---------- context menus ----------
   const menu = useContextMenu()
   const rows = visible.flatMap((c) => {
-    const m = results.get(c.wave.id)
-    return m ? [{ channel: c, m }] : []
+    const r = results.get(c.wave.id)
+    return r ? [{ channel: c, m: r.m }] : []
   })
   /** Tab separated, as shown (pastes into a spreadsheet or a document table) */
   const tsv = (lines: string[][]) => lines.map((l) => l.join('\t')).join('\n')
@@ -261,9 +270,10 @@ export function MeasurementTable(p: Props) {
           </thead>
           <tbody>
             {visible.map((c) => {
-              const m = results.get(c.wave.id)
+              const r = results.get(c.wave.id)
+              const m = r?.m
               return (
-                <tr key={c.wave.id}>
+                <tr key={c.wave.id} className={r?.pending ? 'pending' : undefined} aria-busy={!r || r.pending || undefined}>
                   <td onContextMenu={(e) => rowMenu(e, c)}>
                     <span className="dot" style={{ background: ink(c.display.color) }} />
                     {channelName(c.wave.id)}

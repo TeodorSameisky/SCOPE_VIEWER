@@ -102,7 +102,11 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
           const ta = record.start + (col / cols) * recSpan
           const tb = record.start + ((col + 1) / cols) * recSpan
           c.pyramid.range(Math.floor((ta - wave.t0) / wave.dt), Math.floor((tb - wave.t0) / wave.dt) + 1, mm)
-          if (!Number.isFinite(mm[0])) continue
+          // A column without valid samples (a gap of a math channel) breaks the line
+          if (!Number.isFinite(mm[0])) {
+            started = false
+            continue
+          }
           const x = (col + 0.5) / dpr
           if (!started) {
             ctx.moveTo(x, yOf(mm[1]))

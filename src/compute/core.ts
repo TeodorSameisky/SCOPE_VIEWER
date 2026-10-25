@@ -1,3 +1,4 @@
+import { measure } from '../dsp/measure'
 import { MinMaxPyramid } from '../dsp/minmax'
 import { evaluateMath, type MathCache } from '../math/expr'
 import { computeSpectrum } from '../math/fft'
@@ -13,7 +14,7 @@ export interface Handled {
 /**
  * The work of the compute worker, apart from the worker itself so it can be tested: it keeps the
  * input channels it was sent and the samples of the current math channels, evaluates math
- * channels (unchanged ones from the cache) and computes spectra of either.
+ * channels (unchanged ones from the cache) and computes spectra and measurements of either.
  */
 export class ComputeCore {
   private readonly sources = new Map<string, Waveform>()
@@ -34,7 +35,13 @@ export class ComputeCore {
       return undefined
     }
     if (msg.type === 'math') return this.evaluate(msg)
-    return this.spectrum(msg)
+    if (msg.type === 'spectrum') return this.spectrum(msg)
+    return this.measure(msg)
+  }
+
+  /** The samples of a ref: an input channel that was sent, or a current math channel */
+  private samples(ref: string): Float32Array | undefined {
+    return ref.startsWith('src:') ? this.sources.get(ref.slice(4))?.data : this.math.get(ref)
   }
 
   private evaluate({ seq, defs, order }: Extract<ComputeRequest, { type: 'math' }>): Handled {
@@ -69,9 +76,15 @@ export class ComputeCore {
   }
 
   private spectrum({ seq, ref, dt, i0, i1, window }: Extract<ComputeRequest, { type: 'spectrum' }>): Handled {
-    const data = ref.startsWith('src:') ? this.sources.get(ref.slice(4))?.data : this.math.get(ref)
+    const data = this.samples(ref)
     if (!data) return { reply: { type: 'spectrum', seq, stale: true }, transfer: [] }
     const spec = computeSpectrum(data, i0, i1, dt, window)
     return { reply: { type: 'spectrum', seq, spec }, transfer: spec ? [spec.rms.buffer as ArrayBuffer] : [] }
+  }
+
+  private measure({ seq, ref, t0, dt, i0, i1 }: Extract<ComputeRequest, { type: 'measure' }>): Handled {
+    const data = this.samples(ref)
+    if (!data) return { reply: { type: 'measure', seq, stale: true }, transfer: [] }
+    return { reply: { type: 'measure', seq, m: measure(data, i0, i1, t0, dt) }, transfer: [] }
   }
 }

@@ -1132,6 +1132,10 @@ code {
 .data-table.compact td {
   padding: 3px 4px;
 }
+/* Values of the previous range while the new ones are measured */
+.data-table tr.pending td.mono {
+  opacity: 0.5;
+}
 .dot {
   display: inline-block;
   width: 9px;
