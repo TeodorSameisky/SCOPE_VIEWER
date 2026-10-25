@@ -5,44 +5,53 @@
  */
 const FACTOR = 16
 
-interface Level {
+/** One level of a pyramid: min and max of consecutive blocks of `block` samples */
+export interface PyramidLevel {
   block: number
   min: Float32Array
   max: Float32Array
 }
 
+function buildLevels(data: Float32Array): PyramidLevel[] {
+  const levels: PyramidLevel[] = []
+  let srcMin = data
+  let srcMax = data
+  let block = 1
+  while (srcMin.length > FACTOR * 4) {
+    const n = Math.ceil(srcMin.length / FACTOR)
+    const min = new Float32Array(n)
+    const max = new Float32Array(n)
+    for (let j = 0; j < n; j++) {
+      const s = j * FACTOR
+      const e = Math.min(s + FACTOR, srcMin.length)
+      // NaN never wins a comparison, so invalid samples (gaps of math channels) are skipped;
+      // a block without valid samples stores NaN and is left out when drawing
+      let lo = Infinity
+      let hi = -Infinity
+      for (let i = s; i < e; i++) {
+        if (srcMin[i] < lo) lo = srcMin[i]
+        if (srcMax[i] > hi) hi = srcMax[i]
+      }
+      min[j] = lo === Infinity ? NaN : lo
+      max[j] = hi === -Infinity ? NaN : hi
+    }
+    block *= FACTOR
+    levels.push({ block, min, max })
+    srcMin = min
+    srcMax = max
+  }
+  return levels
+}
+
 export class MinMaxPyramid {
   readonly data: Float32Array
-  private levels: Level[] = []
+  /** Finest level first; a worker that builds a pyramid sends these to the page */
+  readonly levels: PyramidLevel[]
 
-  constructor(data: Float32Array) {
+  /** Builds the levels of `data`, or takes the levels a worker built */
+  constructor(data: Float32Array, levels?: PyramidLevel[]) {
     this.data = data
-    let srcMin = data
-    let srcMax = data
-    let block = 1
-    while (srcMin.length > FACTOR * 4) {
-      const n = Math.ceil(srcMin.length / FACTOR)
-      const min = new Float32Array(n)
-      const max = new Float32Array(n)
-      for (let j = 0; j < n; j++) {
-        const s = j * FACTOR
-        const e = Math.min(s + FACTOR, srcMin.length)
-        // NaN never wins a comparison, so invalid samples (gaps of math channels) are skipped;
-        // a block without valid samples stores NaN and is left out when drawing
-        let lo = Infinity
-        let hi = -Infinity
-        for (let i = s; i < e; i++) {
-          if (srcMin[i] < lo) lo = srcMin[i]
-          if (srcMax[i] > hi) hi = srcMax[i]
-        }
-        min[j] = lo === Infinity ? NaN : lo
-        max[j] = hi === -Infinity ? NaN : hi
-      }
-      block *= FACTOR
-      this.levels.push({ block, min, max })
-      srcMin = min
-      srcMax = max
-    }
+    this.levels = levels ?? buildLevels(data)
   }
 
   /** Min and max of samples [i0, i1). Writes into `out` = [min, max]. */

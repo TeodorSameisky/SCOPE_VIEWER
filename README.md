@@ -3,7 +3,8 @@
 A web-based viewer for oscilloscope session files. It opens a saved session and lets you inspect
 it like on the instrument: stacked waveform views, cursors, automatic measurements and export.
 
-All parsing happens **in the browser** (in a Web Worker). Session files are never uploaded.
+Everything happens **in the browser**: files are parsed, and math channels and spectra computed, in Web Workers,
+so long records do not block the page. Session files are never uploaded.
 
 ## Supported files
 
@@ -304,6 +305,7 @@ Code layout:
 src/parsers/    file formats (tekWfm, tekIsf, tekSetup, session = .tss/.wfm/.isf/.zip loader, worker)
 src/dsp/        min/max pyramid, measurements and their documentation, edge detection
 src/math/       expression language and signal processing for math channels, FFT and windows
+src/compute/    the worker that evaluates math channels and computes spectra, and its client on the page
 src/model/      data types, view state (time window, cursors, ranges), callouts, math, spectra,
                 the workspace (autosave, analysis files), undo history and the browser's file store
 src/export/     CSV, image composition, HTML report, bundles

@@ -1,6 +1,7 @@
 import { forwardRef, useDeferredValue, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { BookOpen, ClipboardList, Copy, Eye, EyeOff, Maximize2, Plus, X, ZoomIn, ZoomOut } from 'lucide-react'
-import { MIN_FFT_SAMPLES, WINDOW_DEFS, computeSpectrum, findPeaks, toDb, windowDef, type Peak, type Spectrum, type WindowKind } from '../math/fft'
+import type { ComputeEngine } from '../compute/engine'
+import { MIN_FFT_SAMPLES, WINDOW_DEFS, findPeaks, toDb, windowDef, type Peak, type Spectrum, type WindowKind } from '../math/fft'
 import { MAX_SPECTRA, PEAK_COUNTS, levelUnit, type FreqAxis, type SpectrumDef, type SpectrumOptions, type SpectrumScale } from '../model/spectrum'
 import { rangeChoices } from './scopeCommands'
 import { ResizeHandle } from './ui/ResizeHandle'
@@ -18,6 +19,8 @@ import { useContextMenu, type MenuEntry } from './ui/menuContext'
 import { useTheme } from './ui/themeContext'
 
 interface Props {
+  /** Computes the spectra in its worker */
+  engine: Pick<ComputeEngine, 'spectrum'>
   defs: SpectrumDef[]
   options: SpectrumOptions
   setOptions: (patch: Partial<SpectrumOptions>) => void
@@ -43,6 +46,14 @@ interface Result {
   channel?: LiveChannel
   spec?: Spectrum
   error?: string
+  /** Being computed (`spec` is then the previous spectrum of the same channel and window, if any) */
+  pending?: boolean
+}
+
+/** A spectrum being computed in the worker, or computed (`spec` undefined: too few samples) */
+interface SpectrumJob {
+  done: boolean
+  spec?: Spectrum
 }
 type Shown = Result & { channel: LiveChannel; spec: Spectrum }
 
@@ -64,8 +75,26 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
   const cursors = useDeferredValue(p.cursors)
   const { range, scale, axis } = p.options
 
-  // Spectra cached per sample array, window and range: changing a colour, label or unit recomputes nothing
-  const [cache] = useState(() => new SampleCache<Spectrum | undefined>(8))
+  // Spectra are computed in the worker and cached per sample array, window and range: changing a
+  // colour, label or unit recomputes nothing. A finished job renders again (`done`); while one is
+  // computed, the previous spectrum of that channel and window stays (no flicker when zooming).
+  const [cache] = useState(() => new SampleCache<SpectrumJob>(8))
+  const [done, setDone] = useState(0)
+  const previous = useRef(new Map<string, { source: string; window: WindowKind; spec: Spectrum }>())
+  const job = (w: LiveChannel['wave'], i0: number, i1: number, window: WindowKind): SpectrumJob => {
+    const key = `${window}:${w.dt}:${i0}:${i1}`
+    return cache.get(w.data, key, () => {
+      const j: SpectrumJob = { done: false }
+      void p.engine.spectrum(w.data, w.dt, i0, i1, window).then((r) => {
+        // Not computed (samples replaced meanwhile, worker stopped): asked again on the next change
+        if (!r) return cache.delete(w.data, key)
+        j.done = true
+        j.spec = r.spec
+        setDone((n) => n + 1)
+      })
+      return j
+    })
+  }
   const results: Result[] = useMemo(
     () =>
       p.defs.map((def) => {
@@ -83,11 +112,18 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
         }
         const i0 = Math.max(0, Math.ceil((t0 - w.t0) / w.dt - 1e-9))
         const i1 = Math.min(w.data.length, Math.floor((t1 - w.t0) / w.dt + 1e-9) + 1)
-        const spec = cache.get(w.data, `${def.window}:${w.dt}:${i0}:${i1}`, () => computeSpectrum(w.data, i0, i1, w.dt, def.window))
-        if (!spec) return { def, channel, error: `Fewer than ${MIN_FFT_SAMPLES} samples in the range` }
-        return { def, channel, spec }
+        const j = job(w, i0, i1, def.window)
+        if (!j.done) {
+          const prev = previous.current.get(def.id)
+          return { def, channel, spec: prev?.source === def.source && prev.window === def.window ? prev.spec : undefined, pending: true }
+        }
+        if (!j.spec) return { def, channel, error: `Fewer than ${MIN_FFT_SAMPLES} samples in the range` }
+        previous.current.set(def.id, { source: def.source, window: def.window, spec: j.spec })
+        return { def, channel, spec: j.spec }
       }),
-    [p.defs, p.channels, range, win, cursors, cache],
+    // `job` reads the engine and the cache; `done` counts the jobs that finished
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [p.defs, p.channels, range, win, cursors, cache, p.engine, done],
   )
   const shown = useMemo(() => results.filter((r): r is Shown => !!r.spec && r.def.visible), [results])
   // Each spectrum is read in the unit of its channel; the level axis has a unit when all shown spectra share it
@@ -518,7 +554,9 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
               ))}
             </div>
           )}
-          {!shown.length && <div className="spec-empty">{results.find((r) => r.error)?.error ?? 'All spectra are hidden'}</div>}
+          {!shown.length && (
+            <div className="spec-empty">{results.find((r) => r.error)?.error ?? (results.some((r) => r.pending) ? 'Computing the spectrum…' : 'All spectra are hidden')}</div>
+          )}
         </div>
 
         <aside className="spec-side" aria-label="Spectrum details and peaks">
@@ -531,6 +569,8 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
               </div>
               {r.error ? (
                 <div className="expr-msg error">{r.error}</div>
+              ) : r.pending && !r.spec ? (
+                <div className="expr-msg">Computing…</div>
               ) : (
                 r.spec && (
                   <div className="spec-meta mono" title={metaTitle(r.spec)}>

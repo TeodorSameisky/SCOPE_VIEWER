@@ -28,4 +28,9 @@ export class SampleCache<T> {
     if (entries.size > this.perArray) entries.delete(entries.keys().next().value!)
     return value
   }
+
+  /** Forget a result, so the next `get` computes it again */
+  delete(data: Float32Array, key: string): void {
+    this.arrays.get(data)?.delete(key)
+  }
 }

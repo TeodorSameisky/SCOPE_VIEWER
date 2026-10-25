@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { MinMaxPyramid } from './dsp/minmax'
 import type { Session } from './model/types'
 import { deleteStoredSession, parseAnalysisJson } from './model/workspace'
 import { keepFilesEnabled, keepSessionFiles, loadSessionFiles } from './model/fileStore'
@@ -24,6 +25,8 @@ const isJson = (f: File) => /\.json$/i.test(f.name)
 
 interface Current {
   session: Session
+  /** Min/max pyramids of the channels, built while parsing */
+  pyramids: Map<string, MinMaxPyramid>
   sources: SourceFile[]
   initial: InitialState
   /** Bumped to remount the workspace (new file, imported analysis, reset) */
@@ -104,7 +107,7 @@ function Main() {
         const sources: SourceFile[] = loaded.analysis !== undefined || isBundleName(data[0].name)
           ? loaded.sources.map((s) => ({ name: s.name, blob: new Blob([s.data]) }))
           : data.map((f) => ({ name: f.name, blob: f }))
-        setCurrent((c) => ({ session: loaded.session, sources, initial, generation: (c?.generation ?? 0) + 1 }))
+        setCurrent((c) => ({ session: loaded.session, pyramids: loaded.pyramids, sources, initial, generation: (c?.generation ?? 0) + 1 }))
         setErrorText(null)
         // One notice for both (a newer notice of the same kind replaces an older one)
         const notes: string[] = []
@@ -251,6 +254,7 @@ function Main() {
           <Scope
             ref={scopeRef}
             session={current.session}
+            pyramids={current.pyramids}
             sources={current.sources}
             initial={current.initial}
             onOpen={() => inputRef.current?.click()}

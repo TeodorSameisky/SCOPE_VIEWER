@@ -31,8 +31,8 @@ import {
 import type { ChannelDisplay, Session } from '../model/types'
 import type { MeasurementKey } from '../dsp/measure'
 import { DEFAULT_CALLOUT_COLOR, calloutSpan, calloutTitle, hasTimeSpan, newCalloutId, nextCalloutNumber, type Callout } from '../model/callouts'
-import { MinMaxPyramid } from '../dsp/minmax'
-import { evaluateMath, type MathCache } from '../math/expr'
+import type { MinMaxPyramid } from '../dsp/minmax'
+import { ComputeEngine } from '../compute/engine'
 import { MATH_COLORS, MAX_MATH, nextMathId, type MathDef } from '../model/math'
 import { MAX_SPECTRA, newSpectrum, type SpectrumDef, type SpectrumOptions } from '../model/spectrum'
 import {
@@ -92,6 +92,7 @@ import { useContextMenu } from './ui/menuContext'
 import { useTheme } from './ui/themeContext'
 import { UndoHistory } from '../model/undoHistory'
 import { useAutosave } from './useAutosave'
+import { useMathResults } from './useMathResults'
 import { useNavigation } from './useNavigation'
 import { useShortcuts } from './useShortcuts'
 import { useUndoHistory } from './useUndoHistory'
@@ -131,6 +132,8 @@ export interface ScopeHandle {
 
 interface Props {
   session: Session
+  /** Min/max pyramids of the session's channels (built while parsing) */
+  pyramids: Map<string, MinMaxPyramid>
   sources: SourceFile[]
   initial: InitialState
   onOpen: () => void
@@ -157,7 +160,7 @@ function initWorkspace(session: Session, initial: InitialState): { workspace: Wo
   }
 }
 
-export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, sources, initial, onOpen, onClose, onReplaceWorkspace, onOpenStored, onKeepFiles, filesVersion }, ref) {
+export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, pyramids, sources, initial, onOpen, onClose, onReplaceWorkspace, onOpenStored, onKeepFiles, filesVersion }, ref) {
   const { confirm, notify, dismiss } = useFeedback()
   // Everything the user can change starts from the workspace (saved state, analysis file or file defaults)
   const [boot] = useState(() => initWorkspace(session, initial))
@@ -165,7 +168,6 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
   // Undo history of the analysis (recorded in "undo / redo" below)
   const [editHistory] = useState(() => new UndoHistory<UndoDoc, TimeWindow>(undoDocOf(ws0)))
 
-  const pyramids = useMemo(() => new Map(session.channels.map((c) => [c.wave.id, new MinMaxPyramid(c.wave.data)])), [session])
   const [mathDefs, setMathDefs] = useState<MathDef[]>(ws0.math)
   const [displays, setDisplays] = useState<ChannelDisplay[]>(ws0.channels)
   const [views, setViews] = useState<string[][]>(ws0.views)
@@ -205,20 +207,12 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
   }
 
   // ---------- channels and math channels ----------
-  // Editing one math channel (or a unit) computes only what changed: the others keep their samples and pyramids
-  const [mathCache] = useState<MathCache>(() => new Map())
-  const mathResults = useMemo(() => evaluateMath(mathDefs, session.channels.map((c) => c.wave), mathCache), [mathDefs, session, mathCache])
-  const [mathPyramidCache] = useState(() => new WeakMap<Float32Array, MinMaxPyramid>())
-  const mathPyramids = useMemo(() => {
-    const m = new Map<string, MinMaxPyramid>()
-    for (const [id, r] of mathResults) {
-      if (!r.wave) continue
-      let pyramid = mathPyramidCache.get(r.wave.data)
-      if (!pyramid) mathPyramidCache.set(r.wave.data, (pyramid = new MinMaxPyramid(r.wave.data)))
-      m.set(id, pyramid)
-    }
-    return m
-  }, [mathResults, mathPyramidCache])
+  // Math channels and spectra are computed in a worker, so long records do not block the page; the
+  // worker starts with the first math channel or spectrum and ends with the workspace
+  const [engine] = useState(() => new ComputeEngine(session.channels.map((c) => c.wave), pyramids))
+  useEffect(() => () => engine.stop(), [engine])
+  const math = useMathResults(engine, mathDefs)
+  const { results: mathResults, pyramids: mathPyramids } = math
 
   const displayById = useMemo(() => new Map(displays.map((d) => [d.id, d])), [displays])
   const inputChannels: LiveChannel[] = useMemo(
@@ -281,15 +275,15 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
   }
   const onAutoscale = (id: string) => autoscale([id])
 
-  // New or changed math channels are fitted over the whole record once their result is available
-  const pendingAutoscale = useRef(new Set<string>())
+  // New or changed math channels are fitted over the whole record once the result of their expression is available
+  const pendingAutoscale = useRef(new Map<string, string>())
   useEffect(() => {
-    const ready = [...pendingAutoscale.current].filter((id) => mathResults.has(id))
+    const ready = [...pendingAutoscale.current].filter(([id, expr]) => math.defs.some((d) => d.id === id && d.expr === expr)).map(([id]) => id)
     if (!ready.length) return
     for (const id of ready) pendingAutoscale.current.delete(id)
     const patches = autoscalePatches(channels, views, ready, record, DIVS_Y)
     setDisplays((ds) => patchDisplays(ds, patches))
-  }, [mathResults, channels, views, record])
+  }, [math.defs, channels, views, record])
 
   const addMath = (): string | undefined => {
     if (mathDefs.length >= MAX_MATH) return
@@ -297,17 +291,18 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
     const vis = session.channels.filter((c) => displayById.get(c.wave.id)?.visible).map((c) => c.wave.id)
     const a = vis[0] ?? firstId
     const b = vis.find((x) => x !== a)
-    setMathDefs([...mathDefs, { id, expr: b ? `${a} - ${b}` : `-${a}` }])
+    const expr = b ? `${a} - ${b}` : `-${a}`
+    setMathDefs([...mathDefs, { id, expr }])
     const color = MATH_COLORS[(parseInt(id.slice(4), 10) - 1) % MATH_COLORS.length]
     setDisplays((ds) => [...ds, { id, label: '', color, visible: true, scale: 1, position: 0, offset: 0 }])
     setViews((vs) => [...vs, [id]])
     setSelected(id)
-    pendingAutoscale.current.add(id)
+    pendingAutoscale.current.set(id, expr)
     return id
   }
   const changeMath = (id: string, patch: Partial<MathDef>) => {
     setMathDefs((ms) => ms.map((m) => (m.id === id ? { ...m, ...patch } : m)))
-    if (patch.expr !== undefined) pendingAutoscale.current.add(id)
+    if (patch.expr !== undefined) pendingAutoscale.current.set(id, patch.expr)
   }
   /** Delete a math channel with everything that refers to it: its spectra and the callouts on its trace */
   const removeMath = (id: string) => {
@@ -807,6 +802,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, so
           {spectra.length > 0 && (
             <SpectrumView
               ref={spectrumRef}
+              engine={engine}
               defs={spectra}
               options={specOptions}
               setOptions={(patch) => {

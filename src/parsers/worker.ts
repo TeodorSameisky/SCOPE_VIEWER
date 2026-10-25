@@ -1,3 +1,4 @@
+import { MinMaxPyramid, type PyramidLevel } from '../dsp/minmax'
 import { isBundleName, unpackBundle } from '../export/bundle'
 import { sha256Hex } from '../util/sha256'
 import { loadFiles, type InputFile } from './session'
@@ -16,6 +17,8 @@ export interface WorkerResult {
   sources: InputFile[]
   /** Analysis JSON from a bundle */
   analysis?: string
+  /** Levels of the min/max pyramid of each channel (by id), built here instead of on the page */
+  pyramids: Record<string, PyramidLevel[]>
 }
 
 self.onmessage = async (e: MessageEvent<InputFile[]>) => {
@@ -32,8 +35,10 @@ self.onmessage = async (e: MessageEvent<InputFile[]>) => {
     const fp = await fingerprint(files).catch(() => undefined)
     const session = loadFiles(files)
     session.fingerprint = fp
-    const result: WorkerResult = { ok: true, session, sources: files, analysis }
-    const transfer = [...session.channels.map((c) => c.wave.data.buffer as ArrayBuffer), ...files.map((f) => f.data)]
+    const pyramids = Object.fromEntries(session.channels.map((c) => [c.wave.id, new MinMaxPyramid(c.wave.data).levels]))
+    const result: WorkerResult = { ok: true, session, sources: files, analysis, pyramids }
+    const levels = Object.values(pyramids).flatMap((ls) => ls.flatMap((l) => [l.min.buffer as ArrayBuffer, l.max.buffer as ArrayBuffer]))
+    const transfer = [...session.channels.map((c) => c.wave.data.buffer as ArrayBuffer), ...files.map((f) => f.data), ...levels]
     self.postMessage(result, { transfer: [...new Set(transfer)] })
   } catch (err) {
     self.postMessage({ ok: false, error: err instanceof Error ? err.message : String(err) })
