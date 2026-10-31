@@ -93,6 +93,8 @@ export interface ExportContext {
   timePerDiv: number
   measKeys: MeasurementKey[]
   measRange: MeasureRange
+  /** Channels left out of the measurement table */
+  measExclude: string[]
   spectra: SpectrumDef[]
   specOptions: SpectrumOptions
   notes: string
@@ -136,7 +138,7 @@ async function renderImage(ctx: ExportContext, prefs: ExportPrefs, appearance: A
   const plot = await ctx.plot?.renderImage(o.scale, theme)
   if (!plot) throw new Error('The plot is not ready')
   const spec = o.spectrum ? ctx.spectrum?.renderImage(o.scale, theme) : null
-  const rows = o.table ? measureChannels(ctx.channels, ctx.measRange, ctx.win, ctx.cursors) : []
+  const rows = o.table ? measureChannels(ctx.channels, ctx.measRange, ctx.win, ctx.cursors, ctx.measExclude) : []
   const table = o.table && ctx.measKeys.length && rows.length ? measurementTable(rows, ctx.measKeys) : undefined
   if (table) table.columns[0] = `Channel (${RANGE_LABEL[ctx.measRange].toLowerCase()})`
   return composeImage({
@@ -197,7 +199,7 @@ function reportTables(ctx: ExportContext, prefs: ExportPrefs): ReportTable[] {
   }
   if (o.measurements && ctx.measKeys.length) {
     const w = rangeWindow(ctx, ctx.measRange)
-    const t = measurementTable(measureChannels(channels, ctx.measRange, ctx.win, cursors), ctx.measKeys)
+    const t = measurementTable(measureChannels(channels, ctx.measRange, ctx.win, cursors, ctx.measExclude), ctx.measKeys)
     tables.push({ title: 'Measurements', note: `Range: ${RANGE_LABEL[ctx.measRange].toLowerCase()} (${si(w.start, 's')} … ${si(w.end, 's')})`, ...t })
   }
   if (o.cursors && cursors.on) {
@@ -317,7 +319,7 @@ export async function runExport(ctx: ExportContext, kind: ExportKind, prefs: Exp
   }
 
   if (kind === 'measurements') {
-    const rows = measureChannels(ctx.channels, ctx.measRange, ctx.win, ctx.cursors)
+    const rows = measureChannels(ctx.channels, ctx.measRange, ctx.win, ctx.cursors, ctx.measExclude)
     downloadBlob(
       buildMeasurementsCsv(
         ctx.measKeys.map((k) => measurementDef(k)),

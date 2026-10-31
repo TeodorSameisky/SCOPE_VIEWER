@@ -8,10 +8,14 @@ export interface MeasuredChannel {
   m: Measurements
 }
 
-/** Measurements of the visible channels over a range, as the measurement table shows them */
-export function measureChannels(channels: LiveChannel[], range: MeasureRange, win: TimeWindow, cursors: CursorState): MeasuredChannel[] {
-  return channels
-    .filter((c) => c.display.visible)
+/** The channels the measurement table has a row for: the visible ones that are not left out of it */
+export function measuredChannels<T extends Pick<LiveChannel, 'wave' | 'display'>>(channels: T[], exclude: readonly string[]): T[] {
+  return channels.filter((c) => c.display.visible && !exclude.includes(c.wave.id))
+}
+
+/** Measurements of the measured channels over a range, as the measurement table shows them */
+export function measureChannels(channels: LiveChannel[], range: MeasureRange, win: TimeWindow, cursors: CursorState, exclude: readonly string[]): MeasuredChannel[] {
+  return measuredChannels(channels, exclude)
     .map((channel) => {
       const [i0, i1] = sampleRange(channel.wave, range, win, cursors)
       return { channel, m: measure(channel.wave.data, i0, i1, channel.wave.t0, channel.wave.dt) }

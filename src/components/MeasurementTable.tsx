@@ -1,10 +1,10 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { ArrowLeft, ArrowRight, BookOpen, ClipboardList, Copy, Info, Plus, TableProperties, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BookOpen, ClipboardList, Copy, Info, ListChecks, Plus, TableProperties, X } from 'lucide-react'
 import type { ComputeEngine } from '../compute/engine'
 import type { MeasurementKey, Measurements } from '../dsp/measure'
 import { MEASURE_GROUP_LABEL, MEASUREMENT_DEFS, formatMeasurement, measurementDef, missingReason, type MeasurementDef } from '../dsp/measureDefs'
 import { channelName } from '../util/names'
-import { measurementTable } from '../export/measureRows'
+import { measuredChannels, measurementTable } from '../export/measureRows'
 import { MeasureInfo } from './MeasureInfo'
 import { MEASURE_RANGES, RANGE_LABEL, sampleRange, type CursorState, type LiveChannel, type MeasureRange, type TimeWindow } from '../model/view'
 import { rangeChoices } from './scopeCommands'
@@ -24,7 +24,10 @@ interface Props {
   setRange: (r: MeasureRange) => void
   keys: MeasurementKey[]
   setKeys: (k: MeasurementKey[]) => void
-  /** null: as high as the rows need, up to a share of the window */
+  /** Channels left out of the table (it has a row for every other visible channel) */
+  exclude: string[]
+  setExclude: (ids: string[]) => void
+  /** The table is as high as its rows need, but at most this high; null: at most a share of the window */
   height: number | null
   setHeight: (h: number | null) => void
   /** The selected channel: its row is marked, and a click on a row selects its channel */
@@ -41,16 +44,20 @@ interface Props {
   onCopy: (text: string, what: string) => void
 }
 
-/** Width of the popovers (explanation, add a measurement) */
+/** Width of the popovers (explanation, add a measurement, choose the channels) */
 const POPUP_W = 340
-type Popup = ({ kind: 'info'; key: MeasurementKey } | { kind: 'add' }) & { style: React.CSSProperties }
+type PopupKind = { kind: 'info'; key: MeasurementKey } | { kind: 'add' } | { kind: 'channels' }
+type Popup = PopupKind & { style: React.CSSProperties }
 
 export function MeasurementTable(p: Props) {
   // Deferred so panning/zooming stays smooth on long records
   const win = useDeferredValue(p.win)
   const cursors = useDeferredValue(p.cursors)
-  const visible = p.channels.filter((c) => c.display.visible)
-  const hidden = p.channels.filter((c) => !c.display.visible)
+  const excluded = useMemo(() => new Set(p.exclude), [p.exclude])
+  const measured = measuredChannels(p.channels, p.exclude)
+  /** Channels that are shown but left out of the table, and channels that are hidden (and would be measured) */
+  const leftOut = p.channels.filter((c) => excluded.has(c.wave.id))
+  const hidden = p.channels.filter((c) => !c.display.visible && !excluded.has(c.wave.id))
   const { ink } = useTheme().theme
   const rootRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -64,7 +71,7 @@ export function MeasurementTable(p: Props) {
   const results = useMemo(() => {
     const out = new Map<string, { m: Measurements; pending: boolean }>()
     for (const c of p.channels) {
-      if (!c.display.visible) continue
+      if (!c.display.visible || excluded.has(c.wave.id)) continue
       const w = c.wave
       const [i0, i1] = sampleRange(w, p.range, win, cursors)
       const m = p.engine.measured(w, Math.max(0, Math.floor(i0)), Math.min(w.data.length, Math.ceil(i1)), `table:${w.id}`)
@@ -75,7 +82,7 @@ export function MeasurementTable(p: Props) {
     return out
     // measuredVersion: measurements that were being computed may have arrived
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.channels, p.range, win, cursors, p.engine, measuredVersion])
+  }, [p.channels, excluded, p.range, win, cursors, p.engine, measuredVersion])
 
   const defs = p.keys.map(measurementDef)
   const unused = MEASUREMENT_DEFS.filter((d) => !p.keys.includes(d.key))
@@ -94,10 +101,10 @@ export function MeasurementTable(p: Props) {
   const popRef = useRef<HTMLDivElement>(null)
   const closePopup = useCallback(() => setPopup(null), [])
   useDismiss(popRef, popup !== null, closePopup)
-  const openAt = (e: React.MouseEvent, popup: { kind: 'info'; key: MeasurementKey } | { kind: 'add' }) => {
+  const openAt = (e: React.MouseEvent, popup: PopupKind) => {
     openAtRect((e.currentTarget as HTMLElement).getBoundingClientRect(), popup)
   }
-  const openAtRect = (r: DOMRect, popup: { kind: 'info'; key: MeasurementKey } | { kind: 'add' }) => {
+  const openAtRect = (r: DOMRect, popup: PopupKind) => {
     setPopup({ ...popup, style: placeNear(r, POPUP_W, 'below') })
   }
 
@@ -159,7 +166,7 @@ export function MeasurementTable(p: Props) {
 
   // ---------- context menus ----------
   const menu = useContextMenu()
-  const rows = visible.flatMap((c) => {
+  const rows = measured.flatMap((c) => {
     const r = results.get(c.wave.id)
     return r ? [{ channel: c, m: r.m }] : []
   })
@@ -187,6 +194,7 @@ export function MeasurementTable(p: Props) {
       '-',
       { label: 'Copy table', icon: ClipboardList, disabled: !rows.length || !p.keys.length, onClick: copyTable },
       { label: 'Add measurement…', icon: Plus, disabled: !unused.length, onClick: () => openAtRect(at, { kind: 'add' }) },
+      { label: 'Channels to measure…', icon: ListChecks, onClick: () => openAtRect(at, { kind: 'channels' }) },
       rangeChoices(p.range, p.setRange),
       { label: 'Hide measurements', icon: X, hint: 'T', onClick: p.onClose },
     ]
@@ -205,6 +213,18 @@ export function MeasurementTable(p: Props) {
     menu(e, [{ kind: 'heading', label: d.label }, ...columnItems(d, th), ...common(e)])
   }
   const channelLabel = (c: LiveChannel) => `${channelName(c.wave.id)}${c.display.label ? ` ${c.display.label}` : ''}`
+  const setMeasured = (id: string, on: boolean) => p.setExclude(on ? p.exclude.filter((x) => x !== id) : [...p.exclude, id])
+  /** Bring a channel into the table: measure it, and show it if it is hidden */
+  const bringIn = (c: LiveChannel) => {
+    if (excluded.has(c.wave.id)) setMeasured(c.wave.id, true)
+    if (!c.display.visible) p.onShowChannel(c.wave.id)
+  }
+  /** The height the table would have without a limit: the bar and all its rows */
+  const contentHeight = () => {
+    const root = rootRef.current
+    const scroll = scrollRef.current
+    return root && scroll ? root.offsetHeight - scroll.clientHeight + scroll.scrollHeight : 0
+  }
   const rowMenu = (e: React.MouseEvent, c: LiveChannel) => {
     p.onSelect(c.wave.id)
     menu(e, [
@@ -232,11 +252,17 @@ export function MeasurementTable(p: Props) {
   return (
     <div
       ref={rootRef}
-      className={p.height === null ? 'measure fit' : 'measure'}
-      style={p.height === null ? undefined : { height: p.height }}
+      className="measure"
+      style={p.height === null ? undefined : { maxHeight: p.height }}
       onContextMenu={(e) => menu(e, common(e))}
     >
-      <ResizeHandle height={p.height} setHeight={p.setHeight} getHeight={() => rootRef.current?.offsetHeight ?? 0} onReset={() => p.setHeight(null)} />
+      <ResizeHandle
+        height={p.height}
+        setHeight={(h) => p.setHeight(h >= contentHeight() - 2 ? null : h)}
+        getHeight={() => rootRef.current?.offsetHeight ?? 0}
+        maxHeight={contentHeight}
+        onReset={() => p.setHeight(null)}
+      />
       <div className="measure-bar">
         <span className="section-title">Measurements</span>
         <div className="segmented">
@@ -246,6 +272,10 @@ export function MeasurementTable(p: Props) {
             </button>
           ))}
         </div>
+        <button type="button" className="icon-btn with-label" title="Choose the channels to measure" onClick={(e) => openAt(e, { kind: 'channels' })}>
+          <ListChecks size={16} aria-hidden />
+          <span>{leftOut.length ? `Channels ${p.channels.length - leftOut.length}/${p.channels.length}` : 'Channels'}</span>
+        </button>
         <button type="button" className="icon-btn with-label" disabled={!unused.length} onClick={(e) => openAt(e, { kind: 'add' })}>
           <Plus size={16} aria-hidden />
           <span>Add measurement</span>
@@ -294,7 +324,7 @@ export function MeasurementTable(p: Props) {
             </tr>
           </thead>
           <tbody>
-            {visible.map((c) => {
+            {measured.map((c) => {
               const r = results.get(c.wave.id)
               const m = r?.m
               const isSelected = c.wave.id === p.selected
@@ -310,6 +340,18 @@ export function MeasurementTable(p: Props) {
                       <span className="dot" style={{ background: ink(c.display.color) }} />
                       {channelName(c.wave.id)}
                       {c.display.label && <span className="muted"> {c.display.label}</span>}
+                    </button>
+                    <button
+                      type="button"
+                      className="x row-x"
+                      title={`Stop measuring ${channelName(c.wave.id)}`}
+                      aria-label={`Stop measuring ${channelName(c.wave.id)}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setMeasured(c.wave.id, false)
+                      }}
+                    >
+                      ×
                     </button>
                   </td>
                   {defs.map((d) => {
@@ -330,19 +372,26 @@ export function MeasurementTable(p: Props) {
                 </tr>
               )
             })}
-            {hidden.length > 0 && (
+            {(hidden.length > 0 || leftOut.length > 0) && (
               <tr className="hidden-note">
                 <td colSpan={defs.length + 1}>
-                  <div className="hidden-list">
-                    <span className="muted">{visible.length ? 'Hidden:' : 'No channel is shown. Show one to measure it:'}</span>
-                    {hidden.map((c) => (
-                      <button key={c.wave.id} type="button" className="chip-link" title={`Show ${channelName(c.wave.id)}`} onClick={() => p.onShowChannel(c.wave.id)}>
-                        <span className="dot" style={{ background: ink(c.display.color) }} />
-                        {channelName(c.wave.id)}
-                        {c.display.label && <span className="muted"> {c.display.label}</span>}
-                      </button>
-                    ))}
-                  </div>
+                  {/* Channels without a row: a click brings one in (measures it, shows it) */}
+                  {[
+                    ...(measured.length ? [] : [{ lead: 'No channel is measured. Click one to measure it:', list: p.channels.filter((c) => !measured.includes(c)), verb: 'Measure' }]),
+                    ...(measured.length && hidden.length ? [{ lead: 'Hidden:', list: hidden, verb: 'Show' }] : []),
+                    ...(measured.length && leftOut.length ? [{ lead: 'Not measured:', list: leftOut, verb: 'Measure' }] : []),
+                  ].map((g) => (
+                    <div key={g.lead} className="hidden-list">
+                      <span className="muted">{g.lead}</span>
+                      {g.list.map((c) => (
+                        <button key={c.wave.id} type="button" className="chip-link" title={`${g.verb} ${channelName(c.wave.id)}`} onClick={() => bringIn(c)}>
+                          <span className="dot" style={{ background: ink(c.display.color) }} />
+                          {channelName(c.wave.id)}
+                          {c.display.label && <span className="muted"> {c.display.label}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  ))}
                 </td>
               </tr>
             )}
@@ -366,6 +415,35 @@ export function MeasurementTable(p: Props) {
                 Open measurement reference
               </button>
             </>
+          ) : popup.kind === 'channels' ? (
+            <div className="pick-list">
+              <div className="pick-head">
+                <span className="add-group">Channels to measure</span>
+                <span className="spacer" />
+                <button type="button" className="text-btn" onClick={() => p.setExclude([])}>
+                  All
+                </button>
+                {p.selected && (
+                  <button type="button" className="text-btn" onClick={() => p.setExclude(p.channels.filter((c) => c.wave.id !== p.selected).map((c) => c.wave.id))}>
+                    Only {channelName(p.selected)}
+                  </button>
+                )}
+                <button type="button" className="text-btn" onClick={() => p.setExclude(p.channels.map((c) => c.wave.id))}>
+                  None
+                </button>
+              </div>
+              {p.channels.map((c) => (
+                <label key={c.wave.id} className="pick-item">
+                  <input type="checkbox" checked={!excluded.has(c.wave.id)} onChange={(e) => setMeasured(c.wave.id, e.target.checked)} />
+                  <span className="dot" style={{ background: ink(c.display.color) }} />
+                  <span>
+                    {channelName(c.wave.id)}
+                    {c.display.label && <span className="muted"> {c.display.label}</span>}
+                  </span>
+                  {!c.display.visible && <span className="tag">hidden</span>}
+                </label>
+              ))}
+            </div>
           ) : (
             <div className="add-list">
               {(['amplitude', 'timing'] as const).map((g) => {

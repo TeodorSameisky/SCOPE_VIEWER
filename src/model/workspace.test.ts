@@ -82,7 +82,7 @@ describe('workspace defaults and validation', () => {
         spectra: [{ id: 'FFT1', source: 'MATH1', window: 'hann', visible: true }, { id: 'FFT2', source: 'CH7', window: 'hann', visible: true }],
         cursors: { on: true, a: 'x', b: 2 },
         window: { start: 5, end: 1 },
-        measurements: { keys: ['rms', 'nope', 'rms'], range: 'galaxy' },
+        measurements: { keys: ['rms', 'nope', 'rms'], range: 'galaxy', exclude: ['CH2', 'CH2', 'CH9', 3] },
         selected: 'CH9',
       },
       session(),
@@ -95,7 +95,8 @@ describe('workspace defaults and validation', () => {
     expect(ws.spectra.map((s) => s.id)).toEqual(['FFT1'])
     expect(ws.cursors).toMatchObject({ on: true, b: 2 })
     expect(ws.window.end).toBeGreaterThan(ws.window.start)
-    expect(ws.measurements).toEqual({ keys: ['rms'], range: 'screen' })
+    // channels left out of the table: known ones, each once
+    expect(ws.measurements).toEqual({ keys: ['rms'], range: 'screen', exclude: ['CH2'] })
     expect(ws.selected).toBe('CH2')
     expect(sanitizeWorkspace('garbage', session())).toEqual(defaultWorkspace(session()))
   })

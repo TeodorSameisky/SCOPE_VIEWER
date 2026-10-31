@@ -52,6 +52,7 @@ import {
 } from '../model/workspace'
 import { announce, onNews } from '../model/tabSync'
 import { buildBundle } from '../export/bundle'
+import { measuredChannels } from '../export/measureRows'
 import { runExport, waveformRows, type ExportContext, type ExportKind } from '../export/sessionExport'
 import { AXIS_GUTTER, DIVS_Y } from '../render/draw'
 import { copyText } from '../util/clipboard'
@@ -107,14 +108,14 @@ interface Layout {
   panel: PanelId | null
   overview: boolean
   measurements: boolean
-  /** Height of the measurement table; null: as high as its rows need (up to a share of the window) */
+  /** The measurement table is as high as its rows need, but at most this high; null: at most a share of the window */
   measHeight: number | null
   specHeight: number
   /** Values of all channels next to the pointer */
   readout: boolean
 }
 const DEFAULT_LAYOUT: Layout = { panel: null, overview: true, measurements: true, measHeight: null, specHeight: 220, readout: true }
-/** The fixed height the measurement table had before it fitted its rows: stored by everyone who never resized it */
+/** The fixed height the measurement table had before it fitted its rows: stored by everyone who never resized it, and no limit */
 const FORMER_MEAS_HEIGHT = 170
 
 /** The session file(s) as opened, kept for saving a bundle */
@@ -190,8 +191,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   // with the setters below, which take a value or an update as state setters do.
   const [doc, setDoc] = useState<Analysis>(() => analysisOf(ws0))
   const { math: mathDefs, channels: displays, views, viewSizes, cursors, notes, callouts, spectra, spectrumOptions: specOptions } = doc
-  const { keys: measKeys, range: measRange } = doc.measurements
-  const [{ setMathDefs, setDisplays, setCursors, setNotes, setCallouts, setSpectra, setSpecOptions, setMeasKeys, setMeasRange, setViews, setViewSizes }] = useState(() => ({
+  const { keys: measKeys, range: measRange, exclude: measExclude } = doc.measurements
+  const [{ setMathDefs, setDisplays, setCursors, setNotes, setCallouts, setSpectra, setSpecOptions, setMeasKeys, setMeasRange, setMeasExclude, setViews, setViewSizes }] = useState(() => ({
     setMathDefs: fieldSetter(setDoc, 'math'),
     setDisplays: fieldSetter(setDoc, 'channels'),
     setCursors: fieldSetter(setDoc, 'cursors'),
@@ -201,6 +202,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     setSpecOptions: fieldSetter(setDoc, 'spectrumOptions'),
     setMeasKeys: (keys: MeasurementKey[]) => setDoc((d) => ({ ...d, measurements: { ...d.measurements, keys } })),
     setMeasRange: (range: MeasureRange) => setDoc((d) => ({ ...d, measurements: { ...d.measurements, range } })),
+    setMeasExclude: (change: string[] | ((ids: string[]) => string[])) =>
+      setDoc((d) => ({ ...d, measurements: { ...d.measurements, exclude: typeof change === 'function' ? change(d.measurements.exclude) : change } })),
     // The views and their sizes change together: a size goes with the channels of its view (see carryViewSizes)
     setViews: (change: (vs: string[][]) => string[][]) =>
       setDoc((d) => {
@@ -351,6 +354,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     setDisplays((ds) => ds.filter((d) => d.id !== id))
     setViews((vs) => vs.map((v) => v.filter((x) => x !== id)).filter((v) => v.length > 0))
     setSpectra((ss) => ss.filter((s) => s.source !== id))
+    // A math channel made later under the same name is measured again
+    setMeasExclude((ids) => ids.filter((x) => x !== id))
     // Notes, boxes and spans on its trace go with it; regions and boxes stop measuring it
     setCallouts((cs) => cs.filter((c) => !onIt(c)).map((c) => (c.measure?.channel === id ? { ...c, measure: undefined } : c)))
     if (selectedCallout && callouts.some((c) => c.id === selectedCallout && onIt(c))) setSelectedCallout(undefined)
@@ -660,13 +665,14 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     timePerDiv: tPerDiv,
     measKeys,
     measRange,
+    measExclude,
     spectra,
     specOptions,
     notes,
     plot: plotRef.current,
     spectrum: spectrumRef.current,
   })
-  const measuredCount = visibleChannels.filter((c) => {
+  const measuredCount = measuredChannels(visibleChannels, measExclude).filter((c) => {
     const [i0, i1] = sampleRange(c.wave, measRange, win, cursors)
     return Math.min(c.wave.data.length, i1) > Math.max(0, i0)
   }).length
@@ -744,6 +750,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     selected,
     measKeys,
     measRange,
+    measExclude,
     panel: layout.panel,
     measurementsShown: layout.measurements,
     themePreference,
@@ -776,6 +783,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     duplicateCallout,
     setMeasKeys,
     setMeasRange: changeMeasRange,
+    setMeasExclude,
     setPanel,
     openReference,
     copy,
@@ -909,6 +917,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
               setRange={changeMeasRange}
               keys={measKeys}
               setKeys={setMeasKeys}
+              exclude={measExclude}
+              setExclude={setMeasExclude}
               height={layout.measHeight === FORMER_MEAS_HEIGHT ? null : layout.measHeight}
               setHeight={(measHeight) => setLayout((l) => ({ ...l, measHeight }))}
               selected={selected}

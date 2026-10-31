@@ -264,7 +264,7 @@ export function ExportDialog(p: Props) {
             {kind === 'measurements' && (
               <>
                 <p className="hint">
-                  The {p.measurementInfo.count} measurements of the table for {p.measurementInfo.channels} visible channels, range “{RANGE_LABEL[p.measurementInfo.range]}”.
+                  The {p.measurementInfo.count} measurements of the table for {p.measurementInfo.channels} measured channel{p.measurementInfo.channels === 1 ? '' : 's'}, range “{RANGE_LABEL[p.measurementInfo.range]}”.
                   Values are in base units (V, s, Hz, %), so they stay numeric in a spreadsheet.
                 </p>
                 {formatSelect}

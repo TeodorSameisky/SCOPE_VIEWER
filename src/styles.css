@@ -1344,14 +1344,12 @@ th:hover .x {
 .measure-scroll {
   overflow: auto;
   min-height: 0;
-  flex: 1;
-}
-/* Without a stored height the panel is as high as its rows need, up to a share of the window */
-.measure.fit {
-  max-height: 40vh;
-}
-.measure.fit .measure-scroll {
   flex: 0 1 auto;
+}
+/* The panel is as high as its rows need, but not higher than a share of the window (or than the height it was
+   dragged to, as an inline max-height): there is no empty space below the rows */
+.measure {
+  max-height: 40vh;
 }
 /* The channel stays in sight when the table scrolls sideways */
 .measure-scroll .data-table th:first-child,
@@ -1365,7 +1363,13 @@ th:hover .x {
 .measure-scroll .data-table th:first-child {
   z-index: 2;
 }
-/* A row selects its channel */
+/* A row selects its channel; its × (stop measuring it) shows when the pointer is on the row */
+.measure .data-table tr:hover .row-x {
+  visibility: visible;
+}
+.row-x {
+  margin-left: 6px;
+}
 .measure .data-table tbody tr {
   cursor: pointer;
 }
@@ -1840,6 +1844,36 @@ button.pill.active {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+/* The channels to measure */
+.pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.pick-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pick-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.pick-item:hover {
+  background: var(--hover);
+}
+.pick-item .dot {
+  margin-right: 0;
+}
+.pick-item .tag {
+  margin-left: auto;
 }
 .add-group {
   font-size: 11px;

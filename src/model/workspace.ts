@@ -24,7 +24,8 @@ export interface Workspace {
   callouts: Callout[]
   cursors: CursorState
   window: TimeWindow
-  measurements: { keys: MeasurementKey[]; range: MeasureRange }
+  /** The measurement table: its columns, the range, and the channels left out of it (new channels are measured) */
+  measurements: { keys: MeasurementKey[]; range: MeasureRange; exclude: string[] }
   selected?: string
   /** Free-text notes about the session (e.g. what the event is), used in reports */
   notes: string
@@ -132,7 +133,7 @@ export function defaultWorkspace(session: Session): Workspace {
       source: c?.source && session.channels.some((ch) => ch.wave.id === c.source) ? c.source : firstId,
     },
     window: win,
-    measurements: { keys: [...new Set([...fromSetup, ...DEFAULT_MEAS])], range: 'screen' },
+    measurements: { keys: [...new Set([...fromSetup, ...DEFAULT_MEAS])], range: 'screen', exclude: [] },
     selected: session.trigger?.source ?? firstId,
     notes: '',
   }
@@ -214,10 +215,11 @@ export function sanitizeWorkspace(raw: unknown, session: Session): Workspace {
 
   const window = sanitizeWindow(r.window, session) ?? def.window
 
-  const m = (r.measurements ?? {}) as { keys?: unknown; range?: unknown }
+  const m = (r.measurements ?? {}) as { keys?: unknown; range?: unknown; exclude?: unknown }
   const known = new Set(MEASUREMENT_DEFS.map((d) => d.key))
   const keys = Array.isArray(m.keys) ? [...new Set(m.keys.filter((k): k is MeasurementKey => known.has(k)))] : def.measurements.keys
   const range = isMeasureRange(m.range) ? m.range : def.measurements.range
+  const exclude = Array.isArray(m.exclude) ? [...new Set(m.exclude.filter((id): id is string => typeof id === 'string' && ids.includes(id)))] : []
 
   return {
     version: WORKSPACE_VERSION,
@@ -230,7 +232,7 @@ export function sanitizeWorkspace(raw: unknown, session: Session): Workspace {
     callouts: sanitizeCallouts(r.callouts),
     cursors,
     window,
-    measurements: { keys, range },
+    measurements: { keys, range, exclude },
     selected: typeof r.selected === 'string' && ids.includes(r.selected) ? r.selected : def.selected,
     notes: typeof r.notes === 'string' ? r.notes.slice(0, 20000) : '',
   }

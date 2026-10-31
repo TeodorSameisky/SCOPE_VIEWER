@@ -89,12 +89,18 @@ Which panels are open is remembered in the browser.
   Click a column header for an explanation with a diagram, drag it to move the column; the **Reference**
   panel (book icon in the rail) documents every measurement and the reference levels used. In the table:
   - a click on a row selects its channel (the selected channel's row is marked; right-click selects it too);
-  - the table is as high as its rows need (up to 40 % of the window) until you drag its top edge; a double-click
-    on that edge fits it to the rows again;
+  - **which channels are measured** is your choice: the *Channels* button (its label shows 4/6 when some are left
+    out) lists every channel with a check box, with *All*, *Only <selected channel>* and *None*; the × on a row, the
+    *Measure* item in a channel's right-click menu and the command palette (*Stop measuring Ch 2*) do the same for
+    one channel. The choice is saved with the analysis (undo, bundles) and followed by the image, report and CSV
+    exports; a channel added later (a math channel) is measured;
+  - the table is only as high as its rows need, never higher than 40 % of the window, so there is no empty space
+    under the rows. Dragging its top edge down sets a lower limit (the rows then scroll), it cannot be dragged
+    higher than the rows; a double-click on the edge removes the limit;
   - the Channel column stays in sight when the table scrolls sideways, and a column you add is scrolled into view;
   - the header of a column ends where its numbers end;
-  - channels that are hidden have no row: they are listed under the rows, and a click shows one. A "—" says in its
-    tooltip (pointer: help) why there is no value
+  - channels that are hidden or left out have no row: they are listed under the rows (*Hidden:*, *Not measured:*),
+    and a click brings one in (measures it, shows it). A "—" says in its tooltip (pointer: help) why there is no value
 - **Math channels** and **Spectrum (FFT)** (see below)
 - **Input settings** of each channel as set on the scope: coupling, termination, bandwidth, probe attenuation,
   external attenuation and input mode, probe delay, current via shunt, invert and deskew – whatever the files hold.
@@ -118,9 +124,9 @@ Right-click (on a Mac also Ctrl+click) opens the commands for what is under the 
 | --- | --- |
 | Plot | time at the pointer; zoom in / out here, back, full record, autoscale this view or all; put cursor A or B here; add a note or marker here, mark the region between the cursors; copy the values of all visible channels at that time; export image |
 | A trace in the plot | additionally that channel's value and commands (see channel badge) |
-| Channel badge | settings, hide, show only this channel / show all, autoscale, move to another view, show/remove its spectrum, use it for the cursor Δv, delete (math channels) |
+| Channel badge | settings, hide, show only this channel / show all, autoscale, move to another view, show/remove its spectrum, measure it (in the measurement table), use it for the cursor Δv, delete (math channels) |
 | Callout (plot or Callouts panel) | edit text, colour, shape (box), values or measurements, go to, zoom to box, cursors to the callout, region, box or span ends, duplicate, delete |
-| Measurement table | copy a value, a row or the whole table (tab separated, pastes as a table), explanation, move or remove a column, add a measurement, range |
+| Measurement table | copy a value, a row or the whole table (tab separated, pastes as a table), explanation, move or remove a column, add a measurement, the channels to measure, range |
 | Spectrum | frequency and levels at the pointer (copy), zoom, full span, level / frequency scale, peak count, range, copy the peak list |
 | Overview, horizontal box | centre the view here, back, full record, saved view |
 | Stored sessions | open or locate, forget (asks first) |

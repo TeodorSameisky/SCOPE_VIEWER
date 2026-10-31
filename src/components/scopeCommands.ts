@@ -98,6 +98,8 @@ export interface ScopeApi {
   selected?: string
   measKeys: MeasurementKey[]
   measRange: MeasureRange
+  /** Channels left out of the measurement table */
+  measExclude: string[]
   panel: PanelId | null
   measurementsShown: boolean
   themePreference: ThemePreference
@@ -132,6 +134,7 @@ export interface ScopeApi {
 
   setMeasKeys: (k: MeasurementKey[]) => void
   setMeasRange: (r: MeasureRange) => void
+  setMeasExclude: (change: string[] | ((ids: string[]) => string[])) => void
   setPanel: (p: PanelId | null) => void
   openReference: (section: ReferenceSection, focus?: MeasurementKey) => void
   copy: (text: string, what: string) => void
@@ -207,6 +210,14 @@ export function channelItems(api: ScopeApi, id: string, compact = false): MenuEn
       icon: AudioLines,
       disabled: !wave || (!hasSpectrum && api.spectra.length >= MAX_SPECTRA),
       onClick: () => api.toggleSpectrum(id),
+    },
+    {
+      label: 'Measure',
+      icon: Activity,
+      title: 'Show it in the measurement table',
+      checked: !api.measExclude.includes(id),
+      disabled: !wave,
+      onClick: () => api.setMeasExclude((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id])),
     },
     api.cursors.on &&
       wave && { label: 'Cursor Δv on this channel', icon: Ruler, checked: api.cursors.source === id, onClick: () => api.setCursors({ ...api.cursors, source: id }) },
@@ -463,6 +474,14 @@ export function paletteCommands(api: ScopeApi): Command[] {
         { id: `ch:settings:${d.id}`, group: 'Channel', label: `Settings of ${name}…`, keywords: d.id, icon: SlidersHorizontal, run: () => api.openSettings(d.id) },
         { id: `ch:visible:${d.id}`, group: 'Channel', label: `${d.visible ? 'Hide' : 'Show'} ${name}`, keywords: d.id, icon: d.visible ? EyeOff : Eye, run: () => api.adjust(d.id, { visible: !d.visible }) },
         { id: `ch:only:${d.id}`, group: 'Channel', label: `Show only ${name}`, keywords: d.id, icon: ScanEye, run: () => api.showOnly(d.id) },
+        hasWave(api, d.id) && {
+          id: `ch:measure:${d.id}`,
+          group: 'Measurements',
+          label: `${api.measExclude.includes(d.id) ? 'Measure' : 'Stop measuring'} ${name}`,
+          keywords: `${d.id} table`,
+          icon: Activity,
+          run: () => api.setMeasExclude((ids) => (ids.includes(d.id) ? ids.filter((x) => x !== d.id) : [...ids, d.id])),
+        },
         hasWave(api, d.id) && { id: `ch:autoscale:${d.id}`, group: 'Channel', label: `Autoscale ${name}`, keywords: d.id, icon: UnfoldVertical, run: () => api.autoscale([d.id]) },
       ]
     }),

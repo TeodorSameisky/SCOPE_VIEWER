@@ -6,16 +6,19 @@ const MIN_HEIGHT = 90
 const MAX_SHARE = 0.6
 
 interface Props {
-  /** The panel's height; null when it fits its content (then `getHeight` tells how high it is) */
+  /** The panel's height, or its limit; null when there is none */
   height: number | null
   setHeight: (h: number) => void
+  /** How high the panel is now, if that is not `height` (a panel that is only as high as its content) */
   getHeight?: () => number
+  /** How high the panel can usefully be (its content): a drag stops there */
+  maxHeight?: () => number
   /** A double-click: back to the height that fits the content */
   onReset?: () => void
 }
 
 /** The top edge of a panel below the plot: drag it to resize the panel */
-export function ResizeHandle({ height, setHeight, getHeight, onReset }: Props) {
+export function ResizeHandle({ height, setHeight, getHeight, maxHeight, onReset }: Props) {
   const drag = useRef<{ y0: number; h0: number } | null>(null)
   const end = () => {
     drag.current = null
@@ -29,11 +32,12 @@ export function ResizeHandle({ height, setHeight, getHeight, onReset }: Props) {
       onPointerDown={(e) => {
         if (e.button !== 0) return
         e.currentTarget.setPointerCapture(e.pointerId)
-        drag.current = { y0: e.clientY, h0: height ?? getHeight?.() ?? MIN_HEIGHT }
+        drag.current = { y0: e.clientY, h0: getHeight?.() ?? height ?? MIN_HEIGHT }
       }}
       onPointerMove={(e) => {
         if (!drag.current) return
-        setHeight(Math.round(Math.min(window.innerHeight * MAX_SHARE, Math.max(MIN_HEIGHT, drag.current.h0 - (e.clientY - drag.current.y0)))))
+        const limit = Math.min(window.innerHeight * MAX_SHARE, maxHeight?.() ?? Infinity)
+        setHeight(Math.round(Math.max(MIN_HEIGHT, Math.min(limit, drag.current.h0 - (e.clientY - drag.current.y0)))))
       }}
       onPointerUp={end}
       onPointerCancel={end}
