@@ -326,17 +326,28 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     }
   }
 
-  // Draw the views on the next animation frame whenever what they show changes (not when the pointer moves)
-  useEffect(() => {
-    const id = requestAnimationFrame(() => {
-      const dpr = window.devicePixelRatio || 1
+  // Draw the views whenever what they show changes (not when the pointer moves): on the next animation
+  // frame, or at once, before the frame is painted, when the canvases changed size - resizing a canvas
+  // clears it, and drawing it a frame later would show it blank in between (the plot flickered while a
+  // splitter was dragged or the window resized)
+  const drawnSize = useRef('')
+  useLayoutEffect(() => {
+    const dpr = window.devicePixelRatio || 1
+    const draw = () => {
       p.views.forEach((_, vi) => {
         const ctx = canvasRefs.current[vi]?.getContext('2d')
         if (ctx) drawView(ctx, { ...viewOptions(vi, dpr, theme), selectedId: p.selected })
       })
       const ax = axisRef.current?.getContext('2d')
       if (ax) drawTimeAxis(ax, size.w, AXIS_H, dpr, p.win.start, p.win.end, ticks, theme)
-    })
+    }
+    const drawn = `${size.w} ${boxes.heights.join(' ')} ${dpr}`
+    if (drawn !== drawnSize.current) {
+      drawnSize.current = drawn
+      draw()
+      return
+    }
+    const id = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(id)
     // viewOptions only reads the props and state listed here
     // eslint-disable-next-line react-hooks/exhaustive-deps
