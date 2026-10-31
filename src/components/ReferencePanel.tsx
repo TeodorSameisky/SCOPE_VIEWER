@@ -3,6 +3,7 @@ import type { MeasurementKey } from '../dsp/measure'
 import { MEASURE_GROUP_LABEL, MEASUREMENT_DEFS, MEASUREMENT_NOTES } from '../dsp/measureDefs'
 import { FUNCTION_DOCS, OPERATOR_DOCS } from '../math/expr'
 import { MAX_FFT, WINDOW_DEFS } from '../math/fft'
+import { formatCount } from '../util/format'
 import { MeasureInfo } from './MeasureInfo'
 import { WindowFigure } from './WindowFigure'
 
@@ -150,7 +151,7 @@ export function ReferencePanel({ section, setSection, focus }: Props) {
                 </p>
                 <p>
                   The samples on screen, between the cursors or of the whole record are weighted with the window, padded with zeros to the next
-                  power of two and transformed with an FFT (at most {MAX_FFT.toLocaleString()} points; longer ranges are first averaged in blocks
+                  power of two and transformed with an FFT (at most {formatCount(MAX_FFT)} points; longer ranges are first averaged in blocks
                   of samples, which lowers the highest frequency shown). The spectrum reaches from 0 Hz to half the sample rate.
                 </p>
               </div>

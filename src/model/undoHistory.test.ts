@@ -60,6 +60,22 @@ describe('UndoHistory', () => {
     expect(h.undo()?.doc).toEqual({ x: 0 })
   })
 
+  it('starts again from a document replaced from elsewhere, without steps', () => {
+    const h = new UndoHistory({ x: 0 })
+    h.change({ x: 1 })
+    h.commit()
+    h.change({ x: 2 })
+    h.undo()
+    h.change({ x: 3 })
+    h.reset({ x: 9 })
+    expect(h.canUndo).toBe(false)
+    expect(h.canRedo).toBe(false)
+    // the document it was reset to is no change; the next change is a step back to it
+    expect(h.change({ x: 9 })).toBe(false)
+    h.change({ x: 10 })
+    expect(h.undo()?.doc).toEqual({ x: 9 })
+  })
+
   it('keeps at most `limit` steps', () => {
     const h = new UndoHistory({ x: 0 }, 3)
     for (let i = 1; i <= 5; i++) {

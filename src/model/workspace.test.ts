@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Session } from './types'
 import {
+  analysisOf,
   analysisToJson,
   defaultWorkspace,
   deleteStoredSession,
@@ -9,6 +10,7 @@ import {
   parseAnalysisJson,
   sanitizeWorkspace,
   saveWorkspace,
+  workspaceOf,
 } from './workspace'
 
 /** In-memory localStorage with an optional size limit (in characters) */
@@ -171,6 +173,33 @@ describe('autosave', () => {
     ;(globalThis as { localStorage?: unknown }).localStorage = new MemoryStorage(100)
     const res = saveWorkspace(session(), defaultWorkspace(session()))
     expect(res).toEqual({ ok: false, error: 'Browser storage is full' })
+  })
+
+  it('never overwrites a newer analysis with an older one (two tabs)', () => {
+    const s = session()
+    const newer = { ...defaultWorkspace(s), notes: 'from the other tab' }
+    expect(saveWorkspace(s, newer, 2000).ok).toBe(true)
+    expect(loadWorkspace(s)).toMatchObject({ changedAt: 2000, workspace: { notes: 'from the other tab' } })
+    // A tab that still shows the older analysis cannot save it over the newer one
+    expect(saveWorkspace(s, defaultWorkspace(s), 1000)).toMatchObject({ ok: false, newer: true })
+    expect(loadWorkspace(s).workspace.notes).toBe('from the other tab')
+    // The same version (taken over, with another view) and later ones are saved
+    expect(saveWorkspace(s, { ...newer, selected: 'CH1' }, 2000).ok).toBe(true)
+    expect(saveWorkspace(s, { ...newer, notes: 'later' }, 3000).ok).toBe(true)
+    expect(loadWorkspace(s)).toMatchObject({ changedAt: 3000, workspace: { notes: 'later' } })
+  })
+})
+
+describe('analysis', () => {
+  it('is the workspace without the view, and makes it again with any view', () => {
+    const ws = { ...defaultWorkspace(session()), viewSizes: [0.6, 0.4], notes: 'n' }
+    const analysis = analysisOf(ws)
+    expect(analysis).not.toHaveProperty('version')
+    expect(analysis).not.toHaveProperty('window')
+    expect(analysis).not.toHaveProperty('selected')
+    expect(analysis).toMatchObject({ viewSizes: [0.6, 0.4], notes: 'n' })
+    expect(workspaceOf(analysis, ws.window, ws.selected)).toEqual(ws)
+    expect(workspaceOf(analysis, { start: 0, end: 1 }, undefined)).toMatchObject({ window: { start: 0, end: 1 }, notes: 'n' })
   })
 })
 

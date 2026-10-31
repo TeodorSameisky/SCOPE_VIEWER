@@ -76,6 +76,14 @@ export function ticksBetween(lo: number, hi: number, step: number): number[] {
   return ticks
 }
 
+/**
+ * A count with its digits in groups of three, "250 000": thin spaces read the same in every
+ * language, where "250,000" and "250.000" mean different numbers (and the decimals here are points).
+ */
+export function formatCount(n: number): string {
+  return String(Math.round(n)).replace(/\B(?=(\d{3})+$)/g, ' ')
+}
+
 /** File / storage size for display: "512 B", "37 kB", "2.2 MB", "1.05 GB" (binary units) */
 export function formatBytes(n: number): string {
   if (n < 1024) return `${Math.round(n)} B`

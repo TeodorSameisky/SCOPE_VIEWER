@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { inputItems } from '../model/input'
 import type { Channel, Session } from '../model/types'
-import { si } from '../util/format'
+import { formatCount, si } from '../util/format'
 import { channelName, triggerText } from '../util/names'
 import { useTheme } from './ui/themeContext'
 import { useDismiss } from './ui/useDismiss'
@@ -32,7 +32,7 @@ export function InfoPanel({ session, channels, storage }: { session: Session; ch
         {first && (
           <>
             <dt>Record length</dt>
-            <dd className="mono">{first.data.length.toLocaleString()} pts</dd>
+            <dd className="mono">{formatCount(first.data.length)} pts</dd>
             <dt>Sample interval</dt>
             <dd className="mono">
               {si(first.dt, 's')} ({si(1 / first.dt, 'S/s')})

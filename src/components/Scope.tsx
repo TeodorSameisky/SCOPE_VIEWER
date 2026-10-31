@@ -28,26 +28,29 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
-import type { ChannelDisplay, Session } from '../model/types'
+import type { Session } from '../model/types'
 import type { MeasurementKey } from '../dsp/measure'
 import { DEFAULT_CALLOUT_COLOR, calloutSpan, calloutTitle, hasTimeSpan, newCalloutId, nextCalloutNumber, type Callout } from '../model/callouts'
 import type { MinMaxPyramid } from '../dsp/minmax'
 import { ComputeEngine } from '../compute/engine'
 import { MATH_COLORS, MAX_MATH, nextMathId, type MathDef } from '../model/math'
-import { MAX_SPECTRA, newSpectrum, type SpectrumDef, type SpectrumOptions } from '../model/spectrum'
+import { MAX_SPECTRA, newSpectrum, type SpectrumDef } from '../model/spectrum'
 import {
   ANALYSIS_EXT,
   BUNDLE_EXT,
-  WORKSPACE_VERSION,
+  analysisOf,
   analysisToJson,
   defaultWorkspace,
   deleteStoredSession,
   loadWorkspace,
   parseAnalysisJson,
   sanitizeWorkspace,
+  workspaceOf,
+  type Analysis,
   type LoadSource,
   type Workspace,
 } from '../model/workspace'
+import { announce, onNews } from '../model/tabSync'
 import { buildBundle } from '../export/bundle'
 import { runExport, waveformRows, type ExportContext, type ExportKind } from '../export/sessionExport'
 import { AXIS_GUTTER, DIVS_Y } from '../render/draw'
@@ -81,7 +84,6 @@ import {
   patchDisplays,
   sampleRange,
   timeTicks,
-  type CursorState,
   type DisplayPatch,
   type LiveChannel,
   type MeasureRange,
@@ -150,15 +152,28 @@ interface Props {
   filesVersion: number
 }
 
-function initWorkspace(session: Session, initial: InitialState): { workspace: Workspace; source: LoadSource | 'file' } {
-  if (initial.kind === 'defaults') return { workspace: defaultWorkspace(session), source: 'default' }
-  if (initial.kind === 'analysis') return { workspace: sanitizeWorkspace(initial.workspace, session), source: 'file' }
+/**
+ * The workspace a session starts with, built as the workspace is from then on (workspaceOf), so
+ * autosave can tell whether it changed; and when its analysis was changed (see tabSync).
+ */
+function initWorkspace(session: Session, initial: InitialState): { workspace: Workspace; source: LoadSource | 'file'; changedAt: number } {
+  const start = startWorkspace(session, initial)
+  const ws = start.workspace
+  return { ...start, workspace: workspaceOf(analysisOf(ws), ws.window, ws.selected) }
+}
+
+function startWorkspace(session: Session, initial: InitialState): { workspace: Workspace; source: LoadSource | 'file'; changedAt: number } {
+  // Replacing the saved state (reset, an analysis file, callouts added from a file) is a change made now
+  const now = Date.now()
+  if (initial.kind === 'defaults') return { workspace: defaultWorkspace(session), source: 'default', changedAt: now }
+  if (initial.kind === 'analysis') return { workspace: sanitizeWorkspace(initial.workspace, session), source: 'file', changedAt: now }
   const loaded = loadWorkspace(session)
   if (!initial.addCallouts?.length) return loaded
   const ids = new Set(initial.addCallouts.map((c) => c.id))
   return {
     workspace: { ...loaded.workspace, callouts: [...loaded.workspace.callouts.filter((c) => !ids.has(c.id)), ...initial.addCallouts] },
     source: 'file',
+    changedAt: now,
   }
 }
 
@@ -167,32 +182,37 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   // Everything the user can change starts from the workspace (saved state, analysis file or file defaults)
   const [boot] = useState(() => initWorkspace(session, initial))
   const ws0 = boot.workspace
+  // The analysis is one document: undo restores it, autosave keeps it and other tabs share it (the
+  // view on it, the time window and the selected channel, is not part of it). Its fields are set
+  // with the setters below, which take a value or an update as state setters do.
+  const [doc, setDoc] = useState<Analysis>(() => analysisOf(ws0))
+  const { math: mathDefs, channels: displays, views, viewSizes, cursors, notes, callouts, spectra, spectrumOptions: specOptions } = doc
+  const { keys: measKeys, range: measRange } = doc.measurements
+  const [{ setMathDefs, setDisplays, setCursors, setNotes, setCallouts, setSpectra, setSpecOptions, setMeasKeys, setMeasRange, setViews, setViewSizes }] = useState(() => ({
+    setMathDefs: fieldSetter(setDoc, 'math'),
+    setDisplays: fieldSetter(setDoc, 'channels'),
+    setCursors: fieldSetter(setDoc, 'cursors'),
+    setNotes: fieldSetter(setDoc, 'notes'),
+    setCallouts: fieldSetter(setDoc, 'callouts'),
+    setSpectra: fieldSetter(setDoc, 'spectra'),
+    setSpecOptions: fieldSetter(setDoc, 'spectrumOptions'),
+    setMeasKeys: (keys: MeasurementKey[]) => setDoc((d) => ({ ...d, measurements: { ...d.measurements, keys } })),
+    setMeasRange: (range: MeasureRange) => setDoc((d) => ({ ...d, measurements: { ...d.measurements, range } })),
+    // The views and their sizes change together: a size goes with the channels of its view (see carryViewSizes)
+    setViews: (change: (vs: string[][]) => string[][]) =>
+      setDoc((d) => {
+        const next = change(d.views)
+        return { ...d, views: next, viewSizes: carryViewSizes(d.views, d.viewSizes, next) }
+      }),
+    setViewSizes: (sizes: number[] | undefined) => setDoc((d) => ({ ...d, viewSizes: sizes })),
+  }))
   // Undo history of the analysis (recorded in "undo / redo" below)
-  const [editHistory] = useState(() => new UndoHistory<UndoDoc, TimeWindow>(undoDocOf(ws0)))
+  const [editHistory] = useState(() => new UndoHistory<Analysis, TimeWindow>(doc))
 
-  const [mathDefs, setMathDefs] = useState<MathDef[]>(ws0.math)
-  const [displays, setDisplays] = useState<ChannelDisplay[]>(ws0.channels)
-  // The views and their sizes change together: a size goes with the channels of its view (see carryViewSizes)
-  const [viewState, setViewState] = useState<{ views: string[][]; sizes?: number[] }>({ views: ws0.views, sizes: ws0.viewSizes })
-  const { views, sizes: viewSizes } = viewState
-  const setViews = useCallback((change: (vs: string[][]) => string[][]) => {
-    setViewState((s) => {
-      const next = change(s.views)
-      return { views: next, sizes: carryViewSizes(s.views, s.sizes, next) }
-    })
-  }, [])
-  const setViewSizes = useCallback((sizes: number[] | undefined) => setViewState((s) => ({ ...s, sizes })), [])
   const [tool, setTool] = useState<Tool>('pan')
-  const [cursors, setCursors] = useState<CursorState>(ws0.cursors)
   const [selected, setSelected] = useState<string | undefined>(ws0.selected)
-  const [notes, setNotes] = useState(ws0.notes)
-  const [measRange, setMeasRange] = useState<MeasureRange>(ws0.measurements.range)
-  const [measKeys, setMeasKeys] = useState<MeasurementKey[]>(ws0.measurements.keys)
-  const [callouts, setCallouts] = useState<Callout[]>(ws0.callouts)
   const [selectedCallout, setSelectedCallout] = useState<string | undefined>()
   const [editing, setEditing] = useState<{ id: string; isNew: boolean } | null>(null)
-  const [spectra, setSpectra] = useState<SpectrumDef[]>(ws0.spectra)
-  const [specOptions, setSpecOptions] = useState<SpectrumOptions>(ws0.spectrumOptions)
   const plotRef = useRef<PlotAreaHandle>(null)
   const spectrumRef = useRef<SpectrumViewHandle>(null)
   const channelBarRef = useRef<ChannelBarHandle>(null)
@@ -249,7 +269,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
 
   const onAdjust = useCallback((id: string, patch: DisplayPatch) => {
     setDisplays((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d)))
-  }, [])
+  }, [setDisplays])
   /**
    * Change a channel's settings from its badge or a menu. A new colour also goes to the notes on its
    * trace that still have its old colour (one undo step); a note given a colour of its own keeps it.
@@ -296,7 +316,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     for (const id of ready) pendingAutoscale.current.delete(id)
     const patches = autoscalePatches(channels, views, ready, record, DIVS_Y)
     setDisplays((ds) => patchDisplays(ds, patches))
-  }, [math.defs, channels, views, record])
+  }, [math.defs, channels, views, record, setDisplays])
 
   const addMath = (): string | undefined => {
     if (mathDefs.length >= MAX_MATH) return
@@ -353,7 +373,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   }
   const updateCallout = useCallback((id: string, patch: Partial<Callout>) => {
     setCallouts((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)))
-  }, [])
+  }, [setCallouts])
   /** Delete a callout; offers undo unless `silent` (an empty new note that is discarded) */
   const deleteCallout = (id: string, silent = false) => {
     const c = callouts.find((x) => x.id === id)
@@ -382,8 +402,13 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     const pad = Math.max((b - a) * 0.15, minSpan)
     return { start: a - pad, end: b + pad }
   }
+  /** A callout placed off the record (zoomed out beyond it) is shown where it is; others keep the view on the record */
+  const offRecord = (c: Callout) => {
+    const [a, b] = calloutSpan(c)
+    return a < record.start || b > record.end
+  }
   const jumpToCallout = (c: Callout) => {
-    nav.zoomTo(calloutWindow(c))
+    nav.zoomTo(calloutWindow(c), [], offRecord(c))
     setSelectedCallout(c.id)
   }
   /** Zoom to a box: its time span, and its channel scaled so the box fills most of the view */
@@ -392,7 +417,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     if (!d || c.v === undefined || c.v2 === undefined || c.v === c.v2) return jumpToCallout(c)
     const span = Math.abs(c.v - c.v2)
     const scale = parseFloat((span / (DIVS_Y * 0.7)).toPrecision(4))
-    nav.zoomTo(calloutWindow(c), [{ id: d.id, patch: { scale, offset: parseFloat(((c.v + c.v2) / 2).toPrecision(6)), position: 0 } }])
+    nav.zoomTo(calloutWindow(c), [{ id: d.id, patch: { scale, offset: parseFloat(((c.v + c.v2) / 2).toPrecision(6)), position: 0 } }], offRecord(c))
     setSelectedCallout(c.id)
   }
   /** A copy of a callout, a little later in time, selected */
@@ -480,51 +505,25 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   useEffect(() => dropUndoNotice, [dropUndoNotice])
 
   // ---------- workspace: autosave, analysis files, reset ----------
-  const workspace: Workspace = useMemo(
-    () => ({
-      version: WORKSPACE_VERSION,
-      channels: displays,
-      views,
-      ...(viewSizes ? { viewSizes } : {}),
-      math: mathDefs,
-      spectra,
-      spectrumOptions: specOptions,
-      callouts,
-      cursors,
-      window: win,
-      measurements: { keys: measKeys, range: measRange },
-      selected,
-      notes,
-    }),
-    [displays, views, viewSizes, mathDefs, spectra, specOptions, callouts, cursors, win, measKeys, measRange, selected, notes],
-  )
+  const workspace: Workspace = useMemo(() => workspaceOf(doc, win, selected), [doc, win, selected])
+
+  /** Nothing may stay selected or open that a restored or taken-over analysis does not have */
+  const keepSelectionsIn = (d: Analysis) => {
+    if (selected && !d.channels.some((c) => c.id === selected)) setSelected(firstId)
+    if (editing && !d.callouts.some((c) => c.id === editing.id)) setEditing(null)
+    if (selectedCallout && !d.callouts.some((c) => c.id === selectedCallout)) setSelectedCallout(undefined)
+    dropUndoNotice()
+  }
 
   // ---------- undo / redo ----------
   // Every change of the analysis is a step; the time window and the selection are navigation
   // (Back / Backspace) and not part of it, except that a step in which a zoom scaled channels
   // restores the window with them. A new callout and what is written into it while its editor is
   // open are one step.
-  const undoDoc = useMemo(
-    () => undoDocOf({ channels: displays, views, viewSizes, math: mathDefs, spectra, spectrumOptions: specOptions, callouts, cursors, measurements: { keys: measKeys, range: measRange }, notes }),
-    [displays, views, viewSizes, mathDefs, spectra, specOptions, callouts, cursors, measKeys, measRange, notes],
-  )
-  const edits = useUndoHistory(editHistory, undoDoc, (d, view) => {
+  const edits = useUndoHistory(editHistory, doc, (d, view) => {
     if (view) nav.show(view)
-    setDisplays(d.channels)
-    setViewState({ views: d.views, sizes: d.viewSizes })
-    setMathDefs(d.math)
-    setSpectra(d.spectra)
-    setSpecOptions(d.spectrumOptions)
-    setCallouts(d.callouts)
-    setCursors(d.cursors)
-    setMeasKeys(d.measurements.keys)
-    setMeasRange(d.measurements.range)
-    setNotes(d.notes)
-    // Nothing may stay selected or open that the restored state does not have
-    if (selected && !d.channels.some((c) => c.id === selected)) setSelected(firstId)
-    if (editing && !d.callouts.some((c) => c.id === editing.id)) setEditing(null)
-    if (selectedCallout && !d.callouts.some((c) => c.id === selectedCallout)) setSelectedCallout(undefined)
-    dropUndoNotice()
+    setDoc(d)
+    keepSelectionsIn(d)
   }, !!editing?.isNew)
   // The Undo of a deletion applies only while the deletion is the latest step
   useEffect(() => {
@@ -532,9 +531,48 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     if (u && edits.steps > u.steps + 1) dropUndoNotice()
   }, [edits.steps, dropUndoNotice])
 
-  const { status: saveStatus, cancel: cancelSave } = useAutosave(session, workspace, boot, (names) => {
-    const list = names.map((n) => `“${n}”`).join(', ')
-    notify({ kind: 'error', message: `Browser storage was full: to save this session, the saved analyses of ${list} were removed from this browser.` })
+  // ---------- other tabs ----------
+  // Tabs with the same session open share the analysis (see tabSync): a newer one saved in another
+  // tab is taken over here, and saves never overwrite a newer one. `at`: when the analysis shown
+  // was changed, here or in the tab it was taken over from.
+  const stamp = useRef({ doc, at: boot.changedAt })
+  useEffect(() => {
+    // A change made here is later than any version taken over so far
+    if (stamp.current.doc !== doc) stamp.current = { doc, at: Math.max(Date.now(), stamp.current.at + 1) }
+  }, [doc])
+  /** Take over the analysis another tab saved (null: it was reset to the file defaults) when it is newer; the view here stays */
+  const takeOver = (ws: Workspace | null, changedAt: number) => {
+    if (changedAt <= stamp.current.at) return
+    const next = analysisOf(ws ? sanitizeWorkspace(ws, session) : defaultWorkspace(session))
+    if (JSON.stringify(next) === JSON.stringify(doc)) {
+      stamp.current = { doc, at: changedAt }
+      return
+    }
+    stamp.current = { doc: next, at: changedAt }
+    setDoc(next)
+    // Not a step of this tab: undo here does not take it back
+    editHistory.reset(next)
+    keepSelectionsIn(next)
+    notify({ message: 'Updated with the changes saved in another tab' })
+  }
+  const takeOverRef = useRef(takeOver)
+  useEffect(() => {
+    takeOverRef.current = takeOver
+  })
+  const fingerprint = session.fingerprint
+  useEffect(() => (fingerprint ? onNews(fingerprint, (n) => takeOverRef.current(n.workspace, n.changedAt)) : undefined), [fingerprint])
+
+  const { status: saveStatus, cancel: cancelSave } = useAutosave(session, workspace, boot, {
+    changedAt: () => stamp.current.at,
+    onRemoved: (names) => {
+      const list = names.map((n) => `“${n}”`).join(', ')
+      notify({ kind: 'error', message: `Browser storage was full: to save this session, the saved analyses of ${list} were removed from this browser.` })
+    },
+    // Another tab saved a newer analysis that did not reach this one: it is shown instead of the change made here
+    onNewer: () => {
+      const stored = loadWorkspace(session)
+      takeOver(stored.source === 'saved' ? stored.workspace : null, stored.changedAt)
+    },
   })
 
   const saveAnalysis = () => {
@@ -557,7 +595,11 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     })
     if (!ok) return
     cancelSave()
-    if (session.fingerprint) deleteStoredSession(session.fingerprint)
+    if (session.fingerprint) {
+      deleteStoredSession(session.fingerprint)
+      // Other tabs with the session open are reset too
+      announce({ fingerprint: session.fingerprint, changedAt: Date.now(), workspace: null })
+    }
     onReplaceWorkspace({ kind: 'defaults' })
   }
   const importAnalysisFile = async (file: File) => {
@@ -635,8 +677,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     undo: { label: 'Undo', icon: Undo2, hint: KEYS.undo, disabled: !edits.canUndo, keepFocus: true, run: edits.undo },
     redo: { label: 'Redo', icon: Redo2, hint: KEYS.redo, disabled: !edits.canRedo, keepFocus: true, run: edits.redo },
     back: { label: 'Back to the previous view', icon: ArrowLeft, hint: KEYS.back, disabled: !nav.canGoBack, run: nav.zoomBack },
-    savedView: { label: 'Saved view', icon: Home, title: 'The view the scope showed when the session was saved', run: () => nav.zoomTo(nav.savedWin) },
-    fullRecord: { label: 'Full record', icon: Maximize2, hint: KEYS.fullRecord, disabled: !nav.zoomed, run: () => nav.zoomTo(record) },
+    savedView: { label: 'Saved view', icon: Home, title: 'The view the scope showed when the session was saved', run: () => nav.zoomTo(nav.savedWin, [], true) },
+    fullRecord: { label: 'Full record', icon: Maximize2, hint: KEYS.fullRecord, disabled: nav.showsRecord, run: () => nav.zoomTo(record) },
     autoscale: {
       label: 'Autoscale all channels',
       icon: UnfoldVertical,
@@ -969,21 +1011,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   )
 })
 
-/** The part of the workspace that undo/redo restores: everything but the view (window, selection) */
-type UndoDoc = Omit<Workspace, 'version' | 'window' | 'selected'>
-
-/** Always the same keys in the same order, so snapshots can be compared as JSON */
-function undoDocOf(w: UndoDoc): UndoDoc {
-  return {
-    channels: w.channels,
-    views: w.views,
-    viewSizes: w.viewSizes,
-    math: w.math,
-    spectra: w.spectra,
-    spectrumOptions: w.spectrumOptions,
-    callouts: w.callouts,
-    cursors: w.cursors,
-    measurements: { keys: w.measurements.keys, range: w.measurements.range },
-    notes: w.notes,
-  }
+/** A setter of one field of the analysis, taking a value or an update as a state setter does */
+function fieldSetter<K extends keyof Analysis>(setDoc: React.Dispatch<React.SetStateAction<Analysis>>, key: K): React.Dispatch<React.SetStateAction<Analysis[K]>> {
+  return (v) => setDoc((d) => ({ ...d, [key]: typeof v === 'function' ? (v as (prev: Analysis[K]) => Analysis[K])(d[key]) : v }))
 }

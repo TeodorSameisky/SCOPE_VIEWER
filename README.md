@@ -90,7 +90,7 @@ Which panels are open is remembered in the browser.
   of the analysis: channel settings and views, math channels, spectra, callouts, cursors, the measurement
   selection and the notes. A drag, a wheel gesture or a burst of typing is one step. Zooming and panning
   are not undo steps – **Back** (Backspace) returns to the previous view. The history lasts while the session
-  is open; in text fields Ctrl+Z undoes the typing as usual
+  is open (changes taken over from another tab start it again); in text fields Ctrl+Z undoes the typing as usual
 
 ### Right-click menus
 
@@ -122,6 +122,9 @@ The **middle mouse button** pans the plot with any tool.
 | Overview strip | Drag to mark a range, drag the box to move it, drag its edges to resize, click to centre |
 | **← Back** (Backspace) | Step back through previous views, including vertical zoom |
 | Full record (F, double-click) / Saved view | Whole record / the view saved on the scope |
+
+Panning and zooming stop at the ends of the record: zoomed in, the view stays within it; zoomed out beyond it (up to 4×),
+the whole record stays in view. *Go to* a callout placed beyond the record, and *Saved view*, show exactly that window.
 
 ### Callouts
 
@@ -234,6 +237,10 @@ other sessions are removed so the open session can be saved, and a notice names 
 **Reloading** the page (or *Reload* for a new version) reopens the session that was open in that tab,
 from its kept file. A new tab or window starts on the start page with the recent sessions.
 
+**Several tabs:** tabs and windows that have the same session open share its analysis. What is changed in one
+shows up in the others a moment later (each keeps its own view), a reset to the file defaults resets them all,
+and a tab never saves an older analysis over a newer one. Undo in a tab takes back only what was done there.
+
 To keep or share the work, use the **File** menu:
 
 | File | Contents |
@@ -328,7 +335,8 @@ src/dsp/        min/max pyramid, measurements and their documentation, edge dete
 src/math/       expression language and signal processing for math channels, FFT and windows
 src/compute/    the worker that evaluates math channels and computes spectra and measurements, and its client on the page
 src/model/      data types, view state (time window, cursors, ranges), callouts, math, spectra,
-                the workspace (autosave, analysis files), undo history and the browser's file store
+                the workspace and its analysis (autosave, analysis files), undo history, the browser's
+                file store and the news tabs of one session share
 src/export/     CSV, image composition, HTML report, bundles
 src/render/     canvas drawing of views, time axis, spectrum and callouts; TeX; themes and fonts
 src/components/ React UI (Scope workspace, plot, panels) and its hooks

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { AudioLines, Eye, EyeOff } from 'lucide-react'
 import { inputItems, inputSummary } from '../model/input'
 import type { ChannelDisplay, ChannelInput } from '../model/types'
@@ -56,7 +57,7 @@ export function ChannelSettings({ display: d, unit, input, hasWave, views, onAdj
           <button type="button" title="Move down" aria-label="Move down" onClick={() => onAdjust(id, { position: stepPosition(d.position, -POSITION_STEP) })}>
             −
           </button>
-          <input className="mono num" type="number" step={POSITION_STEP} value={d.position} aria-label="Position (div)" onChange={(e) => onAdjust(id, { position: Number(e.target.value) || 0 })} />
+          <NumberField className="mono num" step={POSITION_STEP} value={d.position} aria-label="Position (div)" onChange={(position) => onAdjust(id, { position })} />
           <button type="button" title="Move up" aria-label="Move up" onClick={() => onAdjust(id, { position: stepPosition(d.position, POSITION_STEP) })}>
             +
           </button>
@@ -64,14 +65,7 @@ export function ChannelSettings({ display: d, unit, input, hasWave, views, onAdj
         </div>
         <span>Offset</span>
         <div className="stepper">
-          <input
-            className="mono num wide"
-            type="number"
-            step={d.scale / 10}
-            value={d.offset}
-            aria-label="Offset"
-            onChange={(e) => onAdjust(id, { offset: Number(e.target.value) || 0 })}
-          />
+          <NumberField className="mono num wide" step={d.scale / 10} value={d.offset} aria-label="Offset" onChange={(offset) => onAdjust(id, { offset })} />
           <span className="unit">{unit}</span>
         </div>
         <span>View</span>
@@ -116,5 +110,31 @@ export function ChannelSettings({ display: d, unit, input, hasWave, views, onAdj
         )}
       </div>
     </div>
+  )
+}
+
+/** Typed text that is a complete number (not "", "-" or "1e" on the way to one) */
+const isNumber = (text: string) => text.trim() !== '' && Number.isFinite(Number(text))
+
+/**
+ * A number field that keeps what is being typed ("-", an emptied field) and applies it whenever it
+ * is a number. A value changed elsewhere meanwhile (stepper, wheel) is shown instead of a typed
+ * number; once the field is left, it shows the value again.
+ */
+function NumberField({ value, onChange, ...rest }: { value: number; onChange: (v: number) => void } & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type'>) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const shown = draft !== null && (!isNumber(draft) || Number(draft) === value) ? draft : value
+  return (
+    <input
+      {...rest}
+      type="number"
+      value={shown}
+      onChange={(e) => {
+        const text = e.target.value
+        setDraft(text)
+        if (isNumber(text)) onChange(Number(text))
+      }}
+      onBlur={() => setDraft(null)}
+    />
   )
 }

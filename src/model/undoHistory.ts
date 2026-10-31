@@ -94,6 +94,16 @@ export class UndoHistory<T, V = never> {
     return true
   }
 
+  /** Start again from `doc` without any steps: the document was replaced from elsewhere (another tab), not changed here */
+  reset(doc: T): void {
+    this.past = []
+    this.future = []
+    this.open = false
+    this.moved = undefined
+    this.setBase(doc)
+    this.notify()
+  }
+
   /** The state to go back to, or undefined when there is nothing to undo */
   undo(): Restore<T, V> | undefined {
     this.commit()

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { niceStep, parseTime, si, siTick, ticksBetween } from './format'
+import { formatCount, niceStep, parseTime, si, siTick, ticksBetween } from './format'
 import { snapToGrid, stepScale, timeTicks } from '../model/view'
 
 describe('format', () => {
@@ -7,6 +7,13 @@ describe('format', () => {
     expect(si(-25.7517e-6, 's')).toBe('-25.75 µs')
     expect(si(179.77, 'Hz')).toBe('179.8 Hz')
     expect(si(0.000781, 'V')).toBe('781.0 µV')
+  })
+
+  it('groups the digits of counts with thin spaces, whatever the language', () => {
+    expect(formatCount(250000)).toBe('250 000')
+    expect(formatCount(1048576)).toBe('1 048 576')
+    expect(formatCount(999)).toBe('999')
+    expect(formatCount(0)).toBe('0')
   })
 
   it('shows enough tick decimals to separate neighbours', () => {

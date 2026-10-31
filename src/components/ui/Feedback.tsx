@@ -15,6 +15,8 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
   const nextId = useRef(1)
 
   const dismiss = useCallback((id: number) => setNotices((ns) => ns.filter((n) => n.id !== id)), [])
+  // Errors replace each other, so there is at most one
+  const dismissError = useCallback(() => setNotices((ns) => ns.filter((n) => kindOf(n) !== 'error')), [])
   const notify = useCallback(
     (n: Notice) => {
       const id = nextId.current++
@@ -43,7 +45,7 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
     [ask],
   )
 
-  const value = useMemo<Feedback>(() => ({ confirm, notify, dismiss }), [confirm, notify, dismiss])
+  const value = useMemo<Feedback>(() => ({ confirm, notify, dismiss, dismissError }), [confirm, notify, dismiss, dismissError])
   return (
     <FeedbackContext.Provider value={value}>
       {children}

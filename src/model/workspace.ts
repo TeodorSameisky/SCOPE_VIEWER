@@ -32,6 +32,26 @@ export interface Workspace {
 
 export const WORKSPACE_VERSION = 1
 
+/**
+ * The analysis: the workspace without the view on it (the time window, the selected channel).
+ * Undo and redo restore it, and tabs with the same session open share it.
+ */
+export type Analysis = Omit<Workspace, 'version' | 'window' | 'selected'>
+
+/** The analysis of a workspace (its fields in the workspace's order) */
+export function analysisOf(ws: Workspace): Analysis {
+  const analysis: Partial<Workspace> = { ...ws }
+  delete analysis.version
+  delete analysis.window
+  delete analysis.selected
+  return analysis as Analysis
+}
+
+/** The workspace of an analysis and the view on it */
+export function workspaceOf(analysis: Analysis, window: TimeWindow, selected: string | undefined): Workspace {
+  return { version: WORKSPACE_VERSION, ...analysis, window, selected }
+}
+
 // ---------- defaults from the session file ----------
 
 /** Tektronix measurement types in the setup → our measurement keys */
@@ -249,6 +269,8 @@ export interface StoredSessionInfo {
   fileName: string
   savedAt: string
   bytes: number
+  /** When the saved analysis was changed (ms since 1970; missing in saves of earlier versions) */
+  changedAt?: number
 }
 
 function readIndex(): Record<string, Omit<StoredSessionInfo, 'fingerprint'>> {
@@ -285,19 +307,19 @@ export function deleteStoredSession(fingerprint: string): void {
 
 export type LoadSource = 'saved' | 'migrated' | 'default'
 
-/** Saved state of a session file (or the file defaults), migrating data of older versions. */
-export function loadWorkspace(session: Session): { workspace: Workspace; source: LoadSource } {
+/** Saved state of a session file (or the file defaults), migrating data of older versions. `changedAt`: when its analysis was changed, 0 when unknown */
+export function loadWorkspace(session: Session): { workspace: Workspace; source: LoadSource; changedAt: number } {
   const fp = session.fingerprint
-  if (!fp) return { workspace: defaultWorkspace(session), source: 'default' }
+  if (!fp) return { workspace: defaultWorkspace(session), source: 'default', changedAt: 0 }
   try {
     const raw = localStorage.getItem(WS_PREFIX + fp)
-    if (raw) return { workspace: sanitizeWorkspace(JSON.parse(raw), session), source: 'saved' }
+    if (raw) return { workspace: sanitizeWorkspace(JSON.parse(raw), session), source: 'saved', changedAt: readIndex()[fp]?.changedAt ?? 0 }
   } catch {
     // fall through to legacy / defaults
   }
   // Earlier versions stored callouts, math channels and spectra separately
   const legacy = loadLegacy(fp)
-  if (!legacy) return { workspace: defaultWorkspace(session), source: 'default' }
+  if (!legacy) return { workspace: defaultWorkspace(session), source: 'default', changedAt: 0 }
   const { callouts, math } = legacy
   const def = defaultWorkspace(session)
   const views = def.views.map((v) => [...v])
@@ -317,26 +339,32 @@ export function loadWorkspace(session: Session): { workspace: Workspace; source:
     },
     session,
   )
-  return { workspace: migrated, source: 'migrated' }
+  return { workspace: migrated, source: 'migrated', changedAt: 0 }
 }
 
-/** `removed`: file names of other sessions whose saved analyses were removed to make room */
-export type SaveResult = { ok: true; savedAt: string; removed?: string[] } | { ok: false; error: string }
+/**
+ * `removed`: file names of other sessions whose saved analyses were removed to make room.
+ * `newer`: not saved, because a newer analysis of the session was saved meanwhile (in another tab).
+ */
+export type SaveResult = { ok: true; savedAt: string; removed?: string[] } | { ok: false; error: string; newer?: true }
 
 /** Whether the changes to the open session are remembered (shown next to the file name) */
 export type SaveStatus = { state: 'clean' } | { state: 'saved'; at: string } | { state: 'error'; error: string }
 
 /**
- * Save a session's workspace. When storage is full the least recently saved other
- * sessions are removed until it fits; the result names them, so the user can be told.
+ * Save a session's workspace, whose analysis was changed at `changedAt` (ms since 1970). A newer
+ * analysis of the session, saved meanwhile in another tab, is not overwritten with an older one.
+ * When storage is full the least recently saved other sessions are removed until it fits; the
+ * result names them, so the user can be told.
  */
-export function saveWorkspace(session: Session, ws: Workspace): SaveResult {
+export function saveWorkspace(session: Session, ws: Workspace, changedAt = Date.now()): SaveResult {
   const fp = session.fingerprint
   if (!fp) return { ok: false, error: 'The file could not be identified, so changes cannot be remembered' }
   const json = JSON.stringify(ws)
   const savedAt = new Date().toISOString()
   const removed: string[] = []
   try {
+    if ((readIndex()[fp]?.changedAt ?? 0) > changedAt) return { ok: false, error: 'A newer version was saved in another tab', newer: true }
     for (let attempt = 0; ; attempt++) {
       try {
         localStorage.setItem(WS_PREFIX + fp, json)
@@ -351,7 +379,7 @@ export function saveWorkspace(session: Session, ws: Workspace): SaveResult {
     }
     for (const p of LEGACY_PREFIXES) localStorage.removeItem(p + fp)
     const index = readIndex()
-    index[fp] = { fileName: session.fileName, savedAt, bytes: json.length * 2 }
+    index[fp] = { fileName: session.fileName, savedAt, bytes: json.length * 2, changedAt }
     // Keep the number of remembered sessions bounded
     const sorted = Object.entries(index).sort((a, b) => b[1].savedAt.localeCompare(a[1].savedAt))
     for (const [old] of sorted.slice(MAX_STORED_SESSIONS)) {

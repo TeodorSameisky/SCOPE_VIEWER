@@ -125,7 +125,8 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
   useEffect(() => {
     const cv = canvasRef.current
     const traces = tracesRef.current
-    if (!cv || !traces) return
+    // Nothing to draw in a strip without a size (a window or frame of none): drawImage would throw
+    if (!cv || !traces || !traces.width || !traces.height) return
     const dpr = window.devicePixelRatio || 1
     const ctx = cv.getContext('2d')!
     ctx.setTransform(1, 0, 0, 1, 0, 0)

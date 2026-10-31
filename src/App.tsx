@@ -47,7 +47,7 @@ export default function App() {
 
 /** The start page or the open session */
 function Main() {
-  const { confirm, notify } = useFeedback()
+  const { confirm, notify, dismissError } = useFeedback()
   const [current, setCurrent] = useState<Current | null>(null)
   const [busy, setBusy] = useState(false)
   /** Shown on the start page; with a session open, errors are notices */
@@ -84,7 +84,9 @@ function Main() {
       if (!files.length) return
       const jsons = files.filter(isJson)
       const data = files.filter((f) => !isJson(f))
+      // A new attempt: an error of an earlier one no longer applies
       setError(null)
+      dismissError()
       if (!data.length) {
         if (hasSession) await scopeRef.current?.importAnalysisFile(jsons[0])
         else setError('Open the session file (.tss, .wfm, .isf or .scopeview) together with the analysis file.')
@@ -135,7 +137,7 @@ function Main() {
         }
       }
     },
-    [hasSession, keepFiles, setError, confirm, notify],
+    [hasSession, keepFiles, setError, confirm, notify, dismissError],
   )
 
   /** Switch to a session stored in this browser; without its kept file, ask for the file */

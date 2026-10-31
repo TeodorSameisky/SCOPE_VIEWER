@@ -12,7 +12,7 @@ import { AXIS_GUTTER } from '../render/draw'
 import { FREQ_AXIS_H, drawSpectrum, levelValue, readLevel, xToF, type FreqMap, type FreqRange } from '../render/spectrum'
 import { SANS, font } from '../render/fonts'
 import type { Theme } from '../render/theme'
-import { niceStep, si } from '../util/format'
+import { formatCount, niceStep, si } from '../util/format'
 import { channelName } from '../util/names'
 import { MEASURE_RANGES, RANGE_LABEL, type CursorState, type LiveChannel, type TimeWindow } from '../model/view'
 import { useContextMenu, type MenuEntry } from './ui/menuContext'
@@ -607,8 +607,8 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
 
 function metaTitle(s: Spectrum): string {
   const lines = [
-    `${s.samples.toLocaleString()} samples${s.decimation > 1 ? `, averaged in blocks of ${s.decimation} → ${s.used.toLocaleString()}` : ''}`,
-    `FFT length ${s.n.toLocaleString()}${s.n > s.used ? ' (zero-padded)' : ''}`,
+    `${formatCount(s.samples)} samples${s.decimation > 1 ? `, averaged in blocks of ${s.decimation} → ${formatCount(s.used)}` : ''}`,
+    `FFT length ${formatCount(s.n)}${s.n > s.used ? ' (zero-padded)' : ''}`,
     `Sample rate ${si(s.sampleRate, 'S/s', 4)} → up to ${si(s.sampleRate / 2, 'Hz', 4)}`,
     `Bin spacing Δf ${si(s.df, 'Hz', 4)}`,
     `Resolution bandwidth (ENBW) ${si(s.rbw, 'Hz', 4)}`,

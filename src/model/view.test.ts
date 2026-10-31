@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MinMaxPyramid } from '../dsp/minmax'
 import type { ChannelDisplay } from './types'
-import { POSITION_STEP, autoscalePatches, carryViewSizes, normalizeSizes, shownViews, cursorsInView, patchDisplays, stepPosition, stepScale, verticalsOf, type LiveChannel } from './view'
+import { POSITION_STEP, autoscalePatches, carryViewSizes, keepInRecord, normalizeSizes, shownViews, cursorsInView, patchDisplays, stepPosition, stepScale, verticalsOf, type LiveChannel } from './view'
 
 const display = (id: string, scale = 1): ChannelDisplay => ({ id, label: '', color: '#ff0', visible: true, scale, position: 0, offset: 0 })
 
@@ -28,6 +28,20 @@ describe('view', () => {
   it('brings the cursors into the view at 30 % and 70 %', () => {
     const c = cursorsInView({ on: false, a: -5, b: 9, source: 'CH2' }, { start: 0, end: 10 })
     expect(c).toEqual({ on: true, a: 3, b: 7, source: 'CH2' })
+  })
+
+  it('keeps the window on the record without resizing it', () => {
+    const record = { start: -8, end: 2 }
+    // narrower than the record: it stops at either end
+    expect(keepInRecord({ start: 30, end: 34 }, record)).toEqual({ start: -2, end: 2 })
+    expect(keepInRecord({ start: -20, end: -16 }, record)).toEqual({ start: -8, end: -4 })
+    // wider than the record: the whole record stays in view
+    expect(keepInRecord({ start: 0, end: 40 }, record)).toEqual({ start: -8, end: 32 })
+    expect(keepInRecord({ start: -60, end: -20 }, record)).toEqual({ start: -38, end: 2 })
+    // already on it: the same window
+    const w = { start: -5, end: 1 }
+    expect(keepInRecord(w, record)).toBe(w)
+    expect(keepInRecord(record, record)).toBe(record)
   })
 
   it('keeps the vertical settings of the listed channels only', () => {

@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import type { ChannelDisplay, Session } from '../model/types'
-import { patchDisplays, verticalsOf, zoomAround, type DisplayPatch, type NavKind, type TimeWindow, type Verticals } from '../model/view'
+import { keepInRecord, patchDisplays, verticalsOf, zoomAround, type DisplayPatch, type NavKind, type TimeWindow, type Verticals } from '../model/view'
 import { recordWindow, scopeWindow, spanLimits } from '../model/workspace'
 
 /** A window to go Back to */
@@ -34,8 +34,11 @@ export function useNavigation(
   const [history, setHistory] = useState<ViewState[]>([])
   const lastNav = useRef<{ kind: NavKind | null; time: number }>({ kind: null, time: 0 })
 
-  /** Continuous changes of the same kind (wheel, pan) count as one history step; `scaled`: the channels a zoom scales */
-  const navigate = (w: TimeWindow, kind: NavKind, scaled: string[] = []) => {
+  /**
+   * Continuous changes of the same kind (wheel, pan) count as one history step; `scaled`: the
+   * channels a zoom scales. The window stays on the record (see keepInRecord) unless `free`.
+   */
+  const navigate = (w: TimeWindow, kind: NavKind, scaled: string[] = [], free = false) => {
     const now = performance.now()
     const last = lastNav.current
     if (kind === 'zoom' || last.kind !== kind || now - last.time > GESTURE_MS) {
@@ -43,15 +46,19 @@ export function useNavigation(
       setHistory((h) => [...h.slice(-49), { win, vertical }])
     }
     lastNav.current = { kind, time: now }
-    setWin(w)
+    setWin(free ? w : keepInRecord(w, record))
   }
-  /** Go to a window, optionally with new vertical settings for some channels */
-  const zoomTo = (w: TimeWindow, patches: { id: string; patch: DisplayPatch }[] = []) => {
+  /**
+   * Go to a window, optionally with new vertical settings for some channels. `free`: exactly
+   * there, also off the record (a callout placed there, the view saved on the scope).
+   */
+  const zoomTo = (w: TimeWindow, patches: { id: string; patch: DisplayPatch }[] = [], free = false) => {
+    const to = free ? w : keepInRecord(w, record)
     const byId = Object.fromEntries(patches.map((x) => [x.id, x.patch]))
-    navigate(w, 'zoom', Object.keys(byId))
+    navigate(to, 'zoom', Object.keys(byId), true)
     if (patchDisplays(displays, byId) === displays) return
     setDisplays((ds) => patchDisplays(ds, byId))
-    onScale(win, w)
+    onScale(win, to)
   }
   const zoomBack = () => {
     const prev = history[history.length - 1]
@@ -84,7 +91,7 @@ export function useNavigation(
     zoomBack,
     show,
     canGoBack: history.length > 0,
-    /** The view shows less than the whole record */
-    zoomed: win.start > record.start + minDt || win.end < record.end - minDt,
+    /** The view shows the whole record and nothing else (zoomed in or out, it does not) */
+    showsRecord: Math.abs(win.start - record.start) <= minDt && Math.abs(win.end - record.end) <= minDt,
   }
 }

@@ -234,6 +234,18 @@ export function snapToGrid(div: number, divPx: number, snapPx = 6): number {
   return Math.abs(div - line) * divPx <= snapPx ? line : div
 }
 
+/**
+ * A window moved (not resized) onto the record: one narrower than the record stays within it, a
+ * wider one keeps the whole record in view. Panning and zooming stop at the ends of the record.
+ */
+export function keepInRecord(w: TimeWindow, record: TimeWindow): TimeWindow {
+  const span = w.end - w.start
+  const lo = Math.min(record.start, record.end - span)
+  const hi = Math.max(record.start, record.end - span)
+  const start = Math.min(hi, Math.max(lo, w.start))
+  return start === w.start ? w : { start, end: start + span }
+}
+
 /** Zoom the time window by factor f (>1 = out) keeping time t at the same screen position. */
 export function zoomAround(w: TimeWindow, t: number, f: number, minSpan: number, maxSpan: number): TimeWindow {
   const span = w.end - w.start

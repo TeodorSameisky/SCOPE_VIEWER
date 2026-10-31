@@ -3,7 +3,7 @@ import { ClipboardCopy, Download, FileSpreadsheet, FileText, Image, Table2, Wave
 import { CSV_FORMATS, type CsvFormatKey } from '../export/csv'
 import type { ExportKind, ExportPrefs, WaveformOptions } from '../export/sessionExport'
 import type { Appearance } from '../render/theme'
-import { formatBytes } from '../util/format'
+import { formatBytes, formatCount } from '../util/format'
 import { usePersistentState } from '../util/usePersistentState'
 import { MEASURE_RANGES, RANGE_LABEL, type MeasureRange } from '../model/view'
 import { useDismiss } from './ui/useDismiss'
@@ -254,8 +254,8 @@ export function ExportDialog(p: Props) {
                 {formatSelect}
                 {est && (
                   <p className={`hint ${est.rows > 2_000_000 ? 'warn' : ''}`}>
-                    {est.rows.toLocaleString()} rows × {est.columns} channels, about {formatBytes(estBytes)}.
-                    {est.rows > 1_048_576 && ' More rows than Excel can open (1,048,576) — use a larger sample step for Excel.'}
+                    {formatCount(est.rows)} rows × {est.columns} channels, about {formatBytes(estBytes)}.
+                    {est.rows > 1_048_576 && ` More rows than Excel can open (${formatCount(1_048_576)}) — use a larger sample step for Excel.`}
                   </p>
                 )}
               </>

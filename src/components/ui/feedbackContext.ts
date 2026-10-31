@@ -28,12 +28,15 @@ export interface Feedback {
   /** Show a notice (it replaces an older one of the same kind); returns its id */
   notify: (n: Notice) => number
   dismiss: (id: number) => void
+  /** Remove the error shown (a new attempt, e.g. opening another file, makes it stale) */
+  dismissError: () => void
 }
 
 export const FeedbackContext = createContext<Feedback>({
   confirm: async (o) => window.confirm(o.message ? `${o.title}\n\n${o.message}` : o.title),
   notify: () => 0,
   dismiss: () => {},
+  dismissError: () => {},
 })
 
 /** Questions and notices of the app: one look for all of them instead of the browser's alert() / confirm() */

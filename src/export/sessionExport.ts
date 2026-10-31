@@ -12,7 +12,7 @@ import { valueAt } from '../render/draw'
 import { loadTex, texHtml } from '../render/tex'
 import { THEMES, type Appearance, type Theme } from '../render/theme'
 import { downloadBlob, stem } from '../util/download'
-import { si } from '../util/format'
+import { formatCount, si } from '../util/format'
 import { escapeHtml } from '../util/html'
 import { channelName, perDiv, triggerText } from '../util/names'
 import { RANGE_LABEL, type CursorState, type LiveChannel, type MeasureRange, type TimeWindow } from '../model/view'
@@ -120,7 +120,7 @@ function infoLines(ctx: ExportContext): string[] {
   const { session, record, win, cursors } = ctx
   const first = session.channels[0].wave
   const lines = [
-    `${session.format} · ${first.data.length.toLocaleString()} pts · ${si(1 / ctx.minDt, 'S/s', 3)} · record ${si(record.start, 's')} … ${si(record.end, 's')}`,
+    `${session.format} · ${formatCount(first.data.length)} pts · ${si(1 / ctx.minDt, 'S/s', 3)} · record ${si(record.start, 's')} … ${si(record.end, 's')}`,
     `${si(ctx.timePerDiv, 's/div', 3)} · shown ${si(win.start, 's')} … ${si(win.end, 's')}` + (session.trigger ? ` · trigger ${triggerText(session)}` : ''),
   ]
   if (cursors.on) {
@@ -289,7 +289,7 @@ export async function runExport(ctx: ExportContext, kind: ExportKind, prefs: Exp
     const meta: [string, string][] = [
       ['File', session.fileName],
       ['Format', session.format],
-      ['Record', `${first.data.length.toLocaleString()} points, ${si(1 / ctx.minDt, 'S/s', 4)}, ${si(ctx.record.start, 's')} … ${si(ctx.record.end, 's')}`],
+      ['Record', `${formatCount(first.data.length)} points, ${si(1 / ctx.minDt, 'S/s', 4)}, ${si(ctx.record.start, 's')} … ${si(ctx.record.end, 's')}`],
     ]
     if (session.trigger) meta.push(['Trigger', triggerText(session, 4)])
     meta.push(['Shown', `${si(ctx.win.start, 's')} … ${si(ctx.win.end, 's')} (${si(ctx.timePerDiv, 's/div', 3)})`])
