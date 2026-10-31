@@ -19,6 +19,7 @@ import {
   valueToDiv,
   viewAt,
   viewBoxes,
+  viewShares,
   viewsHeight,
   type ViewDrawOptions,
 } from '../render/draw'
@@ -81,6 +82,8 @@ interface Props {
   views: string[][]
   /** Share of the plot's height of each view; equal without */
   viewSizes?: number[]
+  /** Which views the plot shows (a view whose channels are all hidden is left out); all without */
+  viewsShown?: boolean[]
   /** A splitter between two views was dragged (undefined: all views the same height again) */
   onResizeViews: (sizes: number[] | undefined) => void
   win: TimeWindow
@@ -161,8 +164,10 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
 
   const nViews = Math.max(1, p.views.length)
   /** Top and height of each view: their shares of the plot are set with the splitters between them */
-  const boxes = useMemo(() => viewBoxes(p.viewSizes, nViews, size.h - AXIS_H), [p.viewSizes, nViews, size.h])
+  const boxes = useMemo(() => viewBoxes(p.viewSizes, nViews, size.h - AXIS_H, p.viewsShown), [p.viewSizes, nViews, size.h, p.viewsShown])
   const viewsH = viewsHeight(boxes)
+  /** The views the plot shows, top to bottom */
+  const shownIdx = boxes.heights.flatMap((h, i) => (h > 0 ? [i] : []))
   const topOf = (vi: number) => boxes.tops[vi]
   const hOf = (vi: number) => boxes.heights[vi]
   /** Height of a division in view `vi` (px) */
@@ -335,7 +340,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     const dpr = window.devicePixelRatio || 1
     const draw = () => {
       p.views.forEach((_, vi) => {
-        const ctx = canvasRefs.current[vi]?.getContext('2d')
+        const ctx = hOf(vi) ? canvasRefs.current[vi]?.getContext('2d') : undefined
         if (ctx) drawView(ctx, { ...viewOptions(vi, dpr, theme), selectedId: p.selected })
       })
       const ax = axisRef.current?.getContext('2d')
@@ -360,7 +365,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     p.views.forEach((_, vi) => {
       const cv = overlayRefs.current[vi]
       const ctx = cv?.getContext('2d')
-      if (!cv || !ctx) return
+      if (!cv || !ctx || !hOf(vi)) return
       ctx.setTransform(1, 0, 0, 1, 0, 0)
       ctx.clearRect(0, 0, cv.width, cv.height)
       if (hoverT !== undefined && !drag) {
@@ -477,6 +482,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       const ctx = out.getContext('2d')!
       // Redraw each view at the export resolution (no hover line or rubber band)
       p.views.forEach((_, vi) => {
+        if (!hOf(vi)) return
         const cv = document.createElement('canvas')
         cv.width = out.width
         cv.height = Math.round(hOf(vi) * scale)
@@ -891,7 +897,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
           }}
           width={Math.round(size.w * (window.devicePixelRatio || 1))}
           height={Math.round(hOf(i) * (window.devicePixelRatio || 1))}
-          style={{ width: size.w, height: hOf(i), display: 'block' }}
+          style={{ width: size.w, height: hOf(i), display: hOf(i) ? 'block' : 'none' }}
         />
       ))}
       {p.views.map((_, i) => (
@@ -903,7 +909,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
           className="plot-overlay"
           width={Math.round(size.w * (window.devicePixelRatio || 1))}
           height={Math.round(hOf(i) * (window.devicePixelRatio || 1))}
-          style={{ top: topOf(i), width: size.w, height: hOf(i) }}
+          style={{ top: topOf(i), width: size.w, height: hOf(i), display: hOf(i) ? 'block' : 'none' }}
         />
       ))}
       <canvas
@@ -932,8 +938,17 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
         onDelete={p.onDeleteCallout}
         onContextMenu={p.onCalloutMenu}
       />
-      {boxes.tops.slice(1).map((top, i) => (
-        <ViewSplitter key={i} index={i} top={top} width={plotW} heights={boxes.heights} onResize={p.onResizeViews} />
+      {shownIdx.slice(1).map((lower, k) => (
+        <ViewSplitter
+          key={lower}
+          upper={shownIdx[k]}
+          lower={lower}
+          top={topOf(lower)}
+          width={plotW}
+          heights={boxes.heights}
+          shares={viewShares(p.viewSizes, nViews)}
+          onResize={p.onResizeViews}
+        />
       ))}
       {cursorReadout && (
         <div
@@ -972,12 +987,23 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
 })
 
 /**
- * The edge between view `index` and the next one: dragging it moves height from one of the two to
- * the other, neither getting lower than MIN_VIEW_H; a double-click gives all views the same height.
- * Its presses stay its own, so they neither pan the plot nor zoom out to the whole record.
+ * The edge between two views shown one above the other (`upper`, `lower`; views left out between
+ * them have no height): dragging it moves height from one of the two to the other, neither getting
+ * lower than MIN_VIEW_H, and keeps the shares of all other views, also of those left out; a
+ * double-click gives all views the same height. Its presses stay its own, so they neither pan the
+ * plot nor zoom out to the whole record.
  */
-function ViewSplitter(p: { index: number; top: number; width: number; heights: number[]; onResize: (sizes: number[] | undefined) => void }) {
-  const drag = useRef<{ y0: number; heights: number[] } | null>(null)
+function ViewSplitter(p: {
+  upper: number
+  lower: number
+  top: number
+  width: number
+  heights: number[]
+  /** The share of every view (viewShares) */
+  shares: number[]
+  onResize: (sizes: number[] | undefined) => void
+}) {
+  const drag = useRef<{ y0: number; heights: number[]; shares: number[] } | null>(null)
   const end = () => {
     drag.current = null
   }
@@ -986,7 +1012,7 @@ function ViewSplitter(p: { index: number; top: number; width: number; heights: n
       className="view-splitter"
       role="separator"
       aria-orientation="horizontal"
-      aria-label={`Height of views ${p.index + 1} and ${p.index + 2}`}
+      aria-label={`Height of views ${p.upper + 1} and ${p.lower + 1}`}
       title="Drag to change the heights of the views · double-click: all the same height"
       style={{ top: p.top, width: p.width }}
       onPointerDown={(e) => {
@@ -997,16 +1023,17 @@ function ViewSplitter(p: { index: number; top: number; width: number; heights: n
         } catch {
           // synthetic events have no active pointer
         }
-        drag.current = { y0: e.clientY, heights: p.heights }
+        drag.current = { y0: e.clientY, heights: p.heights, shares: p.shares }
       }}
       onPointerMove={(e) => {
         const d = drag.current
         if (!d) return
         e.stopPropagation()
-        const i = p.index
-        const pair = d.heights[i] + d.heights[i + 1]
-        const upper = Math.min(pair - MIN_VIEW_H, Math.max(MIN_VIEW_H, d.heights[i] + e.clientY - d.y0))
-        p.onResize(normalizeSizes(d.heights.map((h, k) => (k === i ? upper : k === i + 1 ? pair - upper : h))))
+        // The two views share their pixels anew, and so their two shares of the plot
+        const pair = d.heights[p.upper] + d.heights[p.lower]
+        const upper = Math.min(pair - MIN_VIEW_H, Math.max(MIN_VIEW_H, d.heights[p.upper] + e.clientY - d.y0))
+        const share = d.shares[p.upper] + d.shares[p.lower]
+        p.onResize(normalizeSizes(d.shares.map((s, k) => (k === p.upper ? (share * upper) / pair : k === p.lower ? (share * (pair - upper)) / pair : s))))
       }}
       onPointerUp={end}
       onPointerCancel={end}

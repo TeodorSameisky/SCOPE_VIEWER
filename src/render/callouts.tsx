@@ -222,6 +222,8 @@ function noteGeometry(c: Callout, p: CalloutLayout, waves: Waveform[]): NoteGeo 
   if (ay === undefined) {
     if (c.view === undefined || c.div === undefined) return null
     const { top, h } = viewPlace(p, c.view)
+    // Its view is left out (all its channels hidden)
+    if (!h) return null
     ay = top + h / 2 - (c.div * h) / DIVS_Y
   }
   const lines = (c.text || calloutTitle(c)).split('\n').map((l) => layoutLine(l, FONT, NOTE_LINE))
@@ -280,6 +282,8 @@ function boxGeometry(c: Callout, p: CalloutLayout, waves: Waveform[]): BoxGeo | 
     ;({ top, h: vh } = viewPlace(p, c.view))
     levels = [c.div, c.div2]
   } else return null
+  // A view left out (all its channels hidden) has no height
+  if (!vh) return null
   const divH = vh / DIVS_Y
   const yTop = top + vh / 2 - Math.max(...levels) * divH
   const yBottom = top + vh / 2 - Math.min(...levels) * divH

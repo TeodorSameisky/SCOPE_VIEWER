@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MinMaxPyramid } from '../dsp/minmax'
 import type { ChannelDisplay } from './types'
-import { POSITION_STEP, autoscalePatches, carryViewSizes, normalizeSizes, cursorsInView, patchDisplays, stepPosition, stepScale, verticalsOf, type LiveChannel } from './view'
+import { POSITION_STEP, autoscalePatches, carryViewSizes, normalizeSizes, shownViews, cursorsInView, patchDisplays, stepPosition, stepScale, verticalsOf, type LiveChannel } from './view'
 
 const display = (id: string, scale = 1): ChannelDisplay => ({ id, label: '', color: '#ff0', visible: true, scale, position: 0, offset: 0 })
 
@@ -47,6 +47,16 @@ describe('view', () => {
     expect(next[0]).toBe(ds[0])
     expect(patchDisplays(ds, { CH2: { scale: 5, position: 0 } })).toBe(ds)
     expect(patchDisplays(ds, { MATH1: { scale: 1 } })).toBe(ds)
+  })
+
+  describe('shown views', () => {
+    it('leave out the views whose channels are all hidden, but never all of them', () => {
+      const views = [['CH1', 'CH6', 'CH2'], ['CH4', 'CH5'], ['MATH1']]
+      expect(shownViews(views, (id) => id !== 'CH4' && id !== 'CH5')).toEqual([true, false, true])
+      expect(shownViews(views, (id) => id === 'CH5')).toEqual([false, true, false])
+      // Nothing visible: the first view stays, so the plot is not empty
+      expect(shownViews(views, () => false)).toEqual([true, false, false])
+    })
   })
 
   describe('view sizes', () => {

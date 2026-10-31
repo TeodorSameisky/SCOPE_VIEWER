@@ -76,6 +76,7 @@ import { TopBar } from './TopBar'
 import {
   autoscalePatches,
   carryViewSizes,
+  shownViews,
   cursorsInView,
   patchDisplays,
   sampleRange,
@@ -242,6 +243,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     [inputChannels, mathItems, mathPyramids],
   )
   const visibleChannels = channels.filter((c) => c.display.visible)
+  /** A view whose channels are all hidden is left out of the plot */
+  const viewsShown = useMemo(() => shownViews(views, (id) => !!displayById.get(id)?.visible), [views, displayById])
   const firstId = session.channels[0].wave.id
 
   const onAdjust = useCallback((id: string, patch: DisplayPatch) => {
@@ -783,6 +786,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
             channels={channels}
             views={views}
             viewSizes={viewSizes}
+            viewsShown={viewsShown}
             onResizeViews={setViewSizes}
             win={win}
             record={record}

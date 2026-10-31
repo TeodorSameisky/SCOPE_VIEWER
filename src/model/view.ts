@@ -77,6 +77,16 @@ export function patchDisplays(displays: ChannelDisplay[], patches: Record<string
   return changed ? next : displays
 }
 
+/**
+ * Which views the plot shows: those with a visible channel; a view whose channels are all hidden is
+ * left out (it keeps its channels and its size). When no channel is visible, the first, so the plot
+ * is never empty.
+ */
+export function shownViews(views: string[][], visible: (id: string) => boolean): boolean[] {
+  const shown = views.map((v) => v.some(visible))
+  return shown.some(Boolean) ? shown : views.map((_, i) => i === 0)
+}
+
 /** Sizes scaled to add up to 1, to 4 decimals */
 export function normalizeSizes(sizes: number[]): number[] {
   const sum = sizes.reduce((a, b) => a + b, 0)

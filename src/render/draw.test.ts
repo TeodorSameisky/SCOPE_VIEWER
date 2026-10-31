@@ -215,6 +215,16 @@ describe('view boxes', () => {
     expect(viewBoxes([0.25, 0.75], 3, 300).heights).toEqual([100, 100, 100])
   })
 
+  it('give a view left out no height, and its share to the others', () => {
+    const b = viewBoxes([0.25, 0.25, 0.5], 3, 300, [true, false, true])
+    expect(b).toEqual({ tops: [0, 100, 100], heights: [100, 0, 200] })
+    expect(viewsHeight(b)).toBe(300)
+    // The last view left out
+    const last = viewBoxes(undefined, 2, 300, [true, false])
+    expect(last.heights).toEqual([300, 0])
+    expect(viewsHeight(last)).toBe(300)
+  })
+
   it('are never lower than 40 px', () => {
     expect(viewBoxes([0.05, 0.95], 2, 400).heights).toEqual([40, 380])
   })
@@ -222,6 +232,9 @@ describe('view boxes', () => {
   it('find the view at a height', () => {
     const b = viewBoxes([0.25, 0.75], 2, 400)
     expect([viewAt(b, -5), viewAt(b, 99), viewAt(b, 100), viewAt(b, 450)]).toEqual([0, 0, 1, 1])
+    // Never a view left out: below the last shown one is that one, above the first shown one that one
+    const gap = viewBoxes(undefined, 4, 300, [false, true, false, true])
+    expect([viewAt(gap, -5), viewAt(gap, 149), viewAt(gap, 150), viewAt(gap, 400)]).toEqual([1, 1, 3, 3])
   })
 })
 

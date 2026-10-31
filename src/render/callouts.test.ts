@@ -43,6 +43,13 @@ describe('box geometry', () => {
     expect(g).toMatchObject({ y: 190, h: 120 })
   })
 
+  it('is left out with a view whose channels are all hidden', () => {
+    const shown = { tops: [0, 400], heights: [400, 0] }
+    expect(layoutCallouts([{ ...base, view: 1, div: 1, div2: -1 }], layout([channel('CH1', 0), channel('CH2', 0, false)], shown)).get('x')).toBeUndefined()
+    const note: Callout = { id: 'n', n: 2, type: 'note', t: 3, text: 'here', color: '#fff', view: 1, div: 0 }
+    expect(layoutCallouts([note], layout([channel('CH1', 0), channel('CH2', 0, false)], shown)).get('n')).toBeUndefined()
+  })
+
   it('can be free in a view', () => {
     const g = layoutCallouts([{ ...base, view: 1, div: 1, div2: -1, shape: 'ellipse' }], layout([channel('CH1', 0), channel('CH2', 0)])).get('x')
     expect(g).toMatchObject({ y: 280, h: 40, shape: 'ellipse' })
