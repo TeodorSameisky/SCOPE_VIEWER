@@ -56,8 +56,6 @@ export function MeasurementTable(p: Props) {
   const excluded = useMemo(() => new Set(p.exclude), [p.exclude])
   const measured = measuredChannels(p.channels, p.exclude)
   const leftOut = p.channels.filter((c) => excluded.has(c.wave.id))
-  /** Channels that would be measured but are hidden: they have no row, a click shows one */
-  const hidden =p.channels.filter((c) => !c.display.visible && !excluded.has(c.wave.id))
   const { ink } = useTheme().theme
   const rootRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -372,25 +370,20 @@ export function MeasurementTable(p: Props) {
                 </tr>
               )
             })}
-            {(hidden.length > 0 || measured.length === 0) && (
-              <tr className="hidden-note">
+            {measured.length === 0 && (
+              <tr className="empty-note">
                 <td colSpan={defs.length + 1}>
-                  {/* Channels without a row: a click brings one in (measures it, shows it). The channels to measure are chosen in the Channels popover */}
-                  {[
-                    ...(measured.length ? [] : [{ lead: 'No channel is measured. Click one to measure it:', list: p.channels, verb: 'Measure' }]),
-                    ...(measured.length ? [{ lead: 'Hidden:', list: hidden, verb: 'Show' }] : []),
-                  ].map((g) => (
-                    <div key={g.lead} className="hidden-list">
-                      <span className="muted">{g.lead}</span>
-                      {g.list.map((c) => (
-                        <button key={c.wave.id} type="button" className="chip-link" title={`${g.verb} ${channelName(c.wave.id)}`} onClick={() => bringIn(c)}>
-                          <span className="dot" style={{ background: ink(c.display.color) }} />
-                          {channelName(c.wave.id)}
-                          {c.display.label && <span className="muted"> {c.display.label}</span>}
-                        </button>
-                      ))}
-                    </div>
-                  ))}
+                  {/* Nothing to show: a click on a channel brings it in (measures it, shows it) */}
+                  <div className="empty-list">
+                    <span className="muted">No channel is measured. Click one to measure it:</span>
+                    {p.channels.map((c) => (
+                      <button key={c.wave.id} type="button" className="chip-link" title={`Measure ${channelName(c.wave.id)}`} onClick={() => bringIn(c)}>
+                        <span className="dot" style={{ background: ink(c.display.color) }} />
+                        {channelName(c.wave.id)}
+                        {c.display.label && <span className="muted"> {c.display.label}</span>}
+                      </button>
+                    ))}
+                  </div>
                 </td>
               </tr>
             )}

@@ -99,9 +99,9 @@ Which panels are open is remembered in the browser.
     higher than the rows; a double-click on the edge removes the limit;
   - the Channel column stays in sight when the table scrolls sideways, and a column you add is scrolled into view;
   - the header of a column ends where its numbers end;
-  - a channel that is hidden has no row: *Hidden:* under the rows lists them, and a click shows one (channels left out
-    are not listed: the *Channels* button has them; with none measured the table says so and lists all). A "—" says
-    in its tooltip (pointer: help) why there is no value
+  - a channel that is hidden, or left out, has no row (the *Channels* button lists them; with none measured the table
+    says so and lists all of them, a click measures and shows one). A "—" says in its tooltip (pointer: help) why
+    there is no value
 - **Math channels** and **Spectrum (FFT)** (see below)
 - **Input settings** of each channel as set on the scope: coupling, termination, bandwidth, probe attenuation,
   external attenuation and input mode, probe delay, current via shunt, invert and deskew – whatever the files hold.

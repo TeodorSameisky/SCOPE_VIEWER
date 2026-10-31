@@ -1402,14 +1402,14 @@ th:hover .x {
 .measure .data-table td.na {
   cursor: help;
 }
-/* Channels that are hidden have no row: they are listed under the rows, a click shows one */
-.measure .data-table tbody tr.hidden-note {
+/* With no channel measured the table lists them, a click brings one in */
+.measure .data-table tbody tr.empty-note {
   cursor: default;
 }
-.measure .data-table tbody tr.hidden-note:hover td {
+.measure .data-table tbody tr.empty-note:hover td {
   background-color: var(--panel);
 }
-.hidden-list {
+.empty-list {
   position: sticky;
   left: 0;
   display: flex;
