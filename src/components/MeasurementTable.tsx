@@ -55,9 +55,9 @@ export function MeasurementTable(p: Props) {
   const cursors = useDeferredValue(p.cursors)
   const excluded = useMemo(() => new Set(p.exclude), [p.exclude])
   const measured = measuredChannels(p.channels, p.exclude)
-  /** Channels that are shown but left out of the table, and channels that are hidden (and would be measured) */
   const leftOut = p.channels.filter((c) => excluded.has(c.wave.id))
-  const hidden = p.channels.filter((c) => !c.display.visible && !excluded.has(c.wave.id))
+  /** Channels that would be measured but are hidden: they have no row, a click shows one */
+  const hidden =p.channels.filter((c) => !c.display.visible && !excluded.has(c.wave.id))
   const { ink } = useTheme().theme
   const rootRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -372,14 +372,13 @@ export function MeasurementTable(p: Props) {
                 </tr>
               )
             })}
-            {(hidden.length > 0 || leftOut.length > 0) && (
+            {(hidden.length > 0 || measured.length === 0) && (
               <tr className="hidden-note">
                 <td colSpan={defs.length + 1}>
-                  {/* Channels without a row: a click brings one in (measures it, shows it) */}
+                  {/* Channels without a row: a click brings one in (measures it, shows it). The channels to measure are chosen in the Channels popover */}
                   {[
-                    ...(measured.length ? [] : [{ lead: 'No channel is measured. Click one to measure it:', list: p.channels.filter((c) => !measured.includes(c)), verb: 'Measure' }]),
-                    ...(measured.length && hidden.length ? [{ lead: 'Hidden:', list: hidden, verb: 'Show' }] : []),
-                    ...(measured.length && leftOut.length ? [{ lead: 'Not measured:', list: leftOut, verb: 'Measure' }] : []),
+                    ...(measured.length ? [] : [{ lead: 'No channel is measured. Click one to measure it:', list: p.channels, verb: 'Measure' }]),
+                    ...(measured.length ? [{ lead: 'Hidden:', list: hidden, verb: 'Show' }] : []),
                   ].map((g) => (
                     <div key={g.lead} className="hidden-list">
                       <span className="muted">{g.lead}</span>
