@@ -13,7 +13,6 @@ import {
   drawTimeAxis,
   drawView,
   layoutTags,
-  positionForZeroAt,
   tagAt,
   valueAt,
   valueToDiv,
@@ -91,7 +90,7 @@ interface Props {
   setCursors: (c: CursorState) => void
   selected?: string
   setSelected: (id: string) => void
-  trigger?: { source: string; level?: number }
+  trigger?: { source: string; level?: number; slope?: string }
   onAdjust: (id: string, patch: DisplayPatch) => void
   /** A channel tag was dropped onto another view */
   onMoveToView: (id: string, view: number) => void
@@ -134,9 +133,9 @@ type Drag =
   | { kind: 'click'; x0: number; y0: number }
   /**
    * A channel tag moved up or down (its position), or over another view (`target`) to move the
-   * channel there on release. `zero0`: the channel's 0 level (div) when the drag started.
+   * channel there on release. `pos0`: the channel's position (div) when the drag started.
    */
-  | { kind: 'tag'; id: string; view: number; y0: number; x: number; y: number; zero0: number; pos0: number; moved: boolean; target?: number }
+  | { kind: 'tag'; id: string; view: number; y0: number; x: number; y: number; pos0: number; moved: boolean; target?: number }
 
 export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -277,7 +276,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   const tagUnder = (x: number, y: number): { id: string; view: number } | undefined => {
     if (y < 0 || y >= viewsH) return undefined
     const view = Math.floor(y / viewH)
-    const tag = tagAt(layoutTags(viewChannels(view).traces.map((t) => t.display), viewH), x, y - view * viewH)
+    const tag = tagAt(layoutTags(viewChannels(view).traces, viewH), x, y - view * viewH)
     return tag && { id: tag.display.id, view }
   }
 
@@ -307,7 +306,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       traces,
       axisChannel: axis,
       cursors: p.cursors.on ? { a: p.cursors.a, b: p.cursors.b, sourceId: p.cursors.source, showLabels: vi === 0 } : undefined,
-      trigger: { sourceId: p.trigger?.source, level: p.trigger?.level, showMarker: true },
+      trigger: { sourceId: p.trigger?.source, level: p.trigger?.level, slope: p.trigger?.slope, showMarker: true },
       theme,
     }
   }
@@ -414,7 +413,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     ctx.restore()
   }
 
-  /** While a tag is dragged: a dashed line at the channel's 0 level, or the view it would move to */
+  /** While a tag is dragged: a dashed line at the channel's position, or the view it would move to */
   const drawTagDrag = (ctx: CanvasRenderingContext2D, dpr: number, vi: number) => {
     if (drag?.kind !== 'tag') return
     const ch = byId.get(drag.id)
@@ -431,7 +430,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     ctx.lineWidth = 1
     ctx.setLineDash([5, 4])
     if (drag.target === undefined && vi === drag.view) {
-      const y = viewH / 2 - valueToDiv(0, ch.display) * divH
+      const y = viewH / 2 - ch.display.position * divH
       if (y >= 0 && y <= viewH) line(y)
     } else if (drag.target === vi) {
       ctx.fillStyle = theme.bandFill
@@ -550,8 +549,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     const tagged = onTag && byId.get(onTag.id)
     if (onTag && tagged) {
       p.setSelected(onTag.id)
-      const d = tagged.display
-      setDrag({ kind: 'tag', id: onTag.id, view: onTag.view, y0: y, x, y, zero0: valueToDiv(0, d), pos0: d.position, moved: false })
+      setDrag({ kind: 'tag', id: onTag.id, view: onTag.view, y0: y, x, y, pos0: tagged.display.position, moved: false })
       return
     }
     const onAxis = y > viewsH
@@ -649,18 +647,14 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     return { type: 'box', t, t2, channel: ch.wave.id, v: round(divToValue(top, ch.display)), v2: round(divToValue(bottom, ch.display)) }
   }
 
-  /** The 0 level (div from the centre) of a tag dragged to `y` in `view`; snapped to the grid unless `free` */
-  const zeroAt = (y: number, view: number, free: boolean) => {
-    const div = DIVS_Y / 2 - (y - view * viewH) / divH
-    return free ? div : snapToGrid(div, divH)
-  }
+  /** A tag's position (div from the centre, to 0.01 div), snapped to the grid unless `free` */
+  const tagPosition = (div: number, free: boolean) => Math.round((free ? div : snapToGrid(div, divH)) * 100) / 100
 
   /** Drag of a channel tag: up and down in its view moves the trace, over another view marks it as the target */
   const moveTag = (drag: Extract<Drag, { kind: 'tag' }>, x: number, y: number, free: boolean) => {
     // A click only selects: the trace moves once the pointer has moved a few pixels
     if (!drag.moved && Math.abs(y - drag.y0) < 3) return
-    const d = byId.get(drag.id)?.display
-    if (!d) return
+    if (!byId.has(drag.id)) return
     const over = y >= 0 && y < viewsH ? Math.floor(y / viewH) : drag.view
     if (over !== drag.view) {
       // Over another view: the trace waits where it was until it is dropped
@@ -668,8 +662,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       setDrag({ ...drag, x, y, moved: true, target: over })
       return
     }
-    const zero = drag.zero0 - (y - drag.y0) / divH
-    p.onAdjust(drag.id, { position: positionForZeroAt(free ? zero : snapToGrid(zero, divH), d) })
+    p.onAdjust(drag.id, { position: tagPosition(drag.pos0 - (y - drag.y0) / divH, free) })
     setDrag({ ...drag, x, y, moved: true, target: undefined })
   }
 
@@ -695,11 +688,10 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     setDrag(null)
     if (!d) return
     if (d.kind === 'tag') {
-      // Dropped onto another view: the channel moves there, with its 0 level where it was dropped
-      const disp = byId.get(d.id)?.display
-      if (d.target === undefined || !disp) return
+      // Dropped onto another view: the channel moves there, with its tag where it was dropped
+      if (d.target === undefined || !byId.has(d.id)) return
       p.onMoveToView(d.id, d.target)
-      p.onAdjust(d.id, { position: positionForZeroAt(zeroAt(y, d.target, e.altKey), disp) })
+      p.onAdjust(d.id, { position: tagPosition(DIVS_Y / 2 - (y - d.target * viewH) / divH, e.altKey) })
       return
     }
     const wide = (a: number, b: number) => Math.abs(a - b) >= MIN_BOX_PX
@@ -821,6 +813,8 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       ? `Wheel: V/div of ${channelName(hoverScale.wave.id)}`
       : undefined
   const dragged = drag?.kind === 'tag' && drag.moved ? byId.get(drag.id) : undefined
+  /** The readout of a dragged tag goes right of the tag, clear of the offset in it */
+  const draggedTagW = drag?.kind === 'tag' && dragged ? (layoutTags(viewChannels(drag.view).traces, viewH).find((t) => t.display.id === drag.id)?.w ?? 0) : 0
 
   const showHover = hover !== undefined && hoverT !== undefined && !drag && !p.editingCallout && !hoverTag
   const nearCursor =
@@ -934,7 +928,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       )}
       {showHover && !p.readout && <div className="hover-time">{si(hoverT, 's', 5)}</div>}
       {drag?.kind === 'tag' && dragged && (
-        <div className="drag-readout" style={{ left: Math.min(plotW - 180, drag.x + 16), top: Math.max(4, Math.min(viewsH - 30, drag.y - 12)) }}>
+        <div className="drag-readout" style={{ left: Math.min(plotW - 180, Math.max(drag.x, draggedTagW + 6) + 16), top:Math.max(4, Math.min(viewsH - 30, drag.y - 12)) }}>
           <span className="dot" style={{ background: theme.ink(dragged.display.color) }} />
           {drag.target === undefined
             ? `${channelName(drag.id)} · position ${dragged.display.position >= 0 ? '+' : ''}${dragged.display.position.toFixed(2)} div`

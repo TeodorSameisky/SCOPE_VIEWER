@@ -1,7 +1,7 @@
 import type { ChannelDisplay, Waveform } from '../model/types'
 import type { MinMaxPyramid } from '../dsp/minmax'
-import { siTick } from '../util/format'
-import { channelTag } from '../util/names'
+import { si, siTick } from '../util/format'
+import { channelTag, slopeSymbol } from '../util/names'
 import { sampleAt } from '../math/signal'
 import type { Theme } from './theme'
 import { PLOT_FONT, SANS, font } from './fonts'
@@ -9,6 +9,8 @@ import { PLOT_FONT, SANS, font } from './fonts'
 export const DIVS_Y = 10
 /** Gutter on the right of each plot for the vertical scale labels */
 export const AXIS_GUTTER = 64
+/** The dashed line at the trigger level, in the colour of the source, is this faint */
+const TRIGGER_LINE_ALPHA = 0.45
 
 export interface TraceInput {
   display: ChannelDisplay
@@ -27,7 +29,8 @@ export interface ViewDrawOptions {
   /** Channel whose vertical scale is labelled on the right axis (in its unit) */
   axisChannel?: TraceInput
   cursors?: { a: number; b: number; sourceId?: string; showLabels: boolean }
-  trigger?: { sourceId?: string; level?: number; showMarker: boolean }
+  /** `slope` as stored in the setup (RISE / FALL / EITHER) */
+  trigger?: { sourceId?: string; level?: number; slope?: string; showMarker: boolean }
   selectedId?: string
   theme: Theme
 }
@@ -38,11 +41,6 @@ export function valueToDiv(v: number, d: ChannelDisplay): number {
 
 export function divToValue(div: number, d: ChannelDisplay): number {
   return (div - d.position) * d.scale + d.offset
-}
-
-/** The position that puts the channel's 0 level at `div` divisions from the centre (to 0.01 div) */
-export function positionForZeroAt(div: number, d: ChannelDisplay): number {
-  return Math.round((div + d.offset / d.scale) * 100) / 100
 }
 
 /** Interpolated sample value at time t, NaN outside the record. */
@@ -61,45 +59,69 @@ export function textWidth(text: string, cssFont: string): number {
 
 /** Font of the channel labels next to the tags */
 const TAG_LABEL_FONT = font(13, SANS)
-/** Half the height of a tag, and the least distance between the centres of two tags */
+/** Half the height of a tag, and the least distance between the centres of two tags (where there is room) */
 const TAG_HALF = 7
 const TAG_GAP = 16
 
-/** A channel's tag on the left edge of its view, at the channel's 0 level */
+/** The offset of a channel as its tag shows it, e.g. "3.57 V"; empty when it is 0 */
+export function offsetText(d: ChannelDisplay, unit: string): string {
+  return Math.abs(d.offset) > d.scale * 1e-9 ? si(d.offset, unit, 3) : ''
+}
+
+/**
+ * A channel's tag on the left edge of its view, as the handle on a Tektronix scope: at the channel's
+ * position, which is where its offset level is (0 without an offset), with the offset in the tag
+ */
 export interface ChannelTag {
   display: ChannelDisplay
-  /** Centre of the tag (px from the top of the view): the 0 level, kept inside the view and apart from the other tags */
+  /** The level the tag points at (px from the top of the view): the position, inside the view */
+  level: number
+  /** Centre of the tag: at its level, unless moved apart from the other tags (or away from the edge) */
   y: number
-  /** Width of the tag itself */
+  /** Width of the channel part of the tag */
+  nameW: number
+  /** Width of the tag itself (channel and offset) */
   w: number
+  /** The offset shown in the tag, '' without one */
+  offset: string
   /** Right end of the tag with its label (px) */
   right: number
-  /** The 0 level lies above (-1) or below (1) the view; the tag then shows an arrow */
+  /** The position lies above (-1) or below (1) the view; the tag then shows an arrow */
   off: -1 | 0 | 1
 }
 
+/** A tag that is not at its level is joined to it by a leader */
+const hasLeader = (t: ChannelTag) => t.off === 0 && Math.abs(t.y - t.level) > 0.5
+
 /** Where the tags of the channels of one view go (in drawing order) */
-export function layoutTags(displays: ChannelDisplay[], height: number): ChannelTag[] {
+export function layoutTags(traces: { display: ChannelDisplay; wave: Pick<Waveform, 'yUnit'> }[], height: number): ChannelTag[] {
   const divH = height / DIVS_Y
-  const tags = displays
-    .map((d): ChannelTag => {
-      const level = height / 2 - valueToDiv(0, d) * divH
-      const w = textWidth(channelTag(d.id), PLOT_FONT) + 8
+  const top = TAG_HALF + 1
+  const bottom = height - TAG_HALF - 1
+  const tags = traces
+    .map(({ display: d, wave }): ChannelTag => {
+      const level = height / 2 - d.position * divH
+      const nameW = textWidth(channelTag(d.id), PLOT_FONT) + 8
+      const offset = offsetText(d, wave.yUnit)
+      const w = offset ? nameW + textWidth(offset, PLOT_FONT) + 10 : nameW
       return {
         display: d,
-        y: Math.min(height - TAG_HALF - 1, Math.max(TAG_HALF + 1, level)),
+        level: Math.min(height, Math.max(0, level)),
+        y: Math.min(bottom, Math.max(top, level)),
+        nameW,
         w,
-        right: d.label ? w + 12 + textWidth(d.label, TAG_LABEL_FONT) : w + 12,
+        offset,
+        right: 0,
         off: level < 0 ? -1 : level > height ? 1 : 0,
       }
     })
     .sort((a, b) => a.y - b.y)
-  // Spread apart where they would overlap
-  for (let i = 1; i < tags.length; i++) tags[i].y = Math.max(tags[i].y, tags[i - 1].y + TAG_GAP)
-  for (let i = tags.length - 1; i >= 0; i--) {
-    const limit = i === tags.length - 1 ? height - TAG_HALF - 1 : tags[i + 1].y - TAG_GAP
-    tags[i].y = Math.min(tags[i].y, limit)
-  }
+  // Spread apart where they would overlap; where there is not room for all, they overlap evenly
+  // but never leave the view
+  const gap = tags.length > 1 ? Math.min(TAG_GAP, (bottom - top) / (tags.length - 1)) : TAG_GAP
+  for (let i = 1; i < tags.length; i++) tags[i].y = Math.max(tags[i].y, tags[i - 1].y + gap)
+  for (let i = tags.length - 1; i >= 0; i--) tags[i].y = Math.min(tags[i].y, i === tags.length - 1 ? bottom : tags[i + 1].y - gap)
+  for (const t of tags) t.right = t.display.label ? t.w + 12 + textWidth(t.display.label, TAG_LABEL_FONT) : t.w + 12
   return tags
 }
 
@@ -175,11 +197,26 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
     }
   }
 
-  // Channel tags on the left edge at each channel's 0 level (see layoutTags); a tag whose level
-  // is outside the view sits at the edge with an arrow towards it
+  // Channel tags on the left edge at each channel's position, with its offset (see layoutTags); a
+  // tag moved apart from the others points to its level with a leader, and a tag whose position is
+  // outside the view sits at the edge with an arrow towards it
   ctx.font = PLOT_FONT
   ctx.textBaseline = 'middle'
-  for (const { display: d, y, w, off } of layoutTags(o.traces.map((t) => t.display), H)) {
+  const tags = layoutTags(o.traces, H)
+  // The leaders first: from the tip of the tag to a tick at its level, under the tags and labels
+  ctx.lineWidth = 1
+  for (const tag of tags.filter(hasLeader)) {
+    const { y, w, level } = tag
+    ctx.strokeStyle = theme.ink(tag.display.color)
+    ctx.beginPath()
+    ctx.moveTo(w + 6, y)
+    ctx.lineTo(w + 9.5, y)
+    ctx.lineTo(w + 9.5, level)
+    ctx.lineTo(w + 3, level)
+    ctx.stroke()
+  }
+  for (const tag of tags) {
+    const { display: d, y, w, off } = tag
     const ink = theme.ink(d.color)
     ctx.fillStyle = ink
     ctx.beginPath()
@@ -198,8 +235,15 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
       ctx.closePath()
     }
     ctx.fill()
-    ctx.fillStyle = theme.onInk(ink)
     ctx.textAlign = 'left'
+    if (tag.offset) {
+      // The offset in the outlined part of the tag, as on the scope
+      ctx.fillStyle = theme.bg
+      ctx.fillRect(tag.nameW, y - TAG_HALF + 1, w - tag.nameW - 1, 2 * TAG_HALF - 2)
+      ctx.fillStyle = ink
+      ctx.fillText(tag.offset, tag.nameW + 5, y + 0.5)
+    }
+    ctx.fillStyle = theme.onInk(ink)
     ctx.fillText(channelTag(d.id), 4, y + 0.5)
     if (d.label) {
       ctx.fillStyle = ink
@@ -214,7 +258,8 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
     }
   }
 
-  // Trigger: time marker and level arrow
+  // Trigger: time marker, and the level as on the scope: an arrow on the right edge in the colour of
+  // the source, with its name and slope; outside the view it sits at the top or bottom, pointing out
   if (o.trigger) {
     ctx.fillStyle = theme.trigger
     if (o.trigger.showMarker) {
@@ -230,22 +275,43 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
     }
     const src = o.traces.find((t) => t.display.id === o.trigger!.sourceId)
     if (src && o.trigger.level !== undefined) {
-      const y = H / 2 - valueToDiv(o.trigger.level, src.display) * divH
-      if (y >= 0 && y <= H) {
-        ctx.beginPath()
-        ctx.moveTo(plotW, y)
-        ctx.lineTo(plotW - 9, y - 6)
-        ctx.lineTo(plotW - 9, y + 6)
-        ctx.closePath()
-        ctx.fill()
-        ctx.strokeStyle = theme.triggerLevel
+      const ink = theme.ink(src.display.color)
+      const level = H / 2 - valueToDiv(o.trigger.level, src.display) * divH
+      const off = level < 0 ? -1 : level > H ? 1 : 0
+      const y = off < 0 ? 6 : off > 0 ? H - 6 : level
+      if (off === 0) {
+        ctx.strokeStyle = ink
+        ctx.globalAlpha = TRIGGER_LINE_ALPHA
         ctx.setLineDash([4, 4])
         ctx.beginPath()
         ctx.moveTo(0, Math.round(y) + 0.5)
         ctx.lineTo(plotW, Math.round(y) + 0.5)
         ctx.stroke()
         ctx.setLineDash([])
+        ctx.globalAlpha = 1
       }
+      ctx.fillStyle = ink
+      ctx.beginPath()
+      if (off === 0) {
+        ctx.moveTo(plotW, y)
+        ctx.lineTo(plotW - 9, y - 6)
+        ctx.lineTo(plotW - 9, y + 6)
+      } else {
+        ctx.moveTo(plotW - 5, y + off * 5)
+        ctx.lineTo(plotW - 10, y - off * 4)
+        ctx.lineTo(plotW, y - off * 4)
+      }
+      ctx.closePath()
+      ctx.fill()
+      const text = `${channelTag(src.display.id)} ${slopeSymbol(o.trigger.slope)}`.trim()
+      ctx.font = PLOT_FONT
+      ctx.textAlign = 'right'
+      ctx.textBaseline = 'middle'
+      const tw = ctx.measureText(text).width
+      ctx.fillStyle = theme.bg
+      ctx.fillRect(plotW - 15 - tw, y - 7, tw + 4, 14)
+      ctx.fillStyle = ink
+      ctx.fillText(text, plotW - 13, y + 0.5)
     }
   }
 

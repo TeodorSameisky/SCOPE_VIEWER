@@ -23,7 +23,8 @@ ranges computed, in Web Workers, so long records do not block the page. Session 
 - **Plot** – with the optional overview strip above and the measurements table below
 - **Right rail** – opens the side panels (Cursor readouts, Callouts, Session info & setup) and shows/hides
   the overview strip and measurements; *Focus* (`\`) hides everything except the plot
-- **Channel bar** (bottom) – one badge per channel like on the scope; click a badge for its settings
+- **Channel bar** (bottom) – one badge per channel like on the scope, with its V/div, termination and bandwidth
+  (and its label); click a badge for its settings
   (label, colour, V/div, position, offset, view), the eye toggles visibility. The badges stay in one row:
   in a narrow window the row scrolls sideways (mouse wheel or the arrows at its edges), and the selected
   channel is always scrolled into view
@@ -32,7 +33,9 @@ Which panels are open is remembered in the browser.
 
 ## Features
 
-- Stacked waveform views with the scope's colours, labels, ground markers, trigger point and level
+- Stacked waveform views with the scope's colours, labels, channel handles, trigger point and level. The trigger
+  level is an arrow on the right edge in the colour of its source, with the source and slope (`C4 ↗`); when the
+  level is outside the view, the arrow stays at the top or bottom edge, pointing towards it
 - Min/max decimation pyramid, so long records stay responsive
 - Click a trace to select it; Ctrl+wheel changes its V/div, Alt+wheel its position
 - **Autoscale** (`A`, or the button next to *Full record*): fits what is on screen of every visible channel into
@@ -40,14 +43,17 @@ Which panels are open is remembered in the browser.
   bottom, so they do not overlap; a channel whose waveform is not on screen is fitted over its whole record. One
   undo step. Right-click in the plot to autoscale only that view, or a channel's badge for that channel alone (into
   its band); new math channels are fitted over the whole record
-- **Moving and scaling traces** with the channel tags on the left edge of the plot (C1, C2, … at each
-  channel's 0 level, as on the scope):
+- **Moving and scaling traces** with the channel tags on the left edge of the plot, the handles of the
+  scope: C1, C2, … at each channel's position, which is its offset level (0 without an offset). A channel
+  with an offset shows it in its tag (`C2 3.57 V`), as on the scope:
   - **drag a tag** up or down to move its trace; it snaps to the grid lines (hold Alt to place it freely),
-    and a dashed line and a readout show the new 0 level and position while dragging. Drop it on another
-    view to move the channel there
-  - **wheel on a tag**, or on a view's scale labels on the right, changes that channel's V/div (1-2-5)
+    and a dashed line and a readout show the new position while dragging. Drop it on another view to move
+    the channel there
+  - **wheel on a tag**, or on a view's scale labels on the right, changes that channel's V/div (1-2-5); the
+    trace expands and contracts around its tag, which stays where it is
   - a click on a tag selects the channel, a double-click opens its settings, a right-click its commands
-  - when a channel's 0 level is outside the view, its tag stays at the edge with an arrow towards it
+  - tags that would cover each other are moved apart, each joined to its level by a short line; when a
+    channel's position is outside the view, its tag stays at the edge with an arrow towards it
   - `↑`/`↓` move the selected channel by 0.1 div (with Shift a whole division), `Page Up`/`Page Down`
     step its V/div
 - **Values at the pointer**: next to the pointer, the time and the value of every visible channel, with a
@@ -61,8 +67,9 @@ Which panels are open is remembered in the browser.
 - **Math channels** and **Spectrum (FFT)** (see below)
 - **Input settings** of each channel as set on the scope: coupling, termination, bandwidth, probe attenuation,
   external attenuation and input mode, probe delay, current via shunt, invert and deskew – whatever the files hold.
-  They are shown in the channel's settings, as a table in the Session panel and in the report; AC or GND coupling,
-  a 50 Ω input and an inverted channel are marked on its badge. Setup files name what is set for a probe, not the
+  They are shown in the channel's settings, as a table in the Session panel and in the report. Its badge shows the
+  termination and bandwidth, as on the scope, so a bandwidth limit is seen at a glance; AC or GND coupling, a 50 Ω
+  input and an inverted channel are marked on it. Setup files name what is set for a probe, not the
   probe itself (model, serial number)
 - Instrument screenshot and searchable instrument setup
 - Saving in the browser, analysis files and bundles; exports to image, report and CSV (see below)

@@ -1,53 +1,75 @@
 import { describe, expect, it } from 'vitest'
 import { MinMaxPyramid } from '../dsp/minmax'
 import type { ChannelDisplay } from '../model/types'
-import { drawView, layoutTags, positionForZeroAt, tagAt, valueToDiv } from './draw'
+import { drawView, layoutTags, offsetText, tagAt } from './draw'
 import { THEMES } from './theme'
 
 const display = (id: string, position: number, offset = 0, scale = 1, label = ''): ChannelDisplay => ({ id, label, color: '#fff', visible: true, scale, position, offset })
+const traces = (...ds: ChannelDisplay[]) => ds.map((d) => ({ display: d, wave: { yUnit: 'V' } }))
 
 // A view 200 px high: 20 px per division, the centre line at y = 100
 const H = 200
 
 describe('channel tags', () => {
-  it('sit at the 0 level of their channel', () => {
-    const [t] = layoutTags([display('CH1', 2)], H)
+  it('sit at the position of their channel, as the handles on a Tektronix scope', () => {
+    const [t] = layoutTags(traces(display('CH1', 2)), H)
     expect(t.y).toBe(60)
+    expect(t.level).toBe(60)
     expect(t.off).toBe(0)
-    // With an offset the 0 level moves: 0 V is 1.5 div below the offset level
-    expect(layoutTags([display('CH1', 0, 3, 2)], H)[0].y).toBe(130)
+    expect(t.offset).toBe('')
+    // With an offset the tag marks the offset level (not 0 V) and shows the offset
+    const [o] = layoutTags(traces(display('CH1', 0, 3, 2)), H)
+    expect(o.y).toBe(100)
+    expect(o.offset).toBe('3.00 V')
+    expect(o.w).toBeGreaterThan(o.nameW)
   })
 
-  it('stay at the edge with an arrow when the 0 level is outside the view', () => {
-    const [above] = layoutTags([display('CH1', 7)], H)
+  it('stay where they are when the V/div changes (it scales around the position)', () => {
+    const at = (scale: number) => layoutTags(traces(display('CH1', -1.5, 2.8, scale)), H)[0].y
+    expect(at(2)).toBe(at(1))
+  })
+
+  it('show the offset with three digits, and none when it is 0', () => {
+    expect(offsetText(display('CH6', 0, 0.03, 5), 'V')).toBe('30.0 mV')
+    expect(offsetText(display('CH1', 0, -8.47, 5), 'V')).toBe('-8.47 V')
+    expect(offsetText(display('CH1', 0, 0), 'V')).toBe('')
+    expect(offsetText(display('CH1', 0, 1e-15, 1), 'V')).toBe('')
+  })
+
+  it('stay at the edge with an arrow when the position is outside the view', () => {
+    const [above] = layoutTags(traces(display('CH1', 7)), H)
     expect(above.off).toBe(-1)
     expect(above.y).toBe(8)
-    const [below] = layoutTags([display('CH2', -9)], H)
+    const [below] = layoutTags(traces(display('CH2', -9)), H)
     expect(below.off).toBe(1)
     expect(below.y).toBe(192)
   })
 
-  it('are spread apart where they would overlap', () => {
-    const tags = layoutTags([display('CH1', 0), display('CH2', 0.1), display('CH3', -0.1)], H)
+  it('are spread apart where they would overlap, still pointing at their own levels', () => {
+    const tags = layoutTags(traces(display('CH1', 0), display('CH2', 0.1), display('CH3', -0.1)), H)
     const ys = tags.map((t) => t.y)
     for (let i = 1; i < ys.length; i++) expect(ys[i] - ys[i - 1]).toBeGreaterThanOrEqual(16)
+    for (const t of tags) expect(t.level).toBeCloseTo(100 - t.display.position * 20)
+  })
+
+  it('never leave the view, however many there are', () => {
+    const ids = ['CH1', 'CH2', 'CH3', 'CH4', 'CH5', 'CH6', 'MATH1', 'MATH2']
+    const tags = layoutTags(traces(...ids.map((id) => display(id, 0))), 80)
+    expect(tags).toHaveLength(8)
+    for (const t of tags) {
+      expect(t.y).toBeGreaterThanOrEqual(8)
+      expect(t.y).toBeLessThanOrEqual(72)
+    }
   })
 
   it('are hit on the tag and its label, the one drawn last first', () => {
-    const tags = layoutTags([display('CH1', 0, 0, 1, 'pulse'), display('CH2', -2)], H)
+    const tags = layoutTags(traces(display('CH1', 0, 0, 1, 'pulse'), display('CH2', -2)), H)
     const ch1 = tags.find((t) => t.display.id === 'CH1')!
     expect(tagAt(tags, 5, ch1.y)?.display.id).toBe('CH1')
     expect(tagAt(tags, ch1.right - 1, ch1.y + 7)?.display.id).toBe('CH1')
     expect(tagAt(tags, ch1.right + 2, ch1.y)).toBeUndefined()
     expect(tagAt(tags, 5, ch1.y + 12)).toBeUndefined()
     expect(tagAt(tags, 5, 140)?.display.id).toBe('CH2')
-  })
-
-  it('give the position that puts the 0 level at a division', () => {
-    const d = display('CH1', 0, 3, 2)
-    const position = positionForZeroAt(1, d)
-    expect(valueToDiv(0, { ...d, position })).toBeCloseTo(1)
-    expect(positionForZeroAt(-2, display('CH2', 5))).toBe(-2)
   })
 })
 
@@ -104,5 +126,58 @@ describe('traces', () => {
     // The first ends where the gap starts, the second starts where it ends (at 12.5 samples per column)
     expect(paths[0][paths[0].length - 1][0]).toBeCloseTo(4000 / 12.5, -1)
     expect(paths[1][0][0]).toBeCloseTo(6000 / 12.5, -1)
+  })
+})
+
+/** The fills and texts of a view with Ch 1 (green, 1 V/div, centred) triggered on a rising edge at `level` */
+function drawTrigger(level: number) {
+  const fills: { style: string; points: [number, number][] }[] = []
+  const texts: { style: string; text: string; y: number }[] = []
+  let path: [number, number][] = []
+  let fill = ''
+  const ctx = new Proxy({} as Record<string | symbol, unknown>, {
+    get: (_, k) => {
+      if (k === 'beginPath') return () => (path = [])
+      if (k === 'moveTo' || k === 'lineTo') return (x: number, y: number) => path.push([x, y])
+      if (k === 'fill') return () => fills.push({ style: fill, points: path })
+      if (k === 'fillText') return (text: string, _x: number, y: number) => texts.push({ style: fill, text, y })
+      if (k === 'measureText') return () => ({ width: 10 })
+      return () => {}
+    },
+    set: (_, k, v) => {
+      if (k === 'fillStyle') fill = v
+      return true
+    },
+  }) as unknown as CanvasRenderingContext2D
+  const data = new Float32Array([0, 1, 0, 1])
+  drawView(ctx, {
+    width: 864,
+    height: 200,
+    dpr: 1,
+    tStart: 0,
+    tEnd: 3,
+    timeTicks: [],
+    traces: [{ display: { ...display('CH1', 0), color: '#00ff00' }, wave: { id: 'CH1', data, t0: 0, dt: 1, yUnit: 'V', xUnit: 's' }, pyramid: new MinMaxPyramid(data) }],
+    trigger: { sourceId: 'CH1', level, slope: 'RISE', showMarker: true },
+    theme: THEMES.dark,
+  })
+  // The level arrow is at the right edge of the plot (800 px wide), the channel tag at the left
+  return { arrow: fills.find((f) => f.style === '#00ff00' && f.points.some(([x]) => x >= 790))?.points, label: texts.find((t) => t.text === 'C1 ↗') }
+}
+
+describe('trigger level', () => {
+  it('is an arrow in the colour of the source, with its name and slope, as on the scope', () => {
+    const { arrow, label } = drawTrigger(2)
+    expect(arrow).toContainEqual([800, 60])
+    expect(label).toEqual({ style: '#00ff00', text: 'C1 ↗', y: 60.5 })
+  })
+
+  it('stays at the top or bottom edge, pointing out, when the level is outside the view', () => {
+    const above = drawTrigger(7)
+    expect(above.arrow).toContainEqual([795, 1])
+    expect(above.label?.y).toBe(6.5)
+    const below = drawTrigger(-7)
+    expect(below.arrow).toContainEqual([795, 199])
+    expect(below.label?.y).toBe(194.5)
   })
 })

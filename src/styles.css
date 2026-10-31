@@ -963,7 +963,6 @@ code {
 .ch-main {
   display: grid;
   grid-template-columns: auto auto;
-  grid-template-rows: auto auto;
   column-gap: 8px;
   align-items: baseline;
   text-align: left;
@@ -990,10 +989,20 @@ code {
   color: var(--muted);
   font-size: 11.5px;
 }
-/* Input settings that differ from DC into a high impedance (AC, 50 Ω, Inv), as on the scope's badge */
+/* Termination and bandwidth, as on the scope's badge */
+.ch-input {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 15px;
+}
+/* Input settings that differ from DC into a high impedance (AC, 50 Ω, Inv) */
 .ch-flag {
   display: inline-block;
-  margin-right: 4px;
   padding: 0 3px;
   border: 1px solid var(--ch);
   border-radius: 3px;

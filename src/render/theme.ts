@@ -17,9 +17,8 @@ export interface Theme {
   cursor: string
   /** Letter on the cursor A/B labels */
   cursorText: string
+  /** Trigger point (the level is drawn in the colour of its source) */
   trigger: string
-  /** Dashed line at the trigger level */
-  triggerLevel: string
   hover: string
   selection: string
   /** Rectangle of the visible window in the overview, and its edge */
@@ -69,7 +68,6 @@ export const DARK_THEME: Theme = {
   cursor: '#e6e9ee',
   cursorText: '#000',
   trigger: '#ff9d2e',
-  triggerLevel: 'rgba(255, 157, 46, 0.35)',
   hover: 'rgba(255,255,255,0.25)',
   selection: '#fff',
   windowBox: '#3fb6ff',
@@ -110,7 +108,6 @@ export const LIGHT_THEME: Theme = {
   cursor: '#2b3340',
   cursorText: '#fff',
   trigger: '#c4691a',
-  triggerLevel: 'rgba(196, 105, 26, 0.5)',
   hover: 'rgba(0,0,0,0.25)',
   selection: '#000',
   windowBox: '#1673b8',

@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom'
 import { AlertTriangle, AudioLines, ChevronLeft, ChevronRight, Eye, EyeOff, Plus } from 'lucide-react'
 import type { MathResult } from '../math/expr'
 import { MAX_MATH, type MathDef } from '../model/math'
-import { inputFlags, inputSummary } from '../model/input'
+import { badgeItems, inputSummary } from '../model/input'
 import type { ChannelDisplay, ChannelInput, Session } from '../model/types'
 import { si } from '../util/format'
 import { channelName, perDiv, slopeSymbol, sourceUnit } from '../util/names'
@@ -148,8 +148,8 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
 
   const badge = (id: string, d: ChannelDisplay, unit: string, sub: string, popover: React.ReactNode, error?: string, input?: ChannelInput) => {
     const isOpen = open?.id === id
-    // Settings that differ from DC into a high impedance are marked on the badge, as on the scope
-    const flags = inputFlags(input)
+    // Termination and bandwidth as on the scope's badge; settings that differ from DC into a high impedance are marked
+    const items = badgeItems(input)
     return (
       <div
         key={id}
@@ -176,14 +176,16 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
           >
             <span className="ch-name">{channelName(id)}</span>
             <span className="ch-scale mono">{error ? <AlertTriangle size={12} aria-label="Error" /> : perDiv(d.scale, unit)}</span>
-            <span className="ch-label">
-              {flags.map((f) => (
-                <span key={f} className="ch-flag">
-                  {f}
-                </span>
-              ))}
-              {sub || (flags.length ? '' : ' ')}
-            </span>
+            {items.length > 0 && (
+              <span className="ch-input mono">
+                {items.map(({ text, flag }) => (
+                  <span key={text} className={flag ? 'ch-flag' : undefined}>
+                    {text}
+                  </span>
+                ))}
+              </span>
+            )}
+            <span className="ch-label">{sub || ' '}</span>
           </button>
           <button
             type="button"
