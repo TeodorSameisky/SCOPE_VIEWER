@@ -1272,6 +1272,14 @@ code {
 th:hover .x {
   visibility: visible;
 }
+/* In the padding of the header, so its label ends where the numbers below it end */
+.data-table th .x {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0 2px 0 0;
+}
 .readout-grid {
   display: grid;
   grid-template-columns: auto 1fr auto 1fr;
@@ -1337,6 +1345,86 @@ th:hover .x {
   overflow: auto;
   min-height: 0;
   flex: 1;
+}
+/* Without a stored height the panel is as high as its rows need, up to a share of the window */
+.measure.fit {
+  max-height: 40vh;
+}
+.measure.fit .measure-scroll {
+  flex: 0 1 auto;
+}
+/* The channel stays in sight when the table scrolls sideways */
+.measure-scroll .data-table th:first-child,
+.measure-scroll .data-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--panel);
+  box-shadow: 1px 0 0 var(--border);
+}
+.measure-scroll .data-table th:first-child {
+  z-index: 2;
+}
+/* A row selects its channel */
+.measure .data-table tbody tr {
+  cursor: pointer;
+}
+.measure .data-table tbody tr:hover td {
+  background-color: var(--hover);
+}
+.measure .data-table tbody tr.selected td {
+  background-image: linear-gradient(var(--accent-soft), var(--accent-soft));
+}
+.measure .data-table tbody tr.selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent), 1px 0 0 var(--border);
+}
+.row-btn,
+.chip-link {
+  display: inline-block;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+}
+.row-btn:hover:not(:disabled),
+.chip-link:hover:not(:disabled) {
+  background: transparent;
+}
+.row-btn[aria-current] {
+  font-weight: 600;
+}
+/* Cells that show "—" explain why in their tooltip */
+.measure .data-table td.na {
+  cursor: help;
+}
+/* Channels that are hidden have no row: they are listed under the rows, a click shows one */
+.measure .data-table tbody tr.hidden-note {
+  cursor: default;
+}
+.measure .data-table tbody tr.hidden-note:hover td {
+  background-color: var(--panel);
+}
+.hidden-list {
+  position: sticky;
+  left: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  width: max-content;
+  max-width: 70vw;
+  white-space: normal;
+}
+.chip-link {
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 12px;
+}
+.chip-link:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* info */

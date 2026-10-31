@@ -1,5 +1,6 @@
 import { si } from '../util/format'
-import type { MeasurementKey } from './measure'
+import type { MeasureRange } from '../model/view'
+import type { MeasurementKey, Measurements } from './measure'
 
 export type MeasureGroup = 'amplitude' | 'timing'
 
@@ -171,6 +172,14 @@ export const MEASUREMENT_NOTES: { title: string; text: string }[] = [
 
 export function measurementDef(key: MeasurementKey): MeasurementDef {
   return MEASUREMENT_DEFS.find((d) => d.key === key)!
+}
+
+/** Why a measurement shows "—": what is missing in the range, and what to do about it */
+export function missingReason(d: MeasurementDef, m: Pick<Measurements, 'count' | 'levelsOk'>, range: MeasureRange): string {
+  if (m.count === 0) return 'No samples of this channel in the range'
+  if (d.group !== 'timing') return 'Not available'
+  if (!m.levelsOk) return 'No clear signal levels in the range (only noise or a flat line)'
+  return range === 'record' ? 'Not enough edges in the record' : 'Not enough edges in the range — zoom out or measure the whole record'
 }
 
 /** Formatted text of one measurement value ("—" when not available) */

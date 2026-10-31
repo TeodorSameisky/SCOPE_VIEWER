@@ -107,12 +107,15 @@ interface Layout {
   panel: PanelId | null
   overview: boolean
   measurements: boolean
-  measHeight: number
+  /** Height of the measurement table; null: as high as its rows need (up to a share of the window) */
+  measHeight: number | null
   specHeight: number
   /** Values of all channels next to the pointer */
   readout: boolean
 }
-const DEFAULT_LAYOUT: Layout = { panel: null, overview: true, measurements: true, measHeight: 170, specHeight: 220, readout: true }
+const DEFAULT_LAYOUT: Layout = { panel: null, overview: true, measurements: true, measHeight: null, specHeight: 220, readout: true }
+/** The fixed height the measurement table had before it fitted its rows: stored by everyone who never resized it */
+const FORMER_MEAS_HEIGHT = 170
 
 /** The session file(s) as opened, kept for saving a bundle */
 export interface SourceFile {
@@ -906,8 +909,11 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
               setRange={changeMeasRange}
               keys={measKeys}
               setKeys={setMeasKeys}
-              height={layout.measHeight}
+              height={layout.measHeight === FORMER_MEAS_HEIGHT ? null : layout.measHeight}
               setHeight={(measHeight) => setLayout((l) => ({ ...l, measHeight }))}
+              selected={selected}
+              onSelect={setSelected}
+              onShowChannel={(id) => onAdjust(id, { visible: true })}
               onClose={toggleMeasurements}
               onOpenReference={(key) => openReference('measurements', key)}
               channelMenu={(id) => channelItems(api, id)}

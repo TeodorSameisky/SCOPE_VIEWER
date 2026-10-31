@@ -87,7 +87,14 @@ Which panels are open is remembered in the browser.
 - Measurements on screen, between cursors or over the whole record: max, min, pk-pk, mean, RMS,
   top, base, amplitude, frequency, period, rise/fall time (10–90 %), positive width, duty cycle.
   Click a column header for an explanation with a diagram, drag it to move the column; the **Reference**
-  panel (book icon in the rail) documents every measurement and the reference levels used
+  panel (book icon in the rail) documents every measurement and the reference levels used. In the table:
+  - a click on a row selects its channel (the selected channel's row is marked; right-click selects it too);
+  - the table is as high as its rows need (up to 40 % of the window) until you drag its top edge; a double-click
+    on that edge fits it to the rows again;
+  - the Channel column stays in sight when the table scrolls sideways, and a column you add is scrolled into view;
+  - the header of a column ends where its numbers end;
+  - channels that are hidden have no row: they are listed under the rows, and a click shows one. A "—" says in its
+    tooltip (pointer: help) why there is no value
 - **Math channels** and **Spectrum (FFT)** (see below)
 - **Input settings** of each channel as set on the scope: coupling, termination, bandwidth, probe attenuation,
   external attenuation and input mode, probe delay, current via shunt, invert and deskew – whatever the files hold.

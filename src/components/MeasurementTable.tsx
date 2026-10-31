@@ -1,8 +1,8 @@
-import { useCallback, useDeferredValue, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ArrowLeft, ArrowRight, BookOpen, ClipboardList, Copy, Info, Plus, TableProperties, X } from 'lucide-react'
 import type { ComputeEngine } from '../compute/engine'
 import type { MeasurementKey, Measurements } from '../dsp/measure'
-import { MEASURE_GROUP_LABEL, MEASUREMENT_DEFS, formatMeasurement, measurementDef, type MeasurementDef } from '../dsp/measureDefs'
+import { MEASURE_GROUP_LABEL, MEASUREMENT_DEFS, formatMeasurement, measurementDef, missingReason, type MeasurementDef } from '../dsp/measureDefs'
 import { channelName } from '../util/names'
 import { measurementTable } from '../export/measureRows'
 import { MeasureInfo } from './MeasureInfo'
@@ -24,8 +24,14 @@ interface Props {
   setRange: (r: MeasureRange) => void
   keys: MeasurementKey[]
   setKeys: (k: MeasurementKey[]) => void
-  height: number
-  setHeight: (h: number) => void
+  /** null: as high as the rows need, up to a share of the window */
+  height: number | null
+  setHeight: (h: number | null) => void
+  /** The selected channel: its row is marked, and a click on a row selects its channel */
+  selected?: string
+  onSelect: (id: string) => void
+  /** Show a hidden channel (its row is left out of the table) */
+  onShowChannel: (id: string) => void
   onClose: () => void
   /** Open the measurement reference, optionally at one measurement */
   onOpenReference: (key?: MeasurementKey) => void
@@ -44,7 +50,10 @@ export function MeasurementTable(p: Props) {
   const win = useDeferredValue(p.win)
   const cursors = useDeferredValue(p.cursors)
   const visible = p.channels.filter((c) => c.display.visible)
+  const hidden = p.channels.filter((c) => !c.display.visible)
   const { ink } = useTheme().theme
+  const rootRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   // Long ranges are measured in the worker, so the page stays responsive; the engine remembers
   // results per sample array and range, so changing a colour, label or unit (which creates new
@@ -70,6 +79,15 @@ export function MeasurementTable(p: Props) {
 
   const defs = p.keys.map(measurementDef)
   const unused = MEASUREMENT_DEFS.filter((d) => !p.keys.includes(d.key))
+
+  // A column that was added (here, by the command palette or by an undo) is scrolled into sight: in a
+  // narrow window it lands beyond the right edge of the table
+  const shownKeys = useRef(p.keys)
+  useEffect(() => {
+    const added = p.keys.find((k) => !shownKeys.current.includes(k))
+    shownKeys.current = p.keys
+    if (added) scrollRef.current?.querySelector(`th[data-key="${added}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [p.keys])
 
   // Popovers (measurement info, add picker), positioned fixed so the scroll area does not clip them
   const [popup, setPopup] = useState<Popup | null>(null)
@@ -188,6 +206,7 @@ export function MeasurementTable(p: Props) {
   }
   const channelLabel = (c: LiveChannel) => `${channelName(c.wave.id)}${c.display.label ? ` ${c.display.label}` : ''}`
   const rowMenu = (e: React.MouseEvent, c: LiveChannel) => {
+    p.onSelect(c.wave.id)
     menu(e, [
       { kind: 'heading', label: channelLabel(c), color: c.display.color },
       { label: 'Copy row', icon: Copy, disabled: !p.keys.length, onClick: () => copyRow(c) },
@@ -198,6 +217,7 @@ export function MeasurementTable(p: Props) {
   }
   const cellMenu = (e: React.MouseEvent, c: LiveChannel, d: MeasurementDef, text: string) => {
     const th = (e.currentTarget as HTMLElement).closest('table')?.querySelector(`th[data-key="${d.key}"]`)?.getBoundingClientRect() ?? pointRect(e)
+    p.onSelect(c.wave.id)
     menu(e, [
       { kind: 'heading', label: `${d.label} · ${channelName(c.wave.id)}`, color: c.display.color, detail: text },
       { label: 'Copy value', icon: Copy, onClick: () => p.onCopy(text, `${d.label} of ${channelName(c.wave.id)}`) },
@@ -210,8 +230,13 @@ export function MeasurementTable(p: Props) {
 
 
   return (
-    <div className="measure" style={{ height: p.height }} onContextMenu={(e) => menu(e, common(e))}>
-      <ResizeHandle height={p.height} setHeight={p.setHeight} />
+    <div
+      ref={rootRef}
+      className={p.height === null ? 'measure fit' : 'measure'}
+      style={p.height === null ? undefined : { height: p.height }}
+      onContextMenu={(e) => menu(e, common(e))}
+    >
+      <ResizeHandle height={p.height} setHeight={p.setHeight} getHeight={() => rootRef.current?.offsetHeight ?? 0} onReset={() => p.setHeight(null)} />
       <div className="measure-bar">
         <span className="section-title">Measurements</span>
         <div className="segmented">
@@ -233,7 +258,7 @@ export function MeasurementTable(p: Props) {
           <X size={16} />
         </button>
       </div>
-      <div className="measure-scroll">
+      <div ref={scrollRef} className="measure-scroll">
         <table className="data-table">
           <thead className={colDrag ? 'col-dragging' : undefined}>
             <tr ref={headRef}>
@@ -258,8 +283,8 @@ export function MeasurementTable(p: Props) {
                     title={`${d.short} Click for details, drag to move the column.`}
                     onClick={(e) => openAt(e, { kind: 'info', key: d.key })}
                   >
-                    {d.label}
                     <Info size={12} aria-hidden />
+                    {d.label}
                   </button>
                   <button type="button" className="x" title="Remove" aria-label={`Remove ${d.label}`} onClick={() => p.setKeys(p.keys.filter((k) => k !== d.key))}>
                     ×
@@ -272,21 +297,30 @@ export function MeasurementTable(p: Props) {
             {visible.map((c) => {
               const r = results.get(c.wave.id)
               const m = r?.m
+              const isSelected = c.wave.id === p.selected
               return (
-                <tr key={c.wave.id} className={r?.pending ? 'pending' : undefined} aria-busy={!r || r.pending || undefined}>
+                <tr
+                  key={c.wave.id}
+                  className={[r?.pending && 'pending', isSelected && 'selected'].filter(Boolean).join(' ') || undefined}
+                  aria-busy={!r || r.pending || undefined}
+                  onClick={() => p.onSelect(c.wave.id)}
+                >
                   <td onContextMenu={(e) => rowMenu(e, c)}>
-                    <span className="dot" style={{ background: ink(c.display.color) }} />
-                    {channelName(c.wave.id)}
-                    {c.display.label && <span className="muted"> {c.display.label}</span>}
+                    <button type="button" className="row-btn" aria-current={isSelected || undefined} title={`Select ${channelName(c.wave.id)}`}>
+                      <span className="dot" style={{ background: ink(c.display.color) }} />
+                      {channelName(c.wave.id)}
+                      {c.display.label && <span className="muted"> {c.display.label}</span>}
+                    </button>
                   </td>
                   {defs.map((d) => {
                     const v = m?.[d.key]
                     const text = m && v !== undefined ? formatMeasurement(d.key, v, c.wave.yUnit) : ''
+                    const missing = m !== undefined && v !== undefined && !Number.isFinite(v)
                     return (
                       <td
                         key={d.key}
-                        className="mono"
-                        title={m && v !== undefined && !Number.isFinite(v) ? whyMissing(d, m) : undefined}
+                        className={missing ? 'mono na' : 'mono'}
+                        title={missing ? missingReason(d, m, p.range) : undefined}
                         onContextMenu={(e) => cellMenu(e, c, d, text)}
                       >
                         {text}
@@ -296,6 +330,22 @@ export function MeasurementTable(p: Props) {
                 </tr>
               )
             })}
+            {hidden.length > 0 && (
+              <tr className="hidden-note">
+                <td colSpan={defs.length + 1}>
+                  <div className="hidden-list">
+                    <span className="muted">{visible.length ? 'Hidden:' : 'No channel is shown. Show one to measure it:'}</span>
+                    {hidden.map((c) => (
+                      <button key={c.wave.id} type="button" className="chip-link" title={`Show ${channelName(c.wave.id)}`} onClick={() => p.onShowChannel(c.wave.id)}>
+                        <span className="dot" style={{ background: ink(c.display.color) }} />
+                        {channelName(c.wave.id)}
+                        {c.display.label && <span className="muted"> {c.display.label}</span>}
+                      </button>
+                    ))}
+                  </div>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -347,11 +397,4 @@ export function MeasurementTable(p: Props) {
       )}
     </div>
   )
-}
-
-function whyMissing(d: MeasurementDef, m: Measurements): string {
-  if (m.count === 0) return 'No samples of this channel in the range'
-  if (d.group === 'timing' && !m.levelsOk) return 'No clear signal levels in the range (only noise or a flat line)'
-  if (d.group === 'timing') return 'Not enough edges in the range — zoom out or measure the whole record'
-  return 'Not available'
 }

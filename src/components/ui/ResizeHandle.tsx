@@ -5,8 +5,17 @@ const MIN_HEIGHT = 90
 /** … and at most this share of the window */
 const MAX_SHARE = 0.6
 
+interface Props {
+  /** The panel's height; null when it fits its content (then `getHeight` tells how high it is) */
+  height: number | null
+  setHeight: (h: number) => void
+  getHeight?: () => number
+  /** A double-click: back to the height that fits the content */
+  onReset?: () => void
+}
+
 /** The top edge of a panel below the plot: drag it to resize the panel */
-export function ResizeHandle({ height, setHeight }: { height: number; setHeight: (h: number) => void }) {
+export function ResizeHandle({ height, setHeight, getHeight, onReset }: Props) {
   const drag = useRef<{ y0: number; h0: number } | null>(null)
   const end = () => {
     drag.current = null
@@ -16,11 +25,11 @@ export function ResizeHandle({ height, setHeight }: { height: number; setHeight:
       className="resize-handle"
       role="separator"
       aria-orientation="horizontal"
-      title="Drag to resize"
+      title={onReset ? 'Drag to resize · double-click to fit the rows' : 'Drag to resize'}
       onPointerDown={(e) => {
         if (e.button !== 0) return
         e.currentTarget.setPointerCapture(e.pointerId)
-        drag.current = { y0: e.clientY, h0: height }
+        drag.current = { y0: e.clientY, h0: height ?? getHeight?.() ?? MIN_HEIGHT }
       }}
       onPointerMove={(e) => {
         if (!drag.current) return
@@ -29,6 +38,7 @@ export function ResizeHandle({ height, setHeight }: { height: number; setHeight:
       onPointerUp={end}
       onPointerCancel={end}
       onLostPointerCapture={end}
+      onDoubleClick={onReset}
     />
   )
 }
