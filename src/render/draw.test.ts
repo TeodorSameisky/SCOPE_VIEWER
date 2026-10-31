@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MinMaxPyramid } from '../dsp/minmax'
 import type { ChannelDisplay } from '../model/types'
-import { divToValue, drawTimeAxis, drawView, gridRows, labelEvery, labelSpan, labelStep, layoutTags, offsetText, tagAt, type TraceInput } from './draw'
+import { divToValue, drawTimeAxis, drawView, gridRows, labelEvery, labelStep, layoutTags, offsetText, tagAt, type TraceInput } from './draw'
 import { THEMES } from './theme'
 
 const display = (id: string, position: number, offset = 0, scale = 1, label = ''): ChannelDisplay => ({ id, label, color: '#fff', visible: true, scale, position, offset })
@@ -237,15 +237,15 @@ describe('grid and scale', () => {
     for (const l of labels) expect(divToValue((H / 2 - l.y) / 20, d)).toBeCloseTo(parseFloat(l.text), 6)
   })
 
-  it('keeps the scale labels to the band of their trace when the traces are stacked', () => {
-    // Ch 1 from 2.5 to 3.5 div (y 30 … 50), Ch 2 from -2.5 to -1.5 div (y 130 … 150)
-    const ch1 = trace(display('CH1', 2.5), [0, 1])
-    const ch2 = trace(display('CH2', -2.5), [0, 1])
-    expect(labelSpan([ch1, ch2], ch1, H, 0, 1)).toEqual([0, 90])
-    expect(labelSpan([ch1, ch2], ch2, H, 0, 1)).toEqual([90, 200])
-    // Overlapping traces share the view: the labels cover it all
-    const over = trace(display('CH2', 3), [0, 1])
-    expect(labelSpan([ch1, over], ch1, H, 0, 1)).toEqual([0, 200])
+  it('labels the whole height of the view, also when the traces do not cross', () => {
+    // Two flat traces far apart (a quiet stretch): Ch 1 at 3 V, Ch 2 two divisions lower
+    const ch1 = { ...trace(display('CH1', 0), [3, 3]), display: { ...display('CH1', 0), color: '#00ff00' } }
+    const ch2 = trace(display('CH2', -2), [-3, -3])
+    const labels = recordTexts((ctx) =>
+      drawView(ctx, { width: 864, height: H, dpr: 1, tStart: 0, tEnd: 1, timeTicks: [], traces: [ch1, ch2], axisChannel: ch1, theme: THEMES.dark }),
+    ).filter((t) => t.x === 806)
+    // -5 V and 5 V are on the edges of the view
+    expect(labels.map((l) => l.text)).toEqual(['-4 V', '-3 V', '-2 V', '-1 V', '0 V', '1 V', '2 V', '3 V', '4 V'])
   })
 
   it('leaves out time labels that would run into each other', () => {

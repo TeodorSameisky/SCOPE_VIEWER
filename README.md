@@ -41,8 +41,8 @@ Which panels are open is remembered in the browser.
   labels on the right sit on the rows and the grid moves with its position. Dots on every grid line mark fifths
   of a division. The labels are round values, as many as there is room for (on every 2nd, 5th … row in a short
   view, every 2nd, 5th … time in a narrow window); after a zoom rectangle, whose V/div is not a 1-2-5 value, they
-  sit between the rows. When the traces of a view are stacked in bands, the scale labels stay next to their own
-  trace. The *Horizontal* box shows the length of the window next to the time per division
+  sit between the rows. They cover the whole view, as on the scope; to read another trace of the view against
+  the scale, select it. The *Horizontal* box shows the length of the window next to the time per division
 - Min/max decimation pyramid, so long records stay responsive
 - Click a trace to select it; Ctrl+wheel changes its V/div, Alt+wheel its position
 - **Autoscale** (`A`, or the button next to *Full record*): fits what is on screen of every visible channel into

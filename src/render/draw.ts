@@ -101,38 +101,6 @@ export function labelEvery(gap: number, need: number): number {
   return need <= gap ? 1 : Math.round(niceStep(need / gap))
 }
 
-/**
- * Heights (px) between which the scale labels of the view's axis channel go: the whole view, unless
- * its trace runs clear of the others (traces stacked in bands, e.g. after Autoscale); then its band,
- * up to halfway to the traces above and below, so the labels are not read against another trace.
- */
-export function labelSpan(traces: TraceInput[], axis: TraceInput, height: number, tStart: number, tEnd: number): [number, number] {
-  const divH = height / DIVS_Y
-  const mm: [number, number] = [NaN, NaN]
-  /** Top and bottom of a trace in the window (px), undefined when it is not in the view */
-  const extent = ({ wave, display, pyramid }: TraceInput): [number, number] | undefined => {
-    pyramid.range(Math.floor((tStart - wave.t0) / wave.dt), Math.ceil((tEnd - wave.t0) / wave.dt) + 1, mm)
-    if (Number.isNaN(mm[0])) return undefined
-    const top = height / 2 - valueToDiv(mm[1], display) * divH
-    const bottom = height / 2 - valueToDiv(mm[0], display) * divH
-    return bottom < 0 || top > height ? undefined : [Math.max(0, top), Math.min(height, bottom)]
-  }
-  const own = extent(axis)
-  if (!own) return [0, height]
-  let top = 0
-  let bottom = height
-  for (const t of traces) {
-    if (t.display.id === axis.display.id) continue
-    const e = extent(t)
-    if (!e) continue
-    if (e[1] < own[0]) top = Math.max(top, (e[1] + own[0]) / 2)
-    else if (e[0] > own[1]) bottom = Math.min(bottom, (own[1] + e[0]) / 2)
-    // Overlapping traces share the view: the labels cover all of it
-    else return [0, height]
-  }
-  return [top, bottom]
-}
-
 /** Font of the channel labels next to the tags */
 const TAG_LABEL_FONT = font(13, SANS)
 /** Half the height of a tag, and the least distance between the centres of two tags (where there is room) */
@@ -259,8 +227,8 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
   for (const tr of o.traces) drawTrace(ctx, tr, o, plotW, divH)
   ctx.restore()
 
-  // Right axis labels for the selected/first channel of this view: round values far enough apart
-  // (see labelStep), next to its own trace when the traces are stacked in bands (see labelSpan)
+  // Right axis labels for the selected/first channel of this view, over its whole height as on the
+  // scope: round values far enough apart (see labelStep)
   if (o.axisChannel) {
     const d = o.axisChannel.display
     const unit = o.axisChannel.wave.yUnit
@@ -269,13 +237,12 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
     ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
     const step = labelStep(d.scale, divH)
-    const [top, bottom] = labelSpan(o.traces, o.axisChannel, H, o.tStart, o.tEnd)
     const vLo = divToValue(-DIVS_Y / 2, d)
     const vHi = divToValue(DIVS_Y / 2, d)
     for (let k = Math.ceil(vLo / step - 1e-9); k * step <= vHi + step * 1e-9; k++) {
       const v = k * step
       const y = H / 2 - valueToDiv(v, d) * divH
-      if (y < Math.max(5, top) || y > Math.min(H - 5, bottom)) continue
+      if (y < 5 || y > H - 5) continue
       ctx.fillText(siTick(v, unit, step), plotW + 6, y)
       ctx.fillRect(plotW, Math.round(y), 4, 1)
     }
