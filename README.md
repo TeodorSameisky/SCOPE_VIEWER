@@ -31,6 +31,14 @@ ranges computed, in Web Workers, so long records do not block the page. Session 
   in a narrow window the row scrolls sideways (mouse wheel or the arrows at its edges), and the selected
   channel is always scrolled into view; below 700 px the badges get a row of their own above the buttons and
   the horizontal and trigger summaries
+- **Views are numbered**: with several stacked views, each shows its number in its top left corner (lit where the
+  selected channel is), and the channel bar groups the badges by view with the same numbers (the group of the
+  selected channel is outlined). Pointing at a group, or opening a channel's settings, outlines its view in the
+  plot. A group whose channels are all hidden is dashed and marked with an eye, as the plot leaves that view out.
+  To move a channel to another view, drag its badge onto that group (the view lights up in the plot), or onto
+  the *New view* box that appears at the end of the row while dragging (the row scrolls when a badge is held near
+  its edge; Esc cancels); the settings have a button for each view and for a new one. Dragging a tag in the plot
+  onto another view works as before
 
 Which panels are open is remembered in the browser.
 

@@ -5,6 +5,7 @@ import type { MathResult } from '../math/expr'
 import { MAX_MATH, type MathDef } from '../model/math'
 import { badgeItems, inputSummary } from '../model/input'
 import type { ChannelDisplay, ChannelInput, Session } from '../model/types'
+import { shownViews } from '../model/view'
 import { si } from '../util/format'
 import { channelName, perDiv, slopeSymbol, sourceUnit } from '../util/names'
 import { ChannelSettings } from './ChannelSettings'
@@ -47,6 +48,8 @@ interface Props {
   onChannelMenu?: (e: React.MouseEvent, id: string) => void
   /** Right-click on the horizontal / trigger summary */
   onTimebaseMenu?: (e: React.MouseEvent) => void
+  /** The view whose channels the pointer is on (or whose settings are open), for the plot to outline it */
+  onHighlightView?: (view: number | undefined) => void
 }
 
 export interface ChannelBarHandle {
@@ -129,15 +132,81 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
   }, [p.selected, reveal])
   // A resized window moves the badge: the open settings follow it (and stay inside the window)
   const openId = open?.id
+  const placeOpen = useCallback(
+    (id: string) => {
+      const el = reveal(id)
+      if (el) setOpen({ id, style: placeNear(el.getBoundingClientRect(), POPOVER_W, 'above') })
+    },
+    [reveal],
+  )
   useEffect(() => {
     if (!openId) return
-    const place = () => {
-      const el = reveal(openId)
-      if (el) setOpen({ id: openId, style: placeNear(el.getBoundingClientRect(), POPOVER_W, 'above') })
-    }
+    const place = () => placeOpen(openId)
     window.addEventListener('resize', place)
     return () => window.removeEventListener('resize', place)
-  }, [openId, reveal])
+  }, [openId, placeOpen])
+
+  // A badge dragged to another view: pressed on the badge (not yet moved far enough to be a drag), then
+  // dragged with the view under the pointer as its target (`views.length`: a new view of its own)
+  const [drag, setDrag] = useState<{ id: string; target?: number } | null>(null)
+  const [ghost, setGhost] = useState({ x: 0, y: 0 })
+  const press = useRef<{ id: string; x0: number; y0: number } | null>(null)
+  const pointer = useRef({ x: 0, y: 0 })
+  const justDragged = useRef(false)
+  /** Where the badge `id` would go if it were dropped at (x, y); not where it already is */
+  const targetAt = (id: string, x: number, y: number): number | undefined => {
+    const drop = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-drop]')?.dataset.drop
+    const target = drop === 'new' ? p.views.length : drop === undefined ? undefined : Number(drop)
+    return target !== undefined && !p.views[target]?.includes(id) && !(target === p.views.length && p.views.some((v) => v.length === 1 && v[0] === id)) ? target : undefined
+  }
+  const cancelDrag = () => {
+    press.current = null
+    setDrag(null)
+  }
+  // The row scrolls while a badge is held near its edge
+  const dragging = drag !== null
+  useEffect(() => {
+    if (!dragging) return
+    let raf = 0
+    const tick = () => {
+      const row = scrollRef.current
+      const id = press.current?.id
+      if (row && id) {
+        const r = row.getBoundingClientRect()
+        const { x, y } = pointer.current
+        const edge = 48
+        if (x < r.left + edge) row.scrollLeft -= Math.ceil((r.left + edge - x) / 4)
+        else if (x > r.right - edge) row.scrollLeft += Math.ceil((x - (r.right - edge)) / 4)
+        // What is under the pointer changes as the row scrolls
+        const target = targetAt(id, x, y)
+        setDrag((d) => (d && d.target !== target ? { ...d, target } : d))
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      cancelDrag()
+    }
+    window.addEventListener('keydown', key, true)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('keydown', key, true)
+    }
+    // targetAt and cancelDrag only read props and refs of this render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragging])
+
+  // The view of the channels the pointer is on, or of the open settings: outlined in the plot
+  const [hoverView, setHoverView] = useState<number | undefined>()
+  const openView = openId ? p.views.findIndex((v) => v.includes(openId)) : -1
+  const litView = drag ? drag.target : (hoverView ?? (openView >= 0 ? openView : undefined))
+  const { onHighlightView } = p
+  useEffect(() => {
+    onHighlightView?.(litView)
+  }, [litView, onHighlightView])
+  useEffect(() => () => onHighlightView?.(undefined), [onHighlightView])
   const onScroll = () => {
     updateEdges()
     // The open settings stay attached to their badge
@@ -169,7 +238,7 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
       <div
         key={id}
         data-id={id}
-        className={`ch-badge ${p.selected === id ? 'selected' : ''} ${d.visible ? '' : 'off'} ${error ? 'error' : ''}`}
+        className={`ch-badge ${p.selected === id ? 'selected' : ''} ${d.visible ? '' : 'off'} ${error ? 'error' : ''} ${drag?.id === id ? 'dragging' : ''}`}
         style={{ ['--ch' as string]: ink(d.color) }}
         onContextMenu={(e) => {
           if (!p.onChannelMenu || (e.target as HTMLElement).closest('.popover')) return
@@ -181,9 +250,44 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
           <button
             type="button"
             className="ch-main"
-            title={`${channelName(id)}${d.label ? ` – ${d.label}` : ''}${error ? ` – ${error}` : ''}${input ? `\n${inputSummary(input)}` : ''}\nClick for settings`}
+            title={`${channelName(id)}${d.label ? ` – ${d.label}` : ''}${error ? ` – ${error}` : ''}${input ? `\n${inputSummary(input)}` : ''}\nClick for settings · drag to another view`}
             aria-expanded={isOpen}
+            onPointerDown={(e) => {
+              // A mouse or pen drags the badge; a finger scrolls the row (the settings have buttons for the views)
+              if (e.button !== 0 || e.pointerType === 'touch') return
+              press.current = { id, x0: e.clientX, y0: e.clientY }
+              e.currentTarget.setPointerCapture(e.pointerId)
+            }}
+            onPointerMove={(e) => {
+              const pr = press.current
+              if (!pr || pr.id !== id) return
+              pointer.current = { x: e.clientX, y: e.clientY }
+              if (!drag) {
+                // A click stays a click until the pointer has moved a few pixels
+                if (Math.hypot(e.clientX - pr.x0, e.clientY - pr.y0) < 6) return
+                p.setSelected(id)
+                setOpen(null)
+              }
+              setGhost({ x: e.clientX, y: e.clientY })
+              const target = targetAt(id, e.clientX, e.clientY)
+              setDrag((d) => (d && d.id === id && d.target === target ? d : { id, target }))
+            }}
+            onPointerUp={() => {
+              const target = drag?.target
+              press.current = null
+              if (!drag) return
+              // The click that follows the release is not a click on the badge
+              justDragged.current = true
+              setTimeout(() => (justDragged.current = false))
+              setDrag(null)
+              if (target !== undefined) {
+                p.onMoveToView(id, target)
+                requestAnimationFrame(() => reveal(id))
+              }
+            }}
+            onPointerCancel={cancelDrag}
             onClick={(e) => {
+              if (justDragged.current) return
               p.setSelected(id)
               if (isOpen) setOpen(null)
               else openFor(id, e.currentTarget.closest('.ch-badge') as HTMLElement)
@@ -229,7 +333,12 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
       hasWave={hasWave}
       views={p.views}
       onAdjust={p.onAdjust}
-      onMoveToView={p.onMoveToView}
+      onPreviewView={setHoverView}
+      onMoveToView={(id, view) => {
+        p.onMoveToView(id, view)
+        // The badge now sits in another group: the settings follow it
+        requestAnimationFrame(() => placeOpen(id))
+      }}
       onAutoscale={p.onAutoscale}
       hasSpectrum={p.spectrumSources.has(d.id)}
       canAddSpectrum={p.canAddSpectrum}
@@ -239,8 +348,71 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
     </ChannelSettings>
   )
 
+  // One badge per channel (inputs, then math). With several views they are grouped by view, each group
+  // numbered like its view in the plot; a view whose channels are all hidden is marked as left out
+  const nodes = new Map<string, React.ReactNode>()
+  for (const c of p.channels) {
+    nodes.set(c.wave.id, badge(c.wave.id, c.display, c.wave.yUnit, c.display.label, settings(c.display, c.wave.yUnit, true, undefined, c.input), undefined, c.input))
+  }
+  for (const m of p.math) {
+    const unit = m.result?.wave?.yUnit ?? ''
+    nodes.set(
+      m.def.id,
+      badge(
+        m.def.id,
+        m.display,
+        unit,
+        m.display.label || m.def.expr,
+        settings(
+          m.display,
+          unit,
+          !!m.result?.wave,
+          <MathEditor
+            key={m.def.expr}
+            def={m.def}
+            result={m.result}
+            sources={sources}
+            onChange={(patch) => p.onChangeMath(m.def.id, patch)}
+            onRemove={() => {
+              setOpen(null)
+              p.onRemoveMath(m.def.id)
+            }}
+            onOpenReference={() => {
+              setOpen(null)
+              p.onOpenMathReference()
+            }}
+          />,
+        ),
+        m.result?.error,
+      ),
+    )
+  }
+  const grouped = p.views.length > 1
+  const visible = (id: string) => !!(p.channels.find((c) => c.wave.id === id) ?? p.math.find((m) => m.def.id === id))?.display.visible
+  const shown = shownViews(p.views, visible)
+  const order = [...nodes.keys()]
+  const groups = p.views
+    .map((v, view) => ({ view, ids: order.filter((id) => v.includes(id)), shown: shown[view], selected: p.selected !== undefined && v.includes(p.selected) }))
+    .filter((g) => g.ids.length > 0)
+  const strays = order.filter((id) => !p.views.some((v) => v.includes(id)))
+  // While a badge is dragged: a place to drop it for a view of its own (not for the only channel of a view)
+  const newView =
+    drag && !p.views.some((v) => v.length === 1 && v[0] === drag.id) ? (
+      <div key="new-view" data-drop="new" className={`ch-newview ${drag.target === p.views.length ? 'drop' : ''}`}>
+        <Plus size={14} aria-hidden /> New view
+      </div>
+    ) : null
+  const dragTarget = drag?.target === undefined ? '' : drag.target === p.views.length ? ' → new view' : ` → view ${drag.target + 1}`
+  const dragColor = (p.channels.find((c) => c.wave.id === drag?.id) ?? p.math.find((m) => m.def.id === drag?.id))?.display.color
+
   return (
-    <footer className="channel-bar">
+    <footer className={`channel-bar ${drag ? 'dragging' : ''}`}>
+      {drag && (
+        <div className="ch-ghost" style={{ left: ghost.x + 14, top: ghost.y + 14, ['--ch' as string]: ink(dragColor ?? '#888') }}>
+          {channelName(drag.id)}
+          {dragTarget}
+        </div>
+      )}
       <div className="badges-wrap">
         {edges.left && (
           <button type="button" className="badges-scroll left" tabIndex={-1} aria-label="Scroll the channels left" onClick={() => scrollBy(-1)}>
@@ -249,39 +421,38 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
         )}
         <div ref={scrollRef} className="badges" onScroll={onScroll}>
           <div ref={trackRef} className="badges-track">
-            {p.channels.map((c) =>
-              badge(c.wave.id, c.display, c.wave.yUnit, c.display.label, settings(c.display, c.wave.yUnit, true, undefined, c.input), undefined, c.input),
-            )}
-            {p.math.map((m) => {
-              const unit = m.result?.wave?.yUnit ?? ''
-              return badge(
-                m.def.id,
-                m.display,
-                unit,
-                m.display.label || m.def.expr,
-                settings(
-                  m.display,
-                  unit,
-                  !!m.result?.wave,
-                  <MathEditor
-                    key={m.def.expr}
-                    def={m.def}
-                    result={m.result}
-                    sources={sources}
-                    onChange={(patch) => p.onChangeMath(m.def.id, patch)}
-                    onRemove={() => {
-                      setOpen(null)
-                      p.onRemoveMath(m.def.id)
-                    }}
-                    onOpenReference={() => {
-                      setOpen(null)
-                      p.onOpenMathReference()
-                    }}
-                  />,
-                ),
-                m.result?.error,
-              )
-            })}
+            {grouped
+              ? [
+                  ...groups.map((g) => (
+                    <div
+                      key={`view${g.view}`}
+                      role="group"
+                      aria-label={`View ${g.view + 1}`}
+                      data-drop={g.view}
+                      className={`ch-group ${g.shown ? '' : 'off'} ${g.selected ? 'selected' : ''} ${drag?.target === g.view ? 'drop' : ''}`}
+                      onPointerEnter={() => setHoverView(g.view)}
+                      onPointerLeave={() => setHoverView(undefined)}
+                      onFocus={() => setHoverView(g.view)}
+                      onBlur={() => setHoverView(undefined)}
+                    >
+                      <span
+                        className="ch-group-num"
+                        title={
+                          g.shown
+                            ? `View ${g.view + 1}: ${g.ids.length === 1 ? 'one channel has' : `${g.ids.length} channels share`} its grid and scale. Drag a channel tag in the plot onto another view to move it`
+                            : `View ${g.view + 1}: all its channels are hidden, so the plot leaves it out`
+                        }
+                      >
+                        {g.view + 1}
+                        {!g.shown && <EyeOff size={11} aria-label="Hidden" />}
+                      </span>
+                      {g.ids.map((id) => nodes.get(id))}
+                    </div>
+                  )),
+                  ...strays.map((id) => nodes.get(id)),
+                  newView,
+                ]
+              : [...nodes.values(), newView]}
           </div>
         </div>
         {edges.right && (

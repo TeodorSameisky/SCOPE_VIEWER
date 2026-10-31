@@ -589,6 +589,15 @@ code {
   display: block;
   pointer-events: none;
 }
+/* The view whose channels the pointer is on in the channel bar */
+.view-lit {
+  position: absolute;
+  left: 0;
+  box-sizing: border-box;
+  border: 2px solid var(--accent);
+  background: var(--accent-soft);
+  pointer-events: none;
+}
 /* The edge between two stacked views: drag it to change their heights */
 .view-splitter {
   position: absolute;
@@ -951,6 +960,77 @@ code {
   flex: none;
   gap: 5px;
 }
+/* The badges of one view (when there are several), numbered like the view in the plot */
+.ch-group {
+  display: flex;
+  flex: none;
+  gap: 5px;
+  padding: 1px 3px 1px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.ch-group.selected {
+  border-color: var(--accent);
+}
+/* A view whose channels are all hidden is left out of the plot */
+.ch-group.off {
+  border-style: dashed;
+}
+.ch-group-num {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 18px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: help;
+}
+.ch-group.selected .ch-group-num {
+  color: var(--accent);
+}
+/* A badge being dragged to another view: the view it would go to, and a place for a new one */
+.channel-bar.dragging,
+.channel-bar.dragging * {
+  cursor: grabbing;
+  user-select: none;
+}
+.ch-badge.dragging .ch-badge-inner {
+  opacity: 0.4;
+}
+.ch-group.drop,
+.ch-newview.drop {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.ch-newview {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 0 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.ch-ghost {
+  position: fixed;
+  z-index: 60;
+  padding: 3px 9px;
+  border: 1px solid var(--border-strong);
+  border-top: 3px solid var(--ch);
+  border-radius: 5px;
+  background: var(--panel);
+  box-shadow: 0 6px 18px var(--shadow);
+  color: var(--ch);
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+}
 .ch-badge {
   position: relative;
   display: flex;
@@ -1129,6 +1209,18 @@ code {
 }
 .unit {
   color: var(--muted);
+}
+/* The views a channel can be in: one button each, and a new one */
+.view-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  color: var(--text);
+}
+.view-chips button.toggle-btn {
+  min-width: 26px;
+  justify-content: center;
+  padding: 2px 7px;
 }
 
 /* tables */

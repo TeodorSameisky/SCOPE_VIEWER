@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AudioLines, Eye, EyeOff } from 'lucide-react'
+import { AudioLines, Eye, EyeOff, Plus } from 'lucide-react'
 import { inputItems, inputSummary } from '../model/input'
 import type { ChannelDisplay, ChannelInput } from '../model/types'
 import { parseValue, siTick } from '../util/format'
@@ -18,6 +18,8 @@ interface Props {
   views: string[][]
   onAdjust: (id: string, patch: DisplayPatch) => void
   onMoveToView: (id: string, view: number) => void
+  /** The pointer is on the button of a view (undefined: left it), for the plot to outline that view */
+  onPreviewView?: (view: number | undefined) => void
   onAutoscale: (id: string) => void
   hasSpectrum: boolean
   canAddSpectrum: boolean
@@ -27,7 +29,7 @@ interface Props {
 }
 
 /** Vertical settings of one channel (shown in the channel badge popover). */
-export function ChannelSettings({ display: d, unit, input, hasWave, views, onAdjust, onMoveToView, onAutoscale, hasSpectrum, canAddSpectrum, onToggleSpectrum, children }: Props) {
+export function ChannelSettings({ display: d, unit, input, hasWave, views, onAdjust, onMoveToView, onPreviewView, onAutoscale, hasSpectrum, canAddSpectrum, onToggleSpectrum, children }: Props) {
   const id = d.id
   const view = views.findIndex((v) => v.includes(id))
   const { ink, onInk } = useTheme().theme
@@ -105,16 +107,31 @@ export function ChannelSettings({ display: d, unit, input, hasWave, views, onAdj
             onChange={(offset) => onAdjust(id, { offset })}
           />
         </div>
-        <span>View</span>
-        <div className="stepper">
-          <select value={view} aria-label="View" onChange={(e) => onMoveToView(id, Number(e.target.value))}>
-            {views.map((_, i) => (
-              <option key={i} value={i}>
-                View {i + 1}
-              </option>
-            ))}
-            <option value={views.length}>New view</option>
-          </select>
+        <span title={VIEW_HINT}>View</span>
+        <div className="view-chips" role="group" aria-label="View">
+          {views.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              className={`toggle-btn ${i === view ? 'active' : ''}`}
+              aria-pressed={i === view}
+              title={i === view ? `In view ${i + 1}` : `Move to view ${i + 1}`}
+              onClick={() => i !== view && onMoveToView(id, i)}
+              onPointerEnter={() => onPreviewView?.(i)}
+              onPointerLeave={() => onPreviewView?.(undefined)}
+            >
+              {i + 1}
+            </button>
+          ))}
+          <button
+            type="button"
+            className="toggle-btn"
+            disabled={view >= 0 && views[view].length === 1}
+            title={view >= 0 && views[view].length === 1 ? 'Already in a view of its own' : 'Move to a new view of its own'}
+            onClick={() => onMoveToView(id, views.length)}
+          >
+            <Plus size={12} aria-hidden /> New
+          </button>
         </div>
         <span>Spectrum</span>
         <div className="stepper">
@@ -149,6 +166,7 @@ export function ChannelSettings({ display: d, unit, input, hasWave, views, onAdj
 
 const SCALE_HINT = 'Value of one division. Type a value such as 500m or 2 V; ↑ ↓ step through 1-2-5 values'
 const POSITION_HINT = 'Moves the trace up or down on the screen, in divisions; its tag on the left edge follows'
+const VIEW_HINT = 'The stacked plot the channel is drawn in; the channels of a view share its grid and scale labels'
 const OFFSET_HINT = 'The value that sits at the position line, as in the channel tag. Raising it moves the trace down'
 
 interface ValueFieldProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type'> {

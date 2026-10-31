@@ -84,6 +84,8 @@ interface Props {
   viewSizes?: number[]
   /** Which views the plot shows (a view whose channels are all hidden is left out); all without */
   viewsShown?: boolean[]
+  /** A view outlined while the pointer is on its channels in the channel bar */
+  highlightView?: number
   /** A splitter between two views was dragged (undefined: all views the same height again) */
   onResizeViews: (sizes: number[] | undefined) => void
   win: TimeWindow
@@ -168,6 +170,8 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   const viewsH = viewsHeight(boxes)
   /** The views the plot shows, top to bottom */
   const shownIdx = boxes.heights.flatMap((h, i) => (h > 0 ? [i] : []))
+  /** The view of the selected channel */
+  const selectedView = p.views.findIndex((v) => p.selected !== undefined && v.includes(p.selected))
   const topOf = (vi: number) => boxes.tops[vi]
   const hOf = (vi: number) => boxes.heights[vi]
   /** Height of a division in view `vi` (px) */
@@ -341,7 +345,9 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     const draw = () => {
       p.views.forEach((_, vi) => {
         const ctx = hOf(vi) ? canvasRefs.current[vi]?.getContext('2d') : undefined
-        if (ctx) drawView(ctx, { ...viewOptions(vi, dpr, theme), selectedId: p.selected })
+        // With several views on screen each shows its number, lit where the selected channel is
+        const viewLabel = shownIdx.length > 1 ? { number: vi + 1, active: vi === selectedView } : undefined
+        if (ctx) drawView(ctx, { ...viewOptions(vi, dpr, theme), selectedId: p.selected, viewLabel })
       })
       const ax = axisRef.current?.getContext('2d')
       if (ax) drawTimeAxis(ax, size.w, AXIS_H, dpr, p.win.start, p.win.end, ticks, theme)
@@ -912,6 +918,9 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
           style={{ top: topOf(i), width: size.w, height: hOf(i), display: hOf(i) ? 'block' : 'none' }}
         />
       ))}
+      {p.highlightView !== undefined && hOf(p.highlightView) > 0 && (
+        <div className="view-lit" style={{ top: topOf(p.highlightView), width: size.w, height: hOf(p.highlightView) }} />
+      )}
       <canvas
         ref={axisRef}
         width={Math.round(size.w * (window.devicePixelRatio || 1))}

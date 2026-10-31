@@ -283,6 +283,18 @@ describe('grid and scale', () => {
     expect(labels.map((l) => l.text)).toEqual(['-4 V', '-3 V', '-2 V', '-1 V', '0 V', '1 V', '2 V', '3 V', '4 V'])
   })
 
+  it('writes the number of the view in its corner only when asked to', () => {
+    const d = display('CH1', 0)
+    const draw = (viewLabel?: { number: number; active: boolean }) =>
+      recordTexts((ctx) => drawView(ctx, { width: 864, height: H, dpr: 1, tStart: 0, tEnd: 1, timeTicks: [], traces: [trace(d, [1, 2])], viewLabel, theme: THEMES.dark })).filter((t) => t.text === '2')
+    expect(draw()).toHaveLength(0)
+    const [chip] = draw({ number: 2, active: false })
+    // In the top left corner (the tags are drawn over it)
+    expect(chip.x).toBeLessThan(30)
+    expect(chip.y).toBeLessThan(20)
+    expect(draw({ number: 2, active: true })).toHaveLength(1)
+  })
+
   it('leaves out time labels that would run into each other', () => {
     expect(labelEvery(80, 45)).toBe(1)
     expect(labelEvery(27, 45)).toBe(2)

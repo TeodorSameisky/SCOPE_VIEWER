@@ -216,6 +216,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   const plotRef = useRef<PlotAreaHandle>(null)
   const spectrumRef = useRef<SpectrumViewHandle>(null)
   const channelBarRef = useRef<ChannelBarHandle>(null)
+  /** The view outlined in the plot while the pointer is on its channels in the channel bar */
+  const [highlightView, setHighlightView] = useState<number | undefined>()
   const analysisInput = useRef<HTMLInputElement>(null)
 
   // ---------- layout ----------
@@ -829,6 +831,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
             views={views}
             viewSizes={viewSizes}
             viewsShown={viewsShown}
+            highlightView={highlightView}
             onResizeViews={setViewSizes}
             win={win}
             record={record}
@@ -986,6 +989,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
         trigger={session.trigger}
         onChannelMenu={(e, id) => openMenu(e, channelMenu(api, id))}
         onTimebaseMenu={(e) => openMenu(e, timebaseMenu(api, tPerDiv))}
+        onHighlightView={setHighlightView}
       />
 
       {paletteOpen && <CommandPalette getCommands={() => paletteCommands(api)} onClose={() => setPaletteOpen(false)} />}

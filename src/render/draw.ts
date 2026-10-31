@@ -32,6 +32,11 @@ export interface ViewDrawOptions {
   /** `slope` as stored in the setup (RISE / FALL / EITHER) */
   trigger?: { sourceId?: string; level?: number; slope?: string; showMarker: boolean }
   selectedId?: string
+  /**
+   * The number of the view as a small chip in its corner, when the plot has several: `active` when
+   * the selected channel is in it. Not part of exports.
+   */
+  viewLabel?: { number: number; active: boolean }
   theme: Theme
 }
 
@@ -297,6 +302,35 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
       ctx.fillText(siTick(v, unit, step), plotW + 6, y)
       ctx.fillRect(plotW, Math.round(y), 4, 1)
     }
+  }
+
+  // The number of the view, under the tags (which are drawn over it where they meet)
+  if (o.viewLabel) {
+    const { number, active } = o.viewLabel
+    const text = String(number)
+    ctx.font = PLOT_FONT
+    const w = Math.max(16, textWidth(text, PLOT_FONT) + 10)
+    const [x, y, h, r] = [5, 4, 15, 4]
+    ctx.beginPath()
+    ctx.moveTo(x + r, y)
+    ctx.arcTo(x + w, y, x + w, y + h, r)
+    ctx.arcTo(x + w, y + h, x, y + h, r)
+    ctx.arcTo(x, y + h, x, y, r)
+    ctx.arcTo(x, y, x + w, y, r)
+    ctx.closePath()
+    ctx.fillStyle = theme.readoutBg
+    ctx.fill()
+    if (active) {
+      ctx.fillStyle = theme.bandFill
+      ctx.fill()
+    }
+    ctx.lineWidth = 1
+    ctx.strokeStyle = active ? theme.band : theme.readoutBorder
+    ctx.stroke()
+    ctx.fillStyle = active ? theme.bandText : theme.muted
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(text, x + w / 2, y + h / 2 + 0.5)
   }
 
   // Channel tags on the left edge at each channel's position, with its offset (see layoutTags); a
