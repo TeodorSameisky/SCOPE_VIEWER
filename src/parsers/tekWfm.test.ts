@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { strToU8, zipSync } from 'fflate'
+import { MinMaxPyramid } from '../dsp/minmax'
+import { autoscalePatches, patchDisplays } from '../model/view'
 import { isTekWfm, parseTekWfm } from './tekWfm'
 import { loadFiles } from './session'
 
@@ -50,6 +52,23 @@ describe('Tektronix WFM', () => {
     expect(w.t0).toBe(-2e-6)
     expect(w.dt).toBe(4e-8)
     expect([w.yUnit, w.xUnit]).toEqual(['V', 's'])
+  })
+
+  it('opened without a setup are fitted as Autoscale fits them, a band each', () => {
+    // 0.5 … 1.5 V and -1.5 … 2.5 V
+    const s = loadFiles([
+      { name: 'ch1.wfm', data: wfm({ samples: [0, 1000] }) },
+      { name: 'ch2.wfm', data: wfm({ samples: [0, -2000, 2000] }) },
+    ])
+    expect(s.views).toEqual([['CH1', 'CH2']])
+    const [ch1, ch2] = s.channels.map((c) => c.display)
+    expect([ch1.scale, ch1.offset, ch1.position]).toEqual([0.5, 1, 2.5])
+    expect([ch2.scale, ch2.offset, ch2.position]).toEqual([1, 0.5, -2.5])
+    // Autoscale over the whole record changes nothing
+    const live = s.channels.map((c) => ({ ...c, pyramid: new MinMaxPyramid(c.wave.data) }))
+    const patches = autoscalePatches(live, s.views, ['CH1', 'CH2'], { start: -2e-6, end: 0 }, 10)
+    const displays = s.channels.map((c) => c.display)
+    expect(patchDisplays(displays, patches)).toBe(displays)
   })
 
   it('reports broken files with their name', () => {

@@ -11,7 +11,7 @@ ranges computed, in Web Workers, so long records do not block the page. Session 
 | Format | Notes |
 | --- | --- |
 | Tektronix session `.tss` (4/5/6-Series MSO) | Zip with `chN.wfm`, a zipped SCPI setup (`.set`), a screenshot and `manifest.json`. Channel labels, V/div, offset/position, stacked view layout, trigger, cursors and measurements are restored from the setup, and each channel's input settings (coupling, termination, bandwidth, probe) are read from it. |
-| Tektronix waveform `.wfm` (WFM#001–#003) | One or more files; drop a matching `.set` file together with them to restore the setup. FastFrame: only the first frame is shown. |
+| Tektronix waveform `.wfm` (WFM#001–#003) | One or more files; drop a matching `.set` file together with them to restore the setup. Without it, the channels are fitted as *Autoscale* fits them over the whole record, a band each. FastFrame: only the first frame is shown. |
 | Tektronix ISF `.isf` (TDS1000/2000, TPS2000, DPO/MSO2000–4000, MDO3000/4000) | The waveforms saved by the older families ("Save All" writes `tekNNNNCHx.isf`, a `.set` and a screenshot). Open the files together, or a `.zip` of them. Labels, V/div, position, trigger, cursors, measurements and the input settings (with the probe attenuation) come from the `.set`; without it, scale, position and coupling are taken from the waveform files. 8/16-bit, float, ASCII and envelope data are read. |
 | Scope Viewer bundle `.scopeview` | A session file together with its analysis (see *Saving*). An analysis file `.scopeview.json` can also be opened together with its session file, or dropped onto an open session. |
 | Rigol | Planned. |
@@ -39,8 +39,9 @@ Which panels are open is remembered in the browser.
 - Min/max decimation pyramid, so long records stay responsive
 - Click a trace to select it; Ctrl+wheel changes its V/div, Alt+wheel its position
 - **Autoscale** (`A`, or the button next to *Full record*): fits what is on screen of every visible channel into
-  its view – V/div in 1-2-5 steps, up to 8 of the 10 divisions. Channels that share a view get a band each, top to
-  bottom, so they do not overlap; a channel whose waveform is not on screen is fitted over its whole record. One
+  its view – V/div in 1-2-5 steps, up to 8 of the 10 divisions. Channels that share a view get a band each, so they
+  do not overlap, in the order their traces are on screen (the trace on top keeps the top band); a channel whose
+  waveform is not on screen is fitted over its whole record. One
   undo step. Right-click in the plot to autoscale only that view, or a channel's badge for that channel alone (into
   its band); new math channels are fitted over the whole record
 - **Moving and scaling traces** with the channel tags on the left edge of the plot, the handles of the

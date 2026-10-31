@@ -81,30 +81,76 @@ export function patchDisplays(displays: ChannelDisplay[], patches: Record<string
 const AUTOSCALE_FILL = 0.8
 
 /**
+ * V/div (1-2-5), offset and position that fit the values `lo` … `hi` into band `index` (from the
+ * top) of `count` equal bands of a view `divs` high, up to 80 % of the band and centred in it. A
+ * flat trace keeps its V/div `scale` and goes to its band's middle.
+ */
+export function fitBand(lo: number, hi: number, index: number, count: number, divs: number, scale: number): Required<Pick<DisplayPatch, 'scale' | 'offset' | 'position'>> {
+  const h = divs / count
+  const position = Math.round(h * ((count - 1) / 2 - index) * 100) / 100
+  const fitted = hi > lo ? parseFloat(niceStep(Math.max(hi - lo, Math.abs(lo) * 1e-3) / (h * AUTOSCALE_FILL)).toPrecision(6)) : scale
+  // The offset rounded to a tenth of a division so it reads nicely
+  const offset = parseFloat((Math.round((lo + hi) / 2 / (fitted / 10)) * (fitted / 10)).toPrecision(6))
+  return { scale: fitted, offset, position }
+}
+
+/**
  * Autoscale: V/div (1-2-5), offset and position that fit the samples of the channels `ids` in the
  * time window `win` into their views (`divs` high), up to 80 % of the height; a waveform with no
  * sample in the window is fitted over the whole record. Visible channels that share a view get a
- * band each, top to bottom in the order of the view, so they do not overlap – the same band whether
- * one of them is autoscaled or all of them. A flat trace keeps its V/div and goes to its band's middle.
+ * band each, so they do not overlap, in the order their traces are on screen (the trace on top gets
+ * the top band) – the same band whether one of them is autoscaled or all of them. See fitBand.
  */
 export function autoscalePatches(channels: LiveChannel[], views: string[][], ids: string[], win: TimeWindow, divs: number): Record<string, DisplayPatch> {
   const byId = new Map(channels.map((c) => [c.wave.id, c]))
+  const heights = new Map<string, number>()
+  /** Height of a channel's trace on screen (div from the centre, see traceMiddle); its position when it has no samples */
+  const height = (id: string) => {
+    let h = heights.get(id)
+    if (h === undefined) {
+      const c = byId.get(id)!
+      const d = c.display
+      const middle = traceMiddle(c, win)
+      h = middle === undefined ? d.position : (middle - d.offset) / d.scale + d.position
+      heights.set(id, h)
+    }
+    return h
+  }
   const patches: Record<string, DisplayPatch> = {}
   for (const id of ids) {
     const c = byId.get(id)
     const range = c && valueRange(c, win)
     if (!c || !range) continue
-    // Its band among the traces of its view (itself also when it is hidden)
-    const band = (views.find((v) => v.includes(id)) ?? [id]).filter((x) => x === id || byId.get(x)?.display.visible)
-    const h = divs / band.length
-    const position = Math.round(h * ((band.length - 1) / 2 - band.indexOf(id)) * 100) / 100
-    const [lo, hi] = range
-    const scale = hi > lo ? parseFloat(niceStep(Math.max(hi - lo, Math.abs(lo) * 1e-3) / (h * AUTOSCALE_FILL)).toPrecision(6)) : c.display.scale
-    // The offset rounded to a tenth of a division so it reads nicely
-    const offset = parseFloat((Math.round((lo + hi) / 2 / (scale / 10)) * (scale / 10)).toPrecision(6))
-    patches[id] = { scale, offset, position }
+    // Its band among the traces of its view (itself also when it is hidden), top to bottom as they are now
+    const band = (views.find((v) => v.includes(id)) ?? [id]).filter((x) => x === id || byId.get(x)?.display.visible).sort((a, b) => height(b) - height(a))
+    patches[id] = fitBand(range[0], range[1], band.indexOf(id), band.length, divs, c.display.scale)
   }
   return patches
+}
+
+/** Columns over which the height of a trace is averaged to put the bands in order */
+const ORDER_COLUMNS = 256
+
+/**
+ * Where a channel's trace runs in the window as it is drawn (else over the whole record): the mean
+ * of the middles of its min/max envelope over ORDER_COLUMNS columns, so a spike moves it little.
+ * Always between the min and max of the samples; undefined without finite samples.
+ */
+function traceMiddle(c: LiveChannel, win: TimeWindow): number | undefined {
+  const { t0, dt, data } = c.wave
+  const mean = (a: number, b: number) => {
+    const mm: [number, number] = [NaN, NaN]
+    let sum = 0
+    let n = 0
+    for (let i = 0; i < ORDER_COLUMNS; i++) {
+      c.pyramid.range(Math.floor(a + ((b - a) * i) / ORDER_COLUMNS), Math.ceil(a + ((b - a) * (i + 1)) / ORDER_COLUMNS), mm)
+      if (Number.isNaN(mm[0])) continue
+      sum += (mm[0] + mm[1]) / 2
+      n++
+    }
+    return n ? sum / n : undefined
+  }
+  return mean((win.start - t0) / dt, (win.end - t0) / dt + 1) ?? mean(0, data.length)
 }
 
 /** Min and max of a channel's samples in the window, else of the whole record; undefined without finite samples */

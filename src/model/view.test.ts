@@ -75,6 +75,26 @@ describe('view', () => {
       expect(autoscalePatches(chs, views, ['CH2'], all, 10).CH2.position).toBe(0)
     })
 
+    it('gives the bands in the order the traces are on screen, and keeps it when run again', () => {
+      const at = (c: LiveChannel, position: number) => ({ ...c, display: { ...c.display, position } })
+      // CH2 is drawn above CH1, although CH1 comes first in the view
+      const chs = [at(live('CH1', [0, 2]), -3), at(live('CH2', [0, 2]), 3)]
+      const views = [['CH1', 'CH2']]
+      const all = autoscalePatches(chs, views, ['CH1', 'CH2'], { start: 0, end: 9 }, 10)
+      expect([all.CH2.position, all.CH1.position]).toEqual([2.5, -2.5])
+      expect(autoscalePatches(chs, views, ['CH1'], { start: 0, end: 9 }, 10)).toEqual({ CH1: all.CH1 })
+      const fitted = chs.map((c) => ({ ...c, display: { ...c.display, ...all[c.wave.id] } }))
+      expect(autoscalePatches(fitted, views, ['CH1', 'CH2'], { start: 0, end: 9 }, 10)).toEqual(all)
+    })
+
+    it('orders the bands by where the traces run, not by a spike', () => {
+      // CH1 runs at 3 V with one spike down to -10 V; CH2 ramps from 0 to 2 V: CH1 is above
+      const spiky = live('CH1', Array.from({ length: 1000 }, (_, i) => (i === 500 ? -10 : 3)))
+      const ramp = live('CH2', Array.from({ length: 1000 }, (_, i) => (2 * i) / 999))
+      const p = autoscalePatches([spiky, ramp], [['CH2', 'CH1']], ['CH1', 'CH2'], { start: 0, end: 999 }, 10)
+      expect([p.CH1.position, p.CH2.position]).toEqual([2.5, -2.5])
+    })
+
     it('keeps the V/div of a flat trace and leaves channels without samples alone', () => {
       expect(autoscalePatches([live('CH1', [3.5, 3.5])], [['CH1']], ['CH1'], all, 10)).toEqual({ CH1: { scale: 7, offset: 3.5, position: 0 } })
       expect(autoscalePatches([live('MATH1', [NaN, NaN])], [['MATH1']], ['MATH1', 'CH9'], all, 10)).toEqual({})

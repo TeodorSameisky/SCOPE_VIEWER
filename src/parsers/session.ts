@@ -1,6 +1,7 @@
 import { unzipSync, strFromU8 } from 'fflate'
 import type { Channel, ChannelDisplay, Session, Waveform } from '../model/types'
-import { niceStep } from '../util/format'
+import { fitBand } from '../model/view'
+import { DIVS_Y } from '../render/draw'
 import { isTekWfm, parseTekWfm } from './tekWfm'
 import { isTekIsf, parseTekIsf, type IsfDisplayHints } from './tekIsf'
 import { parseTekSetup, readChannelInput, setupNumber, setupString } from './tekSetup'
@@ -64,17 +65,17 @@ function channelIdFromName(name: string, taken: Set<string>, preferred?: string)
   return id
 }
 
-/** Pick a "nice" V/div that shows the whole waveform in ~8 divisions. */
-function autoScale(w: Waveform): { scale: number; offset: number } {
+/** Min and max of the finite samples; undefined without any */
+function finiteRange(data: Float32Array): [number, number] | undefined {
   let min = Infinity
   let max = -Infinity
-  for (let i = 0; i < w.data.length; i++) {
-    const v = w.data[i]
+  for (let i = 0; i < data.length; i++) {
+    const v = data[i]
+    if (!Number.isFinite(v)) continue
     if (v < min) min = v
     if (v > max) max = v
   }
-  if (!Number.isFinite(min)) return { scale: 1, offset: 0 }
-  return { scale: niceStep(Math.max(max - min, 1e-9) / 8), offset: (max + min) / 2 }
+  return min <= max ? [min, max] : undefined
 }
 
 interface BuildOptions {
@@ -97,11 +98,13 @@ function buildSession(fileName: string, format: string, waves: Waveform[], o: Bu
   /** Setup value of a channel; the math waveform of the older scopes is just ":MATH" */
   const get = (id: string, suffix: string) => s[`:${id}${suffix}`] ?? (id === 'MATH1' ? s[`:MATH${suffix}`] : undefined)
 
+  /** Channels whose V/div the files do not give: fitted below */
+  const unscaled = new Set<string>()
   const channels: Channel[] = waves.map((wave, i) => {
     const id = wave.id
     const hint = o.hints?.[id] ?? {}
     const scale = setupNumber(get(id, ':SCALE')) ?? setupNumber(get(id, ':VERTICAL:SCALE')) ?? hint.scale
-    const auto = scale === undefined ? autoScale(wave) : undefined
+    if (scale === undefined) unscaled.add(id)
     const state = s[`:DISPLAY:WAVEVIEW1:${id}:STATE`] ?? s[`:SELECT:${id}`] ?? (id === 'MATH1' ? s[':SELECT:MATH'] : undefined)
     const display: ChannelDisplay = {
       id,
@@ -109,9 +112,9 @@ function buildSession(fileName: string, format: string, waves: Waveform[], o: Bu
       color: colors[id] ?? CHANNEL_COLORS[i % CHANNEL_COLORS.length],
       // A waveform that was saved is shown, unless the setup says it was switched off
       visible: state === undefined ? true : state !== '0' && state.toUpperCase() !== 'OFF',
-      scale: scale ?? auto!.scale,
+      scale: scale ?? 1,
       position: setupNumber(get(id, ':POSITION')) ?? setupNumber(get(id, ':VERTICAL:POSITION')) ?? hint.position ?? 0,
-      offset: setupNumber(get(id, ':OFFSET')) ?? hint.offset ?? auto?.offset ?? 0,
+      offset: setupNumber(get(id, ':OFFSET')) ?? hint.offset ?? 0,
     }
     // Coupling, termination, probe …: from the setup, the coupling also from an .isf header
     const fromSetup = o.setup ? readChannelInput((suffix) => get(id, suffix)) : undefined
@@ -135,6 +138,17 @@ function buildSession(fileName: string, format: string, waves: Waveform[], o: Bu
   if (rest.length) {
     if (views.length) views[views.length - 1].push(...rest)
     else views = [rest]
+  }
+
+  // Channels without a V/div in the files (waveforms opened without their setup) are fitted as
+  // Autoscale fits them over the whole record: a band each among the visible channels of their
+  // view, in the order of the view, instead of all on top of each other
+  for (const c of channels) {
+    const id = c.wave.id
+    const range = unscaled.has(id) ? finiteRange(c.wave.data) : undefined
+    if (!range) continue
+    const band = (views.find((v) => v.includes(id)) ?? [id]).filter((x) => x === id || channels.find((ch) => ch.wave.id === x)?.display.visible)
+    Object.assign(c.display, fitBand(range[0], range[1], band.indexOf(id), band.length, DIVS_Y, c.display.scale))
   }
 
   const session: Session = { fileName, format, channels, views, screenshot: o.screenshot }
