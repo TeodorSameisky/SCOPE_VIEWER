@@ -75,6 +75,7 @@ import { StorageSection } from './StorageSection'
 import { TopBar } from './TopBar'
 import {
   autoscalePatches,
+  carryViewSizes,
   cursorsInView,
   patchDisplays,
   sampleRange,
@@ -170,7 +171,16 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
 
   const [mathDefs, setMathDefs] = useState<MathDef[]>(ws0.math)
   const [displays, setDisplays] = useState<ChannelDisplay[]>(ws0.channels)
-  const [views, setViews] = useState<string[][]>(ws0.views)
+  // The views and their sizes change together: a size goes with the channels of its view (see carryViewSizes)
+  const [viewState, setViewState] = useState<{ views: string[][]; sizes?: number[] }>({ views: ws0.views, sizes: ws0.viewSizes })
+  const { views, sizes: viewSizes } = viewState
+  const setViews = useCallback((change: (vs: string[][]) => string[][]) => {
+    setViewState((s) => {
+      const next = change(s.views)
+      return { views: next, sizes: carryViewSizes(s.views, s.sizes, next) }
+    })
+  }, [])
+  const setViewSizes = useCallback((sizes: number[] | undefined) => setViewState((s) => ({ ...s, sizes })), [])
   const [tool, setTool] = useState<Tool>('pan')
   const [cursors, setCursors] = useState<CursorState>(ws0.cursors)
   const [selected, setSelected] = useState<string | undefined>(ws0.selected)
@@ -472,6 +482,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
       version: WORKSPACE_VERSION,
       channels: displays,
       views,
+      ...(viewSizes ? { viewSizes } : {}),
       math: mathDefs,
       spectra,
       spectrumOptions: specOptions,
@@ -482,7 +493,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
       selected,
       notes,
     }),
-    [displays, views, mathDefs, spectra, specOptions, callouts, cursors, win, measKeys, measRange, selected, notes],
+    [displays, views, viewSizes, mathDefs, spectra, specOptions, callouts, cursors, win, measKeys, measRange, selected, notes],
   )
 
   // ---------- undo / redo ----------
@@ -491,13 +502,13 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   // restores the window with them. A new callout and what is written into it while its editor is
   // open are one step.
   const undoDoc = useMemo(
-    () => undoDocOf({ channels: displays, views, math: mathDefs, spectra, spectrumOptions: specOptions, callouts, cursors, measurements: { keys: measKeys, range: measRange }, notes }),
-    [displays, views, mathDefs, spectra, specOptions, callouts, cursors, measKeys, measRange, notes],
+    () => undoDocOf({ channels: displays, views, viewSizes, math: mathDefs, spectra, spectrumOptions: specOptions, callouts, cursors, measurements: { keys: measKeys, range: measRange }, notes }),
+    [displays, views, viewSizes, mathDefs, spectra, specOptions, callouts, cursors, measKeys, measRange, notes],
   )
   const edits = useUndoHistory(editHistory, undoDoc, (d, view) => {
     if (view) nav.show(view)
     setDisplays(d.channels)
-    setViews(d.views)
+    setViewState({ views: d.views, sizes: d.viewSizes })
     setMathDefs(d.math)
     setSpectra(d.spectra)
     setSpecOptions(d.spectrumOptions)
@@ -771,6 +782,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
             engine={engine}
             channels={channels}
             views={views}
+            viewSizes={viewSizes}
+            onResizeViews={setViewSizes}
             win={win}
             record={record}
             minSpan={minSpan}
@@ -960,6 +973,7 @@ function undoDocOf(w: UndoDoc): UndoDoc {
   return {
     channels: w.channels,
     views: w.views,
+    viewSizes: w.viewSizes,
     math: w.math,
     spectra: w.spectra,
     spectrumOptions: w.spectrumOptions,

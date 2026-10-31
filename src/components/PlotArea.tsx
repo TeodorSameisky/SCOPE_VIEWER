@@ -13,9 +13,13 @@ import {
   drawTimeAxis,
   drawView,
   layoutTags,
+  MIN_VIEW_H,
   tagAt,
   valueAt,
   valueToDiv,
+  viewAt,
+  viewBoxes,
+  viewsHeight,
   type ViewDrawOptions,
 } from '../render/draw'
 import { PLOT_FONT, SANS, font } from '../render/fonts'
@@ -28,6 +32,7 @@ import { useTheme } from './ui/themeContext'
 import { panShare, wheelPan, wheelPixels, wheelZoomFactor } from './ui/wheel'
 import {
   POSITION_STEP,
+  normalizeSizes,
   snapToGrid,
   stepPosition,
   stepScale,
@@ -74,6 +79,10 @@ interface Props {
   engine: Pick<ComputeEngine, 'measured' | 'subscribeMeasured' | 'measuredVersion'>
   channels: LiveChannel[]
   views: string[][]
+  /** Share of the plot's height of each view; equal without */
+  viewSizes?: number[]
+  /** A splitter between two views was dragged (undefined: all views the same height again) */
+  onResizeViews: (sizes: number[] | undefined) => void
   win: TimeWindow
   record: TimeWindow
   minSpan: number
@@ -151,9 +160,15 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   const dragMoved = useRef(false)
 
   const nViews = Math.max(1, p.views.length)
-  const viewH = Math.max(40, Math.floor((size.h - AXIS_H) / nViews))
-  const viewsH = viewH * nViews
-  const divH = viewH / DIVS_Y
+  /** Top and height of each view: their shares of the plot are set with the splitters between them */
+  const boxes = useMemo(() => viewBoxes(p.viewSizes, nViews, size.h - AXIS_H), [p.viewSizes, nViews, size.h])
+  const viewsH = viewsHeight(boxes)
+  const topOf = (vi: number) => boxes.tops[vi]
+  const hOf = (vi: number) => boxes.heights[vi]
+  /** Height of a division in view `vi` (px) */
+  const divOf = (vi: number) => boxes.heights[vi] / DIVS_Y
+  /** The view at height `y` of the plot */
+  const viewOf = (y: number) => viewAt(boxes, y)
   const plotW = size.w - AXIS_GUTTER
   const span = p.win.end - p.win.start
   const maxSpan = (p.record.end - p.record.start) * 4
@@ -163,8 +178,8 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
 
   /** The visible trace of the view at y that passes closest to (x, y), within maxPx */
   const nearestTrace = (x: number, y: number, maxPx = 20): string | undefined => {
-    const vi = Math.min(nViews - 1, Math.floor(y / viewH))
-    const yIn = y - vi * viewH
+    const vi = viewOf(y)
+    const yIn = y - topOf(vi)
     const t = xToT(x)
     let best: string | undefined
     let bestD = maxPx
@@ -173,7 +188,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       if (!c || !c.display.visible) continue
       const v = valueAt(c.wave, t)
       if (!Number.isFinite(v)) continue
-      const dist = Math.abs(viewH / 2 - valueToDiv(v, c.display) * divH - yIn)
+      const dist = Math.abs(hOf(vi) / 2 - valueToDiv(v, c.display) * divOf(vi) - yIn)
       if (dist < bestD) {
         bestD = dist
         best = id
@@ -227,7 +242,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   /** An end of a new span at (x, y): on the nearest trace of that view, at its edge next to x (Alt: at x) */
   const spanEndAt = (x: number, y: number, free: boolean): { ch: string; t: number } | undefined => {
     if (y < 0 || y >= viewsH) return undefined
-    const ch = nearestTrace(x, y, viewH)
+    const ch = nearestTrace(x, y, hOf(viewOf(y)))
     if (!ch) return undefined
     const t = xToT(clampX(x))
     return { ch, t: free ? t : (edgesOf(ch)(t) ?? t) }
@@ -251,10 +266,10 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   const measureSpan = useCallback<SpanMeasure>((w, i0, i1, id) => p.engine.measured(w, i0, i1, `callout:${id}`), [p.engine])
   // Laid out again only when something it depends on changes (not on every pointer move)
   const calloutGeo = useMemo(
-    () => layoutCallouts(p.callouts, { channels: p.channels, views: p.views, win: p.win, plotW, viewH, measure: measureSpan }),
+    () => layoutCallouts(p.callouts, { channels: p.channels, views: p.views, win: p.win, plotW, boxes, measure: measureSpan }),
     // texVersion: a formula has been rendered meanwhile; measuredVersion: measurements arrived
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [p.callouts, p.channels, p.views, p.win, plotW, viewH, measureSpan, texVersion, measuredVersion],
+    [p.callouts, p.channels, p.views, p.win, plotW, boxes, measureSpan, texVersion, measuredVersion],
   )
 
   useLayoutEffect(() => {
@@ -275,8 +290,8 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   /** The channel tag at (x, y) on the left edge of a view, and that view */
   const tagUnder = (x: number, y: number): { id: string; view: number } | undefined => {
     if (y < 0 || y >= viewsH) return undefined
-    const view = Math.floor(y / viewH)
-    const tag = tagAt(layoutTags(viewChannels(view).traces, viewH), x, y - view * viewH)
+    const view = viewOf(y)
+    const tag = tagAt(layoutTags(viewChannels(view).traces, hOf(view)), x, y - topOf(view))
     return tag && { id: tag.display.id, view }
   }
 
@@ -298,7 +313,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     const { traces, axis } = viewChannels(vi)
     return {
       width: size.w,
-      height: viewH,
+      height: hOf(vi),
       dpr,
       tStart: p.win.start,
       tEnd: p.win.end,
@@ -325,7 +340,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     return () => cancelAnimationFrame(id)
     // viewOptions only reads the props and state listed here
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.channels, p.views, p.win, p.cursors, p.selected, p.trigger, size, viewH, theme])
+  }, [p.channels, p.views, p.win, p.cursors, p.selected, p.trigger, size, boxes, theme])
 
   // The pointer line and the drag previews on the overlays: cheap, so drawn at once, before the
   // frame is painted, and in step with the value readout next to the pointer
@@ -338,13 +353,13 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       ctx.setTransform(1, 0, 0, 1, 0, 0)
       ctx.clearRect(0, 0, cv.width, cv.height)
       if (hoverT !== undefined && !drag) {
-        drawHover(ctx, { width: size.w, height: viewH, dpr, tStart: p.win.start, tEnd: p.win.end, traces: viewChannels(vi).traces, t: hoverT, dots: p.readout, theme })
+        drawHover(ctx, { width: size.w, height: hOf(vi), dpr, tStart: p.win.start, tEnd: p.win.end, traces: viewChannels(vi).traces, t: hoverT, dots: p.readout, theme })
       }
       drawDragPreview(ctx, dpr, vi)
     })
     // viewChannels and drawDragPreview only read the props and state listed here
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hoverT, drag, p.readout, p.channels, p.views, p.win, p.selected, size, viewH, theme])
+  }, [hoverT, drag, p.readout, p.channels, p.views, p.win, p.selected, size, boxes, theme])
 
   /** Rubber band for zoom / region selection; the level or the drop target of a dragged channel tag */
   const drawDragPreview = (ctx: CanvasRenderingContext2D, dpr: number, vi: number) => {
@@ -355,10 +370,10 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     const x0 = Math.min(drag.x0, drag.x1)
     const x1 = Math.max(drag.x0, drag.x1)
     let y0 = 0
-    let y1 = viewH
+    let y1 = hOf(vi)
     if (drag.kind === 'rect') {
-      y0 = Math.min(drag.y0, drag.y1) - vi * viewH
-      y1 = Math.max(drag.y0, drag.y1) - vi * viewH
+      y0 = Math.min(drag.y0, drag.y1) - topOf(vi)
+      y1 = Math.max(drag.y0, drag.y1) - topOf(vi)
     }
     ctx.save()
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -386,14 +401,14 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       const c = byId.get(ch)
       const view = p.views.findIndex((v) => v.includes(ch))
       const v = c ? valueAt(c.wave, t) : NaN
-      return c && view >= 0 && Number.isFinite(v) ? { x: tToX(t), y: view * viewH + viewH / 2 - valueToDiv(v, c.display) * divH } : undefined
+      return c && view >= 0 && Number.isFinite(v) ? { x: tToX(t), y: topOf(view) + hOf(view) / 2 - valueToDiv(v, c.display) * divOf(view) } : undefined
     }
     const a = end(drag.a)
     const b = end(drag.b)
     if (!a || !b) return
     const ink = theme.ink(DEFAULT_CALLOUT_COLOR.span)
     ctx.save()
-    ctx.setTransform(dpr, 0, 0, dpr, 0, -vi * viewH * dpr)
+    ctx.setTransform(dpr, 0, 0, dpr, 0, -topOf(vi) * dpr)
     ctx.strokeStyle = ink
     ctx.fillStyle = ink
     ctx.lineWidth = 1.4
@@ -430,14 +445,14 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     ctx.lineWidth = 1
     ctx.setLineDash([5, 4])
     if (drag.target === undefined && vi === drag.view) {
-      const y = viewH / 2 - ch.display.position * divH
-      if (y >= 0 && y <= viewH) line(y)
+      const y = hOf(vi) / 2 - ch.display.position * divOf(vi)
+      if (y >= 0 && y <= hOf(vi)) line(y)
     } else if (drag.target === vi) {
       ctx.fillStyle = theme.bandFill
-      ctx.fillRect(0, 0, plotW, viewH)
-      line(drag.y - vi * viewH)
+      ctx.fillRect(0, 0, plotW, hOf(vi))
+      line(drag.y - topOf(vi))
       ctx.strokeStyle = theme.band
-      ctx.strokeRect(0.5, 0.5, plotW - 1, viewH - 1)
+      ctx.strokeRect(0.5, 0.5, plotW - 1, hOf(vi) - 1)
     }
     ctx.restore()
   }
@@ -453,9 +468,9 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       p.views.forEach((_, vi) => {
         const cv = document.createElement('canvas')
         cv.width = out.width
-        cv.height = Math.round(viewH * scale)
+        cv.height = Math.round(hOf(vi) * scale)
         drawView(cv.getContext('2d')!, viewOptions(vi, scale, theme))
-        ctx.drawImage(cv, 0, Math.round(vi * viewH * scale))
+        ctx.drawImage(cv, 0, Math.round(topOf(vi) * scale))
       })
       const ax = document.createElement('canvas')
       ax.width = out.width
@@ -466,7 +481,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       let flags = 0
       if (p.callouts.length) {
         await loadTex(p.callouts.map((c) => c.text))
-        const layout = { channels: p.channels, views: p.views, win: p.win, plotW, viewH }
+        const layout = { channels: p.channels, views: p.views, win: p.win, plotW, boxes }
         const geo = layoutCallouts(p.callouts, layout)
         flags = flagsBottom(geo)
         const img = await svgToImage(calloutsSvg(p.callouts, layout, theme, geo))
@@ -490,7 +505,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       const y = e.clientY - rect.top
       const delta = wheelPixels(e).y
       const onTag = tagUnder(x, y)
-      const pointed = onTag ? byId.get(onTag.id) : x > plotW && y >= 0 && y < viewsH ? viewChannels(Math.floor(y / viewH)).axis : undefined
+      const pointed = onTag ? byId.get(onTag.id) : x > plotW && y >= 0 && y < viewsH ? viewChannels(viewOf(y)).axis : undefined
       if (pointed && !e.ctrlKey && !e.altKey && !e.shiftKey) {
         const step = wheelStep(delta)
         if (step) p.onAdjust(pointed.wave.id, { scale: stepScale(pointed.display.scale, step) })
@@ -518,13 +533,13 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     return () => el.removeEventListener('wheel', onWheel)
     // tagUnder, viewChannels and wheelStep only read the props and sizes listed here
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p, byId, span, plotW, viewH, viewsH, xToT, maxSpan])
+  }, [p, byId, span, plotW, boxes, viewsH, xToT, maxSpan])
 
   const local = (e: { clientX: number; clientY: number }) => {
     const r = containerRef.current!.getBoundingClientRect()
     return { x: e.clientX - r.left, y: e.clientY - r.top }
   }
-  const clampY = (y: number, view: number) => Math.min((view + 1) * viewH, Math.max(view * viewH, y))
+  const clampY = (y: number, view: number) => Math.min(topOf(view) + hOf(view), Math.max(topOf(view), y))
 
   const onPointerDown = (e: React.PointerEvent) => {
     // Middle button pans with every tool; Ctrl+click on a Mac opens the context menu
@@ -567,7 +582,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     if (onAxis || (navTool && e.shiftKey)) setDrag({ kind: 'band', x0: x, x1: x })
     else if (p.tool === 'pan') setDrag({ kind: 'pan', x0: x, win: p.win })
     else if (p.tool === 'zoom' || p.tool === 'box') {
-      const view = Math.min(nViews - 1, Math.floor(y / viewH))
+      const view = viewOf(y)
       setDrag({ kind: 'rect', box: p.tool === 'box', view, x0: x, y0: y, x1: x, y1: y })
     } else if (p.tool === 'region') {
       const xs = snapX(clampX(x), e.altKey)
@@ -618,7 +633,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
    * of the view or the nearest. Its time edges snap to edges of that trace (Alt: free).
    */
   const newBox = (d: Extract<Drag, { kind: 'rect' }>, free: boolean): NewCallout => {
-    const divAt = (yy: number) => DIVS_Y / 2 - (yy - d.view * viewH) / divH
+    const divAt = (yy: number) => DIVS_Y / 2 - (yy - topOf(d.view)) / divOf(d.view)
     const top = divAt(Math.min(d.y0, d.y1))
     const bottom = divAt(Math.max(d.y0, d.y1))
     const [ta, tb] = [xToT(Math.min(d.x0, d.x1)), xToT(Math.max(d.x0, d.x1))]
@@ -630,8 +645,8 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     })
     // Distance of a trace from the centre of the box (px)
     const midT = (ta + tb) / 2
-    const midY = (d.y0 + d.y1) / 2 - d.view * viewH
-    const distance = (c: LiveChannel) => Math.abs(viewH / 2 - valueToDiv(valueAt(c.wave, midT), c.display) * divH - midY)
+    const midY = (d.y0 + d.y1) / 2 - topOf(d.view)
+    const distance = (c: LiveChannel) => Math.abs(hOf(d.view) / 2 - valueToDiv(valueAt(c.wave, midT), c.display) * divOf(d.view) - midY)
     const closest = (list: LiveChannel[]) =>
       list.filter((c) => Number.isFinite(distance(c))).reduce<LiveChannel | undefined>((best, c) => (!best || distance(c) < distance(best) ? c : best), undefined)
     const selectedIn = (list: LiveChannel[]) => list.find((c) => c.wave.id === p.selected)
@@ -647,22 +662,22 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     return { type: 'box', t, t2, channel: ch.wave.id, v: round(divToValue(top, ch.display)), v2: round(divToValue(bottom, ch.display)) }
   }
 
-  /** A tag's position (div from the centre, to 0.01 div), snapped to whole divisions unless `free` */
-  const tagPosition = (div: number, free: boolean) => Math.round((free ? div : snapToGrid(div, divH)) * 100) / 100
+  /** A tag's position in view `vi` (div from the centre, to 0.01 div), snapped to whole divisions unless `free` */
+  const tagPosition = (div: number, vi: number, free: boolean) => Math.round((free ? div : snapToGrid(div, divOf(vi))) * 100) / 100
 
   /** Drag of a channel tag: up and down in its view moves the trace, over another view marks it as the target */
   const moveTag = (drag: Extract<Drag, { kind: 'tag' }>, x: number, y: number, free: boolean) => {
     // A click only selects: the trace moves once the pointer has moved a few pixels
     if (!drag.moved && Math.abs(y - drag.y0) < 3) return
     if (!byId.has(drag.id)) return
-    const over = y >= 0 && y < viewsH ? Math.floor(y / viewH) : drag.view
+    const over = y >= 0 && y < viewsH ? viewOf(y) : drag.view
     if (over !== drag.view) {
       // Over another view: the trace waits where it was until it is dropped
       if (drag.target === undefined) p.onAdjust(drag.id, { position: drag.pos0 })
       setDrag({ ...drag, x, y, moved: true, target: over })
       return
     }
-    p.onAdjust(drag.id, { position: tagPosition(drag.pos0 - (y - drag.y0) / divH, free) })
+    p.onAdjust(drag.id, { position: tagPosition(drag.pos0 - (y - drag.y0) / divOf(drag.view), drag.view, free) })
     setDrag({ ...drag, x, y, moved: true, target: undefined })
   }
 
@@ -691,7 +706,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       // Dropped onto another view: the channel moves there, with its tag where it was dropped
       if (d.target === undefined || !byId.has(d.id)) return
       p.onMoveToView(d.id, d.target)
-      p.onAdjust(d.id, { position: tagPosition(DIVS_Y / 2 - (y - d.target * viewH) / divH, e.altKey) })
+      p.onAdjust(d.id, { position: tagPosition(DIVS_Y / 2 - (y - topOf(d.target)) / divOf(d.target), d.target, e.altKey) })
       return
     }
     const wide = (a: number, b: number) => Math.abs(a - b) >= MIN_BOX_PX
@@ -712,7 +727,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       const t1 = xToT(Math.max(d.x0, d.x1))
       if (!wide(d.y0, d.y1)) return zoomToTimes(t0, t1)
       // Map the rectangle's vertical range onto the full height of its view
-      const divAt = (yy: number) => DIVS_Y / 2 - (yy - d.view * viewH) / divH
+      const divAt = (yy: number) => DIVS_Y / 2 - (yy - topOf(d.view)) / divOf(d.view)
       const divTop = divAt(Math.min(d.y0, d.y1))
       const divBot = divAt(Math.max(d.y0, d.y1))
       const patches = (p.views[d.view] ?? []).flatMap((id) => {
@@ -754,10 +769,10 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
   const noteAt = (x: number, y: number): NewCallout => {
     const t = xToT(x)
     const ch = nearestTrace(x, y, 40)
-    const view = Math.min(nViews - 1, Math.floor(y / viewH))
+    const view = viewOf(y)
     const dy = y < 70 ? 24 : -46
     if (ch) return { type: 'note', t, channel: ch, dy }
-    return { type: 'note', t, view, div: DIVS_Y / 2 - (y - view * viewH) / divH, dy }
+    return { type: 'note', t, view, div: DIVS_Y / 2 - (y - topOf(view)) / divOf(view), dy }
   }
 
   const onContextMenu = (e: React.MouseEvent) => {
@@ -777,7 +792,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     p.onContextMenu(e, {
       t: xToT(x),
       onAxis,
-      view: onAxis ? undefined : Math.min(nViews - 1, Math.floor(yIn / viewH)),
+      view: onAxis ? undefined : viewOf(yIn),
       channel: onAxis ? undefined : nearestTrace(x, yIn, 24),
       note: onAxis ? undefined : noteAt(x, yIn),
       edgeT: e.altKey ? undefined : edgeNear(xToT(x)),
@@ -806,7 +821,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     )
   // Channel tags and scale labels under the pointer: what dragging and the wheel do there
   const hoverTag = hover && !drag ? tagUnder(hover.x, hover.y) : undefined
-  const hoverScale = hover && !drag && hover.x > plotW && hover.y >= 0 && hover.y < viewsH ? viewChannels(Math.floor(hover.y / viewH)).axis : undefined
+  const hoverScale = hover && !drag && hover.x > plotW && hover.y >= 0 && hover.y < viewsH ? viewChannels(viewOf(hover.y)).axis : undefined
   const pointerTip = hoverTag
     ? `${channelName(hoverTag.id)}: drag to move the trace (Alt: no snapping; drop on another view to move it there) · wheel: V/div · double-click: settings`
     : hoverScale
@@ -814,7 +829,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
       : undefined
   const dragged = drag?.kind === 'tag' && drag.moved ? byId.get(drag.id) : undefined
   /** The readout of a dragged tag goes right of the tag, clear of the offset in it */
-  const draggedTagW = drag?.kind === 'tag' && dragged ? (layoutTags(viewChannels(drag.view).traces, viewH).find((t) => t.display.id === drag.id)?.w ?? 0) : 0
+  const draggedTagW = drag?.kind === 'tag' && dragged ? (layoutTags(viewChannels(drag.view).traces, hOf(drag.view)).find((t) => t.display.id === drag.id)?.w ?? 0) : 0
 
   const showHover = hover !== undefined && hoverT !== undefined && !drag && !p.editingCallout && !hoverTag
   const nearCursor =
@@ -864,8 +879,8 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
             canvasRefs.current[i] = el
           }}
           width={Math.round(size.w * (window.devicePixelRatio || 1))}
-          height={Math.round(viewH * (window.devicePixelRatio || 1))}
-          style={{ width: size.w, height: viewH, display: 'block' }}
+          height={Math.round(hOf(i) * (window.devicePixelRatio || 1))}
+          style={{ width: size.w, height: hOf(i), display: 'block' }}
         />
       ))}
       {p.views.map((_, i) => (
@@ -876,8 +891,8 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
           }}
           className="plot-overlay"
           width={Math.round(size.w * (window.devicePixelRatio || 1))}
-          height={Math.round(viewH * (window.devicePixelRatio || 1))}
-          style={{ top: i * viewH, width: size.w, height: viewH }}
+          height={Math.round(hOf(i) * (window.devicePixelRatio || 1))}
+          style={{ top: topOf(i), width: size.w, height: hOf(i) }}
         />
       ))}
       <canvas
@@ -897,7 +912,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
         views={p.views}
         win={p.win}
         plotW={plotW}
-        viewH={viewH}
+        boxes={boxes}
         selectedId={p.selectedCallout}
         editingId={p.editingCallout}
         onSelect={p.onSelectCallout}
@@ -906,6 +921,9 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
         onDelete={p.onDeleteCallout}
         onContextMenu={p.onCalloutMenu}
       />
+      {boxes.tops.slice(1).map((top, i) => (
+        <ViewSplitter key={i} index={i} top={top} width={plotW} heights={boxes.heights} onResize={p.onResizeViews} />
+      ))}
       {cursorReadout && (
         <div
           className="cursor-readout"
@@ -941,6 +959,55 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     </div>
   )
 })
+
+/**
+ * The edge between view `index` and the next one: dragging it moves height from one of the two to
+ * the other, neither getting lower than MIN_VIEW_H; a double-click gives all views the same height.
+ * Its presses stay its own, so they neither pan the plot nor zoom out to the whole record.
+ */
+function ViewSplitter(p: { index: number; top: number; width: number; heights: number[]; onResize: (sizes: number[] | undefined) => void }) {
+  const drag = useRef<{ y0: number; heights: number[] } | null>(null)
+  const end = () => {
+    drag.current = null
+  }
+  return (
+    <div
+      className="view-splitter"
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label={`Height of views ${p.index + 1} and ${p.index + 2}`}
+      title="Drag to change the heights of the views · double-click: all the same height"
+      style={{ top: p.top, width: p.width }}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return
+        e.stopPropagation()
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId)
+        } catch {
+          // synthetic events have no active pointer
+        }
+        drag.current = { y0: e.clientY, heights: p.heights }
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current
+        if (!d) return
+        e.stopPropagation()
+        const i = p.index
+        const pair = d.heights[i] + d.heights[i + 1]
+        const upper = Math.min(pair - MIN_VIEW_H, Math.max(MIN_VIEW_H, d.heights[i] + e.clientY - d.y0))
+        p.onResize(normalizeSizes(d.heights.map((h, k) => (k === i ? upper : k === i + 1 ? pair - upper : h))))
+      }}
+      onPointerUp={end}
+      onPointerCancel={end}
+      onLostPointerCapture={end}
+      onDoubleClick={(e) => {
+        e.stopPropagation()
+        p.onResize(undefined)
+      }}
+      onContextMenu={(e) => e.stopPropagation()}
+    />
+  )
+}
 
 /**
  * Time and the value of every visible channel at the pointer, next to the pointer (on the side

@@ -589,6 +589,19 @@ code {
   display: block;
   pointer-events: none;
 }
+/* The edge between two stacked views: drag it to change their heights */
+.view-splitter {
+  position: absolute;
+  left: 0;
+  height: 7px;
+  margin-top: -3px;
+  cursor: ns-resize;
+  z-index: 2;
+  touch-action: none;
+}
+.view-splitter:hover {
+  background: linear-gradient(transparent 2px, var(--accent) 2px, var(--accent) 4px, transparent 4px);
+}
 .cursor-readout {
   position: absolute;
   top: 22px;

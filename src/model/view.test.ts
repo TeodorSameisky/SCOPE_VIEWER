@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MinMaxPyramid } from '../dsp/minmax'
 import type { ChannelDisplay } from './types'
-import { POSITION_STEP, autoscalePatches, cursorsInView, patchDisplays, stepPosition, stepScale, verticalsOf, type LiveChannel } from './view'
+import { POSITION_STEP, autoscalePatches, carryViewSizes, normalizeSizes, cursorsInView, patchDisplays, stepPosition, stepScale, verticalsOf, type LiveChannel } from './view'
 
 const display = (id: string, scale = 1): ChannelDisplay => ({ id, label: '', color: '#ff0', visible: true, scale, position: 0, offset: 0 })
 
@@ -47,6 +47,24 @@ describe('view', () => {
     expect(next[0]).toBe(ds[0])
     expect(patchDisplays(ds, { CH2: { scale: 5, position: 0 } })).toBe(ds)
     expect(patchDisplays(ds, { MATH1: { scale: 1 } })).toBe(ds)
+  })
+
+  describe('view sizes', () => {
+    it('add up to 1', () => {
+      expect(normalizeSizes([3, 1])).toEqual([0.75, 0.25])
+    })
+
+    it('go with the channels of their views when the views change', () => {
+      const views = [['CH1', 'CH6', 'CH2'], ['CH4', 'CH5', 'CH3']]
+      // A channel moved between the views: the sizes stay
+      expect(carryViewSizes(views, [0.6, 0.4], [['CH1', 'CH6'], ['CH4', 'CH5', 'CH3', 'CH2']])).toEqual([0.6, 0.4])
+      // Ch 2 to a new view: it gets the mean size, the others keep theirs (all scaled to add up to 1)
+      expect(carryViewSizes(views, [0.6, 0.4], [['CH1', 'CH6'], ['CH4', 'CH5', 'CH3'], ['CH2']])).toEqual([0.4, 0.2667, 0.3333])
+      // A view emptied and removed: the others share its height
+      expect(carryViewSizes([['CH1'], ['CH2'], ['CH3']], [0.5, 0.25, 0.25], [['CH1', 'CH2'], ['CH3']])).toEqual([0.6667, 0.3333])
+      // Without sizes the views stay equal
+      expect(carryViewSizes(views, undefined, [['CH1'], ['CH2']])).toBeUndefined()
+    })
   })
 
   describe('autoscale', () => {

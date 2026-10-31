@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MinMaxPyramid } from '../dsp/minmax'
 import type { ChannelDisplay } from '../model/types'
-import { divToValue, drawTimeAxis, drawView, gridRows, labelEvery, labelStep, layoutTags, offsetText, tagAt, type TraceInput } from './draw'
+import { divToValue, drawTimeAxis, drawView, gridRows, labelEvery, labelStep, layoutTags, offsetText, tagAt, viewAt, viewBoxes, viewsHeight, type TraceInput } from './draw'
 import { THEMES } from './theme'
 
 const display = (id: string, position: number, offset = 0, scale = 1, label = ''): ChannelDisplay => ({ id, label, color: '#fff', visible: true, scale, position, offset })
@@ -202,6 +202,28 @@ const trace = (d: ChannelDisplay, samples: number[]): TraceInput => {
   const data = Float32Array.from(samples)
   return { display: d, wave: { id: d.id, data, t0: 0, dt: 1, yUnit: 'V', xUnit: 's' }, pyramid: new MinMaxPyramid(data) }
 }
+
+describe('view boxes', () => {
+  it('share the plot by their sizes, equally without', () => {
+    expect(viewBoxes(undefined, 2, 400)).toEqual({ tops: [0, 200], heights: [200, 200] })
+    expect(viewBoxes([0.25, 0.75], 2, 400)).toEqual({ tops: [0, 100], heights: [100, 300] })
+    // Whole pixels that add up to the plot
+    const thirds = viewBoxes([1, 1, 1], 3, 400)
+    expect(thirds.heights).toEqual([133, 134, 133])
+    expect(viewsHeight(thirds)).toBe(400)
+    // Sizes for other views than these are left out
+    expect(viewBoxes([0.25, 0.75], 3, 300).heights).toEqual([100, 100, 100])
+  })
+
+  it('are never lower than 40 px', () => {
+    expect(viewBoxes([0.05, 0.95], 2, 400).heights).toEqual([40, 380])
+  })
+
+  it('find the view at a height', () => {
+    const b = viewBoxes([0.25, 0.75], 2, 400)
+    expect([viewAt(b, -5), viewAt(b, 99), viewAt(b, 100), viewAt(b, 450)]).toEqual([0, 0, 1, 1])
+  })
+})
 
 describe('grid and scale', () => {
   it('puts the grid rows at round values of the labelled channel, as the scope moves its graticule', () => {

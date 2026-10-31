@@ -3,7 +3,7 @@ import type { Callout } from '../model/callouts'
 import { SPAN_DY, calloutShapes, type CalloutGeo, type CalloutLayout, type CalloutPart } from '../render/callouts'
 import { CalloutValueEditor } from './CalloutValueEditor'
 import { ColorSwatches } from './ColorSwatches'
-import { DIVS_Y } from '../render/draw'
+import { DIVS_Y, viewAt, viewsHeight } from '../render/draw'
 import { useTheme } from './ui/themeContext'
 
 interface Props extends CalloutLayout {
@@ -81,7 +81,7 @@ export const CalloutLayer = memo(forwardRef<SVGSVGElement, Props>(function Callo
   const [drag, setDrag] = useState<Drag | null>(null)
   const { theme } = useTheme()
   const span = p.win.end - p.win.start
-  const totalH = p.viewH * Math.max(1, p.views.length)
+  const totalH = viewsHeight(p.boxes)
 
   // Dragging uses window listeners so it keeps working when the pointer leaves the element
   useEffect(() => {
@@ -93,9 +93,10 @@ export const CalloutLayer = memo(forwardRef<SVGSVGElement, Props>(function Callo
       const x = e.clientX - r.left
       const y = e.clientY - r.top
       const dT = ((x - drag.x0) / p.plotW) * span
-      // Upwards in divisions, and in the unit of a box's channel
-      const dDiv = -(y - drag.y0) / (p.viewH / DIVS_Y)
       const o = drag.orig
+      // Upwards in divisions of the callout's view, and in the unit of a box's channel
+      const vi = o.channel ? p.views.findIndex((v) => v.includes(o.channel!)) : (o.view ?? 0)
+      const dDiv = -(y - drag.y0) / (p.boxes.heights[Math.min(p.views.length - 1, Math.max(0, vi))] / DIVS_Y)
       // Markers and region edges snap to edges of the selected trace, box edges and span ends to
       // those of their own channel; Alt moves them freely
       const snapped = (t: number) => (e.altKey ? t : (p.snap?.(t) ?? t))
@@ -115,8 +116,8 @@ export const CalloutLayer = memo(forwardRef<SVGSVGElement, Props>(function Callo
           const t = p.win.start + (Math.min(p.plotW, Math.max(0, x)) / p.plotW) * span
           if (o.channel) p.onUpdate(o.id, { t })
           else {
-            const vi = Math.min(p.views.length - 1, Math.max(0, Math.floor(y / p.viewH)))
-            p.onUpdate(o.id, { t, view: vi, div: DIVS_Y / 2 - (y - vi * p.viewH) / (p.viewH / DIVS_Y) })
+            const at = viewAt(p.boxes, y)
+            p.onUpdate(o.id, { t, view: at, div: DIVS_Y / 2 - (y - p.boxes.tops[at]) / (p.boxes.heights[at] / DIVS_Y) })
           }
           break
         }

@@ -1,4 +1,4 @@
-import { isMeasureRange, type CursorState, type MeasureRange, type TimeWindow } from './view'
+import { isMeasureRange, normalizeSizes, type CursorState, type MeasureRange, type TimeWindow } from './view'
 import type { MeasurementKey } from '../dsp/measure'
 import { MEASUREMENT_DEFS } from '../dsp/measureDefs'
 import { sanitizeCallouts, type Callout } from './callouts'
@@ -16,6 +16,8 @@ export interface Workspace {
   version: typeof WORKSPACE_VERSION
   channels: ChannelDisplay[]
   views: string[][]
+  /** Share of the plot's height of each view (adding up to 1), as set with the splitters; without it they are equal */
+  viewSizes?: number[]
   math: MathDef[]
   spectra: SpectrumDef[]
   spectrumOptions: SpectrumOptions
@@ -175,6 +177,9 @@ export function sanitizeWorkspace(raw: unknown, session: Session): Workspace {
     if (MATH_ID.test(id) || !views.length) views.push([id])
     else views[views.length - 1].push(id)
   }
+  // Sizes only for exactly these views
+  const sizes = r.viewSizes
+  const viewSizes = Array.isArray(sizes) && sizes.length === views.length && sizes.every((s) => isNum(s) && s > 0) ? normalizeSizes(sizes) : undefined
 
   const spec = parseStoredSpectra({ defs: r.spectra, options: r.spectrumOptions })
   const spectra = spec.defs.filter((d) => ids.includes(d.source))
@@ -198,6 +203,7 @@ export function sanitizeWorkspace(raw: unknown, session: Session): Workspace {
     version: WORKSPACE_VERSION,
     channels,
     views,
+    ...(viewSizes ? { viewSizes } : {}),
     math,
     spectra,
     spectrumOptions: spec.options,

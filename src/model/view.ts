@@ -77,6 +77,36 @@ export function patchDisplays(displays: ChannelDisplay[], patches: Record<string
   return changed ? next : displays
 }
 
+/** Sizes scaled to add up to 1, to 4 decimals */
+export function normalizeSizes(sizes: number[]): number[] {
+  const sum = sizes.reduce((a, b) => a + b, 0)
+  return sizes.map((s) => Math.round((s / sum) * 1e4) / 1e4)
+}
+
+/**
+ * The sizes of the views (their shares of the plot's height) after their channels changed: the size
+ * of each earlier view goes to the view that kept most of its channels, a new view gets the mean
+ * size. Undefined, that is equal sizes, when the views had none.
+ */
+export function carryViewSizes(prev: string[][], sizes: number[] | undefined, next: string[][]): number[] | undefined {
+  if (!sizes || sizes.length !== prev.length || !next.length) return undefined
+  const carried: (number | undefined)[] = next.map(() => undefined)
+  prev.forEach((p, i) => {
+    let best = -1
+    let most = 0
+    next.forEach((v, j) => {
+      const n = v.filter((id) => p.includes(id)).length
+      if (n > most && carried[j] === undefined) {
+        most = n
+        best = j
+      }
+    })
+    if (best >= 0) carried[best] = sizes[i]
+  })
+  const mean = sizes.reduce((a, b) => a + b, 0) / sizes.length
+  return normalizeSizes(carried.map((s) => s ?? mean))
+}
+
 /** Share of its view (or band) an autoscaled trace may fill */
 const AUTOSCALE_FILL = 0.8
 

@@ -36,6 +36,10 @@ Which panels are open is remembered in the browser.
 - Stacked waveform views with the scope's colours, labels, channel handles, trigger point and level. The trigger
   level is an arrow on the right edge in the colour of its source, with the source and slope (`C4 ↗`); when the
   level is outside the view, the arrow stays at the top or bottom edge, pointing towards it
+- **View heights**: drag the edge between two stacked views up or down to share their height differently (no view
+  gets lower than 40 px); a double-click on it gives all views the same height again. The heights are saved with
+  the analysis, a drag is one undo step, and a channel moved to another view takes nothing from the heights the
+  others have; a new view gets an average height
 - **Grid and scales** as on a Tektronix 4/5/6-Series: each view is 10 divisions high, its time grid follows round
   times from the trigger and its rows round values of the selected channel (else the view's first), so its scale
   labels on the right sit on the rows and the grid moves with its position. Dots on every grid line mark fifths

@@ -6,7 +6,7 @@ import { calloutValueText, type SpanMeasure } from '../model/calloutValues'
 import type { Waveform } from '../model/types'
 import { si } from '../util/format'
 import type { LiveChannel, TimeWindow } from '../model/view'
-import { DIVS_Y, textWidth, valueAt, valueToDiv } from './draw'
+import { DIVS_Y, textWidth, valueAt, valueToDiv, viewsHeight, type ViewBoxes } from './draw'
 import { MATH_SCALE, splitTex, texSource, texSvg, type TexSvg } from './tex'
 import { SANS, font } from './fonts'
 import type { Theme } from './theme'
@@ -30,7 +30,8 @@ export interface CalloutLayout {
   views: string[][]
   win: TimeWindow
   plotW: number
-  viewH: number
+  /** Where the views are (their sizes can differ) */
+  boxes: ViewBoxes
   /** Measures regions and boxes; without it they are measured at once (exports) */
   measure?: SpanMeasure
 }
@@ -185,12 +186,18 @@ const FLAG_GAP = 3
 /** Default distance of a span's dimension line below its lower end (px) */
 export const SPAN_DY = 24
 
-/** A visible channel and the top of its view (px from the top of the plot), or undefined */
-function channelPlace(p: CalloutLayout, id: string | undefined): { ch: LiveChannel; top: number } | undefined {
+/** A visible channel with the top and height of its view (px from the top of the plot), or undefined */
+function channelPlace(p: CalloutLayout, id: string | undefined): { ch: LiveChannel; top: number; h: number } | undefined {
   const ch = id === undefined ? undefined : p.channels.find((x) => x.wave.id === id)
   if (!ch || !ch.display.visible) return undefined
   const vi = p.views.findIndex((v) => v.includes(ch.wave.id))
-  return vi < 0 ? undefined : { ch, top: vi * p.viewH }
+  return vi < 0 ? undefined : { ch, top: p.boxes.tops[vi], h: p.boxes.heights[vi] }
+}
+
+/** Top and height of view `view` (px), clamped to the views there are */
+function viewPlace(p: CalloutLayout, view: number): { top: number; h: number } {
+  const v = clamp(view, 0, p.views.length - 1)
+  return { top: p.boxes.tops[v], h: p.boxes.heights[v] }
 }
 
 /** Label and value line of a region, box or span, and the size of their box */
@@ -205,19 +212,17 @@ function noteGeometry(c: Callout, p: CalloutLayout, waves: Waveform[]): NoteGeo 
   const span = p.win.end - p.win.start
   const ax = ((c.t - p.win.start) / span) * p.plotW
   if (ax < -1 || ax > p.plotW + 1) return null
-  const divH = p.viewH / DIVS_Y
-  const totalH = p.viewH * Math.max(1, p.views.length)
+  const totalH = viewsHeight(p.boxes)
   let ay: number | undefined
-  const ch = c.channel ? p.channels.find((x) => x.wave.id === c.channel) : undefined
-  const vi = ch ? p.views.findIndex((v) => v.includes(ch.wave.id)) : -1
-  if (ch && ch.display.visible && vi >= 0) {
-    const v = valueAt(ch.wave, c.t)
-    if (Number.isFinite(v)) ay = vi * p.viewH + p.viewH / 2 - valueToDiv(v, ch.display) * divH
+  const at = channelPlace(p, c.channel)
+  if (at) {
+    const v = valueAt(at.ch.wave, c.t)
+    if (Number.isFinite(v)) ay = at.top + at.h / 2 - (valueToDiv(v, at.ch.display) * at.h) / DIVS_Y
   }
   if (ay === undefined) {
     if (c.view === undefined || c.div === undefined) return null
-    const v = Math.min(p.views.length - 1, Math.max(0, c.view))
-    ay = v * p.viewH + p.viewH / 2 - c.div * divH
+    const { top, h } = viewPlace(p, c.view)
+    ay = top + h / 2 - (c.div * h) / DIVS_Y
   }
   const lines = (c.text || calloutTitle(c)).split('\n').map((l) => layoutLine(l, FONT, NOTE_LINE))
   const valueText = calloutValueText(c, waves)
@@ -247,7 +252,7 @@ function regionGeometry(c: Callout, p: CalloutLayout, waves: Waveform[]): Region
   const xb = tToX(Math.max(c.t, t2))
   if (xb < -1 || xa > p.plotW + 1) return null
   const { label, value, w, h } = labelBlock(`${calloutTitle(c)}  Δt ${si(Math.abs(t2 - c.t), 's')}`, calloutValueText(c, waves, p.measure))
-  const totalH = p.viewH * Math.max(1, p.views.length)
+  const totalH = viewsHeight(p.boxes)
   return { type: 'region', xa, xb, lx: Math.min(Math.max(xa, 0) + 4, p.plotW - w - 2), ly: totalH - h - 6, w, h, label, value }
 }
 
@@ -261,26 +266,28 @@ function boxGeometry(c: Callout, p: CalloutLayout, waves: Waveform[]): BoxGeo | 
   const xa = tToX(Math.min(c.t, t2))
   const xb = tToX(Math.max(c.t, t2))
   if (xb < -1 || xa > p.plotW + 1) return null
-  const divH = p.viewH / DIVS_Y
-  // Upper and lower level in divisions from the centre of the view, and the top of the view
+  // Upper and lower level in divisions from the centre of the view, and the top and height of the view
   let levels: [number, number]
   let top: number
+  let vh: number
   if (c.channel !== undefined && c.v !== undefined && c.v2 !== undefined) {
     const at = channelPlace(p, c.channel)
     if (!at) return null
     top = at.top
+    vh = at.h
     levels = [valueToDiv(c.v, at.ch.display), valueToDiv(c.v2, at.ch.display)]
   } else if (c.view !== undefined && c.div !== undefined && c.div2 !== undefined) {
-    top = clamp(c.view, 0, p.views.length - 1) * p.viewH
+    ;({ top, h: vh } = viewPlace(p, c.view))
     levels = [c.div, c.div2]
   } else return null
-  const yTop = top + p.viewH / 2 - Math.max(...levels) * divH
-  const yBottom = top + p.viewH / 2 - Math.min(...levels) * divH
-  if (yBottom < top || yTop > top + p.viewH) return null
-  const y = clamp(yTop, top, top + p.viewH - 2)
-  const h = Math.max(2, clamp(yBottom, top, top + p.viewH) - y)
+  const divH = vh / DIVS_Y
+  const yTop = top + vh / 2 - Math.max(...levels) * divH
+  const yBottom = top + vh / 2 - Math.min(...levels) * divH
+  if (yBottom < top || yTop > top + vh) return null
+  const y = clamp(yTop, top, top + vh - 2)
+  const h = Math.max(2, clamp(yBottom, top, top + vh) - y)
   const { label, value, w: lw, h: lh } = labelBlock(calloutTitle(c), calloutValueText(c, waves, p.measure))
-  const totalH = p.viewH * Math.max(1, p.views.length)
+  const totalH = viewsHeight(p.boxes)
   const ly = y - lh - 3 >= 2 ? y - lh - 3 : y + h + 3 + lh <= totalH - 2 ? y + h + 3 : y + 3
   return { type: 'box', x: xa, y, w: Math.max(2, xb - xa), h, shape: c.shape ?? 'rect', lx: clamp(xa, 2, p.plotW - lw - 2), ly, lw, lh, label, value }
 }
@@ -292,17 +299,16 @@ function spanGeometry(c: Callout, p: CalloutLayout, waves: Waveform[]): SpanGeo 
   const xa = tToX(c.t)
   const xb = tToX(t2)
   if (Math.max(xa, xb) < -1 || Math.min(xa, xb) > p.plotW + 1) return null
-  const divH = p.viewH / DIVS_Y
   const endY = (id: string | undefined, t: number) => {
     const at = channelPlace(p, id)
     const v = at ? valueAt(at.ch.wave, t) : NaN
-    return at && Number.isFinite(v) ? at.top + p.viewH / 2 - valueToDiv(v, at.ch.display) * divH : undefined
+    return at && Number.isFinite(v) ? at.top + at.h / 2 - (valueToDiv(v, at.ch.display) * at.h) / DIVS_Y : undefined
   }
   const ya = endY(c.channel, c.t)
   const yb = endY(c.channel2, t2)
   if (ya === undefined || yb === undefined) return null
   const { label, value, w: lw, h: lh } = labelBlock(`${calloutTitle(c)}  Δt ${si(t2 - c.t, 's')}`, calloutValueText(c, waves))
-  const totalH = p.viewH * Math.max(1, p.views.length)
+  const totalH = viewsHeight(p.boxes)
   const y = clamp(Math.max(ya, yb) + (c.dy ?? SPAN_DY), lh + 6, totalH - 4)
   return { type: 'span', xa, ya, xb, yb, y, lx: clamp((xa + xb) / 2 - lw / 2, 2, p.plotW - lw - 2), ly: y - lh - 3, lw, lh, label, value }
 }
@@ -387,7 +393,7 @@ export function calloutShapes(
   interact?: (c: Callout, part: CalloutPart) => PartProps,
   geo = layoutCallouts(callouts, p),
 ): ReactNode[] {
-  const totalH = p.viewH * Math.max(1, p.views.length)
+  const totalH = viewsHeight(p.boxes)
   const order = { region: 0, box: 1, span: 2, marker: 3, note: 4 }
   const sorted = [...callouts].sort((a, b) => order[a.type] - order[b.type])
 
@@ -513,7 +519,7 @@ export function calloutShapes(
 
 /** The callouts as a standalone SVG document in the given theme, for image export */
 export function calloutsSvg(callouts: Callout[], p: CalloutLayout, theme: Theme, geo = layoutCallouts(callouts, p)): string {
-  const totalH = p.viewH * Math.max(1, p.views.length)
+  const totalH = viewsHeight(p.boxes)
   const host = document.createElement('div')
   const root = createRoot(host)
   flushSync(() =>

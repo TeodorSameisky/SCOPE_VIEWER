@@ -14,7 +14,13 @@ const channel = (id: string, level: number, visible = true): LiveChannel => {
   }
 }
 // Two views 200 px high (20 px per division), 10 s across 100 px
-const layout = (channels: LiveChannel[]): CalloutLayout => ({ channels, views: [['CH1'], ['CH2']], win: { start: 0, end: 10 }, plotW: 100, viewH: 200 })
+const layout = (channels: LiveChannel[], boxes = { tops: [0, 200], heights: [200, 200] }): CalloutLayout => ({
+  channels,
+  views: [['CH1'], ['CH2']],
+  win: { start: 0, end: 10 },
+  plotW: 100,
+  boxes,
+})
 const base: Callout = { id: 'x', n: 1, type: 'box', t: 2, t2: 4, text: '', color: '#fff' }
 
 describe('box geometry', () => {
@@ -29,6 +35,12 @@ describe('box geometry', () => {
     expect(layoutCallouts([{ ...base, channel: 'CH2', v: 2, v2: 20 }], p).get('x')).toMatchObject({ y: 200, h: 60 })
     expect(layoutCallouts([{ ...base, channel: 'CH2', v: 20, v2: 30 }], p).get('x')).toBeUndefined()
     expect(layoutCallouts([{ ...base, channel: 'CH1', v: -1, v2: 1 }], layout([channel('CH1', 0, false)])).get('x')).toBeUndefined()
+  })
+
+  it('takes the height of its own view when the views differ in height', () => {
+    // View 2 from y = 100, 300 px high (30 px per division): -2 … 2 V is y 190 … 310
+    const g = layoutCallouts([{ ...base, channel: 'CH2', v: -2, v2: 2 }], layout([channel('CH1', 0), channel('CH2', 0)], { tops: [0, 100], heights: [100, 300] })).get('x')
+    expect(g).toMatchObject({ y: 190, h: 120 })
   })
 
   it('can be free in a view', () => {

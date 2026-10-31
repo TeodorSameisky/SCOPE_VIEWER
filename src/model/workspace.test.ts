@@ -98,6 +98,13 @@ describe('workspace defaults and validation', () => {
     expect(sanitizeWorkspace('garbage', session())).toEqual(defaultWorkspace(session()))
   })
 
+  it('keeps the view sizes only for the views they were set for', () => {
+    expect(sanitizeWorkspace({ views: [['CH1'], ['CH2']], viewSizes: [3, 1] }, session()).viewSizes).toEqual([0.75, 0.25])
+    expect(sanitizeWorkspace({ views: [['CH1', 'CH2']], viewSizes: [3, 1] }, session()).viewSizes).toBeUndefined()
+    expect(sanitizeWorkspace({ views: [['CH1'], ['CH2']], viewSizes: [1, -1] }, session()).viewSizes).toBeUndefined()
+    expect('viewSizes' in defaultWorkspace(session())).toBe(false)
+  })
+
   it('keeps a stored time window within the zoom limits', () => {
     // Record -1 ms … -10 µs, 10 µs per sample: spans from 100 µs (10 samples) to 3.96 ms (4× the record)
     const win = (window: unknown) => sanitizeWorkspace({ window }, session()).window

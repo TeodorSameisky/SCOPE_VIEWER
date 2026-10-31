@@ -35,6 +35,50 @@ export interface ViewDrawOptions {
   theme: Theme
 }
 
+/** Where the stacked views of a plot are: the top and height of each (px from the top of the plot) */
+export interface ViewBoxes {
+  tops: number[]
+  heights: number[]
+}
+
+/** Least height of a view (px) */
+export const MIN_VIEW_H = 40
+
+/**
+ * The views of a plot `available` px high, each its share in `sizes` (equal without sizes for all
+ * of them), in whole pixels; a view is never lower than MIN_VIEW_H, which may make them higher than
+ * the plot.
+ */
+export function viewBoxes(sizes: number[] | undefined, count: number, available: number): ViewBoxes {
+  const n = Math.max(1, count)
+  const shares = sizes?.length === n && sizes.every((s) => Number.isFinite(s) && s > 0) ? sizes : Array<number>(n).fill(1)
+  const sum = shares.reduce((a, b) => a + b, 0)
+  const tops: number[] = []
+  const heights: number[] = []
+  let top = 0
+  let before = 0
+  for (const s of shares) {
+    const h = Math.max(MIN_VIEW_H, Math.round((available * (before + s)) / sum) - Math.round((available * before) / sum))
+    tops.push(top)
+    heights.push(h)
+    top += h
+    before += s
+  }
+  return { tops, heights }
+}
+
+/** Height of all the views together (px) */
+export function viewsHeight(b: ViewBoxes): number {
+  return b.tops[b.tops.length - 1] + b.heights[b.heights.length - 1]
+}
+
+/** The view at height `y` of the plot; above the first the first, below the last the last */
+export function viewAt(b: ViewBoxes, y: number): number {
+  let i = 0
+  while (i < b.tops.length - 1 && y >= b.tops[i + 1]) i++
+  return i
+}
+
 export function valueToDiv(v: number, d: ChannelDisplay): number {
   return (v - d.offset) / d.scale + d.position
 }
