@@ -1040,6 +1040,11 @@ code {
 .info-main {
   font-size: 12.5px;
 }
+/* The length of the window, next to the time per division */
+.info-window {
+  margin-left: 4px;
+  color: var(--muted);
+}
 .info-sub {
   font-size: 11px;
   color: var(--muted);

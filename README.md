@@ -36,6 +36,13 @@ Which panels are open is remembered in the browser.
 - Stacked waveform views with the scope's colours, labels, channel handles, trigger point and level. The trigger
   level is an arrow on the right edge in the colour of its source, with the source and slope (`C4 ↗`); when the
   level is outside the view, the arrow stays at the top or bottom edge, pointing towards it
+- **Grid and scales** as on a Tektronix 4/5/6-Series: each view is 10 divisions high, its time grid follows round
+  times from the trigger and its rows round values of the selected channel (else the view's first), so its scale
+  labels on the right sit on the rows and the grid moves with its position. Dots on every grid line mark fifths
+  of a division. The labels are round values, as many as there is room for (on every 2nd, 5th … row in a short
+  view, every 2nd, 5th … time in a narrow window); after a zoom rectangle, whose V/div is not a 1-2-5 value, they
+  sit between the rows. When the traces of a view are stacked in bands, the scale labels stay next to their own
+  trace. The *Horizontal* box shows the length of the window next to the time per division
 - Min/max decimation pyramid, so long records stay responsive
 - Click a trace to select it; Ctrl+wheel changes its V/div, Alt+wheel its position
 - **Autoscale** (`A`, or the button next to *Full record*): fits what is on screen of every visible channel into
@@ -47,7 +54,7 @@ Which panels are open is remembered in the browser.
 - **Moving and scaling traces** with the channel tags on the left edge of the plot, the handles of the
   scope: C1, C2, … at each channel's position, which is its offset level (0 without an offset). A channel
   with an offset shows it in its tag (`C2 3.57 V`), as on the scope:
-  - **drag a tag** up or down to move its trace; it snaps to the grid lines (hold Alt to place it freely),
+  - **drag a tag** up or down to move its trace; it snaps to whole divisions (hold Alt to place it freely),
     and a dashed line and a readout show the new position while dragging. Drop it on another view to move
     the channel there
   - **wheel on a tag**, or on a view's scale labels on the right, changes that channel's V/div (1-2-5); the

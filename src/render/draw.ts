@@ -1,6 +1,6 @@
 import type { ChannelDisplay, Waveform } from '../model/types'
 import type { MinMaxPyramid } from '../dsp/minmax'
-import { si, siTick } from '../util/format'
+import { niceStep, si, siTick } from '../util/format'
 import { channelTag, slopeSymbol } from '../util/names'
 import { sampleAt } from '../math/signal'
 import type { Theme } from './theme'
@@ -55,6 +55,82 @@ export function textWidth(text: string, cssFont: string): number {
   if (!measureCtx) return text.length * 7
   measureCtx.font = cssFont
   return measureCtx.measureText(text).width
+}
+
+/** Least distance (px) between two scale labels */
+const LABEL_GAP = 15
+/** Space (px) kept free between two time labels */
+const TIME_LABEL_PAD = 10
+/** The dots that mark fifths of a division are left out when they would be closer than this (px) */
+const MIN_DOT_GAP = 3
+
+/**
+ * Heights (px from the top) of the grid rows of a view: one per division, at the round values of
+ * the channel whose scale is labelled (the multiples of its V/div), so its labels sit on the rows
+ * and the grid moves with its position, as on a Tektronix scope. Without one, at the divisions from
+ * the centre.
+ */
+export function gridRows(height: number, axis?: ChannelDisplay): number[] {
+  const divH = height / DIVS_Y
+  // Where the value 0 is (div); the rows are a whole number of divisions from it
+  const zero = axis ? valueToDiv(0, axis) : 0
+  const rows: number[] = []
+  for (let k = Math.ceil(-DIVS_Y / 2 - zero - 1e-9); zero + k <= DIVS_Y / 2 + 1e-9; k++) rows.push(height / 2 - (zero + k) * divH)
+  return rows
+}
+
+/** Whether a positive value is on the 1-2-5 sequence */
+function isOneTwoFive(v: number): boolean {
+  const m = v / Math.pow(10, Math.floor(Math.log10(v) + 1e-9))
+  return [1, 2, 5, 10].some((s) => Math.abs(m - s) < s * 1e-6)
+}
+
+/**
+ * Value step between the scale labels of a channel: the least 1-2-5 value that keeps them LABEL_GAP
+ * apart. When its V/div is on the 1-2-5 sequence, also a multiple of it, so the labels sit on grid
+ * rows; else (after a zoom rectangle) they are round values between the rows, never rounded ones.
+ */
+export function labelStep(scale: number, divPx: number): number {
+  let step = niceStep(scale * Math.max(1, LABEL_GAP / divPx) * (1 - 1e-9))
+  if (isOneTwoFive(scale)) while (Math.abs(step / scale - Math.round(step / scale)) > 1e-6) step = niceStep(step * (1 + 1e-6))
+  return step
+}
+
+/** How many ticks apart labels `need` px wide go on ticks `gap` px apart: 1, 2, 5, 10 … */
+export function labelEvery(gap: number, need: number): number {
+  return need <= gap ? 1 : Math.round(niceStep(need / gap))
+}
+
+/**
+ * Heights (px) between which the scale labels of the view's axis channel go: the whole view, unless
+ * its trace runs clear of the others (traces stacked in bands, e.g. after Autoscale); then its band,
+ * up to halfway to the traces above and below, so the labels are not read against another trace.
+ */
+export function labelSpan(traces: TraceInput[], axis: TraceInput, height: number, tStart: number, tEnd: number): [number, number] {
+  const divH = height / DIVS_Y
+  const mm: [number, number] = [NaN, NaN]
+  /** Top and bottom of a trace in the window (px), undefined when it is not in the view */
+  const extent = ({ wave, display, pyramid }: TraceInput): [number, number] | undefined => {
+    pyramid.range(Math.floor((tStart - wave.t0) / wave.dt), Math.ceil((tEnd - wave.t0) / wave.dt) + 1, mm)
+    if (Number.isNaN(mm[0])) return undefined
+    const top = height / 2 - valueToDiv(mm[1], display) * divH
+    const bottom = height / 2 - valueToDiv(mm[0], display) * divH
+    return bottom < 0 || top > height ? undefined : [Math.max(0, top), Math.min(height, bottom)]
+  }
+  const own = extent(axis)
+  if (!own) return [0, height]
+  let top = 0
+  let bottom = height
+  for (const t of traces) {
+    if (t.display.id === axis.display.id) continue
+    const e = extent(t)
+    if (!e) continue
+    if (e[1] < own[0]) top = Math.max(top, (e[1] + own[0]) / 2)
+    else if (e[0] > own[1]) bottom = Math.min(bottom, (own[1] + e[0]) / 2)
+    // Overlapping traces share the view: the labels cover all of it
+    else return [0, height]
+  }
+  return [top, bottom]
 }
 
 /** Font of the channel labels next to the tags */
@@ -146,26 +222,32 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
   ctx.fillStyle = theme.bg
   ctx.fillRect(0, 0, W, H)
 
-  // Graticule: fixed 10 vertical divisions, time grid follows nice tick values
+  // Graticule as on the scope: 10 divisions high, the rows at round values of the axis channel (see
+  // gridRows), the columns at the time ticks; dots on every line mark fifths of a division, in time
+  // along the rows and in level along the columns
+  const rows = gridRows(H, o.axisChannel?.display)
+  const cols = o.timeTicks.map(tx)
+  const colGap = cols.length > 1 ? cols[1] - cols[0] : plotW / 10
   ctx.lineWidth = 1
-  for (let i = 0; i <= DIVS_Y; i++) {
-    const y = Math.round(i * divH) + 0.5
-    ctx.strokeStyle = i === DIVS_Y / 2 ? theme.gridCenter : theme.grid
-    ctx.setLineDash(i === 0 || i === DIVS_Y ? [] : [2, 4])
-    ctx.beginPath()
-    ctx.moveTo(0, y)
-    ctx.lineTo(plotW, y)
-    ctx.stroke()
-  }
   ctx.strokeStyle = theme.grid
-  for (const t of o.timeTicks) {
-    const x = Math.round(tx(t)) + 0.5
-    ctx.beginPath()
-    ctx.moveTo(x, 0)
-    ctx.lineTo(x, H)
-    ctx.stroke()
+  ctx.beginPath()
+  for (const y of rows) {
+    ctx.moveTo(0, Math.round(y) + 0.5)
+    ctx.lineTo(plotW, Math.round(y) + 0.5)
   }
-  ctx.setLineDash([])
+  for (const x of cols) {
+    ctx.moveTo(Math.round(x) + 0.5, 0)
+    ctx.lineTo(Math.round(x) + 0.5, H)
+  }
+  ctx.stroke()
+  ctx.fillStyle = theme.gridCenter
+  const dots = (from: number, gap: number, end: number, dot: (p: number) => void) => {
+    if (gap < MIN_DOT_GAP) return
+    const first = from - Math.floor(from / gap) * gap
+    for (let i = 0; first + i * gap <= end; i++) dot(Math.round(first + i * gap))
+  }
+  if (cols.length) for (const y of rows) dots(cols[0], colGap / 5, plotW, (x) => ctx.fillRect(x, Math.round(y), 1, 1))
+  if (rows.length) for (const x of cols) dots(rows[0], divH / 5, H, (y) => ctx.fillRect(Math.round(x), y, 1, 1))
   ctx.strokeStyle = theme.gridCenter
   ctx.strokeRect(0.5, 0.5, plotW - 1, H - 1)
 
@@ -177,7 +259,8 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
   for (const tr of o.traces) drawTrace(ctx, tr, o, plotW, divH)
   ctx.restore()
 
-  // Right axis labels for the selected/first channel of this view, at round multiples of V/div
+  // Right axis labels for the selected/first channel of this view: round values far enough apart
+  // (see labelStep), next to its own trace when the traces are stacked in bands (see labelSpan)
   if (o.axisChannel) {
     const d = o.axisChannel.display
     const unit = o.axisChannel.wave.yUnit
@@ -185,14 +268,15 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
     ctx.fillStyle = theme.ink(d.color)
     ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
+    const step = labelStep(d.scale, divH)
+    const [top, bottom] = labelSpan(o.traces, o.axisChannel, H, o.tStart, o.tEnd)
     const vLo = divToValue(-DIVS_Y / 2, d)
     const vHi = divToValue(DIVS_Y / 2, d)
-    const first = Math.ceil(vLo / d.scale - 1e-9)
-    for (let k = first; k * d.scale <= vHi + d.scale * 1e-9; k++) {
-      const v = k * d.scale
+    for (let k = Math.ceil(vLo / step - 1e-9); k * step <= vHi + step * 1e-9; k++) {
+      const v = k * step
       const y = H / 2 - valueToDiv(v, d) * divH
-      if (y < 5 || y > H - 5) continue
-      ctx.fillText(siTick(v, unit, d.scale), plotW + 6, y)
+      if (y < Math.max(5, top) || y > Math.min(H - 5, bottom)) continue
+      ctx.fillText(siTick(v, unit, step), plotW + 6, y)
       ctx.fillRect(plotW, Math.round(y), 4, 1)
     }
   }
@@ -482,15 +566,20 @@ export function drawTimeAxis(ctx: CanvasRenderingContext2D, width: number, heigh
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
   ctx.strokeStyle = theme.gridCenter
-  for (const t of ticks) {
+  // Every tick is marked; the labels go on every 1st, 2nd, 5th … tick, so they do not run into each other
+  const step = ticks.length > 1 ? ticks[1] - ticks[0] : undefined
+  const labels = ticks.map((t) => siTick(t, 's', step))
+  const gap = step ? (step / (tEnd - tStart)) * plotW : plotW
+  const every = labelEvery(gap, Math.max(0, ...labels.map((l) => ctx.measureText(l).width)) + TIME_LABEL_PAD)
+  ticks.forEach((t, i) => {
     const x = Math.round(((t - tStart) / (tEnd - tStart)) * plotW) + 0.5
     ctx.beginPath()
     ctx.moveTo(x, 0)
     ctx.lineTo(x, 4)
     ctx.stroke()
-    const label = siTick(t, 's', ticks.length > 1 ? ticks[1] - ticks[0] : undefined)
-    const w = ctx.measureText(label).width / 2
-    ctx.fillText(label, Math.min(plotW - w, Math.max(w, x)), 6)
-  }
+    if (step && Math.round(t / step) % every !== 0) return
+    const w = ctx.measureText(labels[i]).width / 2
+    ctx.fillText(labels[i], Math.min(plotW - w, Math.max(w, x)), 6)
+  })
   ctx.restore()
 }

@@ -186,7 +186,7 @@ export type Tool = 'pan' | 'zoom' | 'note' | 'marker' | 'region' | 'box' | 'span
 export type NavKind = 'zoom' | 'pan' | 'wheel'
 
 /**
- * A vertical level in divisions moved onto the nearest grid line when it is within `snapPx`
+ * A vertical level in divisions moved onto the nearest whole division when it is within `snapPx`
  * of it on screen; `divPx` is the height of one division.
  */
 export function snapToGrid(div: number, divPx: number, snapPx = 6): number {

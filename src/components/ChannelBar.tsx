@@ -305,7 +305,10 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
       <div className="spacer" />
       <div className="info-box" title={`Window ${si(p.win.start, 's')} … ${si(p.win.end, 's')}`} onContextMenu={p.onTimebaseMenu}>
         <span className="info-title">Horizontal</span>
-        <span className="info-main mono">{si(p.timePerDiv, 's/div', 3)}</span>
+        {/* The window next to the time per division, as on the scope: zoomed freely, it is not always 10 divisions */}
+        <span className="info-main mono">
+          {si(p.timePerDiv, 's/div', 3)} <span className="info-window">{si(p.win.end - p.win.start, 's', 3)}</span>
+        </span>
         <span className="info-sub mono">
           {si(p.sampleRate, 'S/s', 3)} · {si(p.recordLength, 'pts', 3)}
         </span>

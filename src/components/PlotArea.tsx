@@ -647,7 +647,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, r
     return { type: 'box', t, t2, channel: ch.wave.id, v: round(divToValue(top, ch.display)), v2: round(divToValue(bottom, ch.display)) }
   }
 
-  /** A tag's position (div from the centre, to 0.01 div), snapped to the grid unless `free` */
+  /** A tag's position (div from the centre, to 0.01 div), snapped to whole divisions unless `free` */
   const tagPosition = (div: number, free: boolean) => Math.round((free ? div : snapToGrid(div, divH)) * 100) / 100
 
   /** Drag of a channel tag: up and down in its view moves the trace, over another view marks it as the target */

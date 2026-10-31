@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MinMaxPyramid } from '../dsp/minmax'
 import type { ChannelDisplay } from '../model/types'
-import { drawView, layoutTags, offsetText, tagAt } from './draw'
+import { divToValue, drawTimeAxis, drawView, gridRows, labelEvery, labelSpan, labelStep, layoutTags, offsetText, tagAt, type TraceInput } from './draw'
 import { THEMES } from './theme'
 
 const display = (id: string, position: number, offset = 0, scale = 1, label = ''): ChannelDisplay => ({ id, label, color: '#fff', visible: true, scale, position, offset })
@@ -179,5 +179,83 @@ describe('trigger level', () => {
     const below = drawTrigger(-7)
     expect(below.arrow).toContainEqual([795, 199])
     expect(below.label?.y).toBe(194.5)
+  })
+})
+
+/** The texts written while drawing, with where and in which colour, recorded from a canvas stand-in (text 7 px per character) */
+function recordTexts(draw: (ctx: CanvasRenderingContext2D) => void): { text: string; x: number; y: number }[] {
+  const texts: { text: string; x: number; y: number }[] = []
+  const ctx = new Proxy({} as Record<string | symbol, unknown>, {
+    get: (_, k) => {
+      if (k === 'fillText') return (text: string, x: number, y: number) => texts.push({ text, x, y })
+      if (k === 'measureText') return (text: string) => ({ width: text.length * 7 })
+      return () => {}
+    },
+    set: () => true,
+  }) as unknown as CanvasRenderingContext2D
+  draw(ctx)
+  return texts
+}
+
+/** A trace of `samples` (one per second from t = 0) */
+const trace = (d: ChannelDisplay, samples: number[]): TraceInput => {
+  const data = Float32Array.from(samples)
+  return { display: d, wave: { id: d.id, data, t0: 0, dt: 1, yUnit: 'V', xUnit: 's' }, pyramid: new MinMaxPyramid(data) }
+}
+
+describe('grid and scale', () => {
+  it('puts the grid rows at round values of the labelled channel, as the scope moves its graticule', () => {
+    // Without a channel: the 11 lines of the 10 divisions
+    expect(gridRows(H)).toEqual([200, 180, 160, 140, 120, 100, 80, 60, 40, 20, 0])
+    // Ch 4 of the sample session: 1 V/div, offset 2.8 V, position -0.88 div - 0 V is 3.68 div below the centre
+    const ch4 = display('CH4', -0.88, 2.8, 1)
+    const rows = gridRows(H, ch4)
+    expect(rows).toHaveLength(10)
+    expect(rows[0]).toBeCloseTo(193.6)
+    for (const y of rows) {
+      const v = divToValue((H / 2 - y) / 20, ch4)
+      expect(Math.abs(v - Math.round(v))).toBeLessThan(1e-9)
+    }
+  })
+
+  it('labels round values far enough apart, on the rows when the V/div is 1-2-5', () => {
+    expect(labelStep(1, 20)).toBe(1)
+    // 6.9 px per division (six stacked views): every 4th row at 5 V/div, every 5th at 2 V/div
+    expect(labelStep(5, 6.9)).toBe(20)
+    expect(labelStep(2, 6.9)).toBe(10)
+    // After a zoom rectangle (304.3 mV/div): round values between the rows
+    expect(labelStep(0.3043, 20)).toBe(0.5)
+    expect(labelStep(0.3043, 6)).toBe(1)
+  })
+
+  it('writes each scale label at the height of its value', () => {
+    const d = { ...display('CH4', 0, 5.22589, 0.3043), color: '#00ff00' }
+    const labels = recordTexts((ctx) =>
+      drawView(ctx, { width: 864, height: H, dpr: 1, tStart: 0, tEnd: 1, timeTicks: [], traces: [trace(d, [5, 5.5])], axisChannel: trace(d, [5, 5.5]), theme: THEMES.dark }),
+    ).filter((t) => t.x === 806)
+    expect(labels.map((l) => l.text)).toEqual(['4 V', '4.5 V', '5 V', '5.5 V', '6 V', '6.5 V'])
+    for (const l of labels) expect(divToValue((H / 2 - l.y) / 20, d)).toBeCloseTo(parseFloat(l.text), 6)
+  })
+
+  it('keeps the scale labels to the band of their trace when the traces are stacked', () => {
+    // Ch 1 from 2.5 to 3.5 div (y 30 … 50), Ch 2 from -2.5 to -1.5 div (y 130 … 150)
+    const ch1 = trace(display('CH1', 2.5), [0, 1])
+    const ch2 = trace(display('CH2', -2.5), [0, 1])
+    expect(labelSpan([ch1, ch2], ch1, H, 0, 1)).toEqual([0, 90])
+    expect(labelSpan([ch1, ch2], ch2, H, 0, 1)).toEqual([90, 200])
+    // Overlapping traces share the view: the labels cover it all
+    const over = trace(display('CH2', 3), [0, 1])
+    expect(labelSpan([ch1, over], ch1, H, 0, 1)).toEqual([0, 200])
+  })
+
+  it('leaves out time labels that would run into each other', () => {
+    expect(labelEvery(80, 45)).toBe(1)
+    expect(labelEvery(27, 45)).toBe(2)
+    expect(labelEvery(10, 45)).toBe(5)
+    // A phone: 10 ticks of 1 ms on 267 px - every second one is labelled
+    const ticks = [-7, -6, -5, -4, -3, -2, -1, 0, 1, 2].map((t) => t * 1e-3)
+    const labels = recordTexts((ctx) => drawTimeAxis(ctx, 331, 24, 1, -7.95e-3, 2.05e-3, ticks, THEMES.dark))
+    expect(labels.map((l) => l.text)).toEqual(['-6 ms', '-4 ms', '-2 ms', '0 s', '2 ms'])
+    for (let i = 1; i < labels.length; i++) expect(labels[i].x - labels[i - 1].x).toBeGreaterThan(40)
   })
 })
