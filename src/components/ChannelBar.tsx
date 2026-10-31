@@ -37,7 +37,6 @@ interface Props {
   /** Channels that have a spectrum */
   spectrumSources: Set<string>
   canAddSpectrum: boolean
-  onAddSpectrum: () => void
   onToggleSpectrum: (id: string) => void
   win: TimeWindow
   timePerDiv: number
@@ -109,24 +108,36 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
     return () => el.removeEventListener('wheel', wheel)
   }, [])
 
-  const badgeEl = (id: string) => scrollRef.current?.querySelector<HTMLElement>(`.ch-badge[data-id="${CSS.escape(id)}"]`) ?? null
+  const badgeEl = useCallback((id: string) => scrollRef.current?.querySelector<HTMLElement>(`.ch-badge[data-id="${CSS.escape(id)}"]`) ?? null, [])
   /** Scroll a badge fully into view (clear of the edge fades) and return it */
-  const reveal = (id: string) => {
-    const row = scrollRef.current
-    const b = badgeEl(id)
-    if (!row || !b || row.scrollWidth <= row.clientWidth) return b
-    const s = row.getBoundingClientRect()
-    const r = b.getBoundingClientRect()
-    if (r.left < s.left + EDGE_PX) row.scrollLeft -= s.left + EDGE_PX - r.left
-    else if (r.right > s.right - EDGE_PX) row.scrollLeft += r.right - (s.right - EDGE_PX)
-    return b
-  }
+  const reveal = useCallback(
+    (id: string) => {
+      const row = scrollRef.current
+      const b = badgeEl(id)
+      if (!row || !b || row.scrollWidth <= row.clientWidth) return b
+      const s = row.getBoundingClientRect()
+      const r = b.getBoundingClientRect()
+      if (r.left < s.left + EDGE_PX) row.scrollLeft -= s.left + EDGE_PX - r.left
+      else if (r.right > s.right - EDGE_PX) row.scrollLeft += r.right - (s.right - EDGE_PX)
+      return b
+    },
+    [badgeEl],
+  )
   // The selected channel (e.g. by clicking its trace) is always visible in the row
   useEffect(() => {
     if (p.selected) reveal(p.selected)
-    // reveal only reads refs
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.selected])
+  }, [p.selected, reveal])
+  // A resized window moves the badge: the open settings follow it (and stay inside the window)
+  const openId = open?.id
+  useEffect(() => {
+    if (!openId) return
+    const place = () => {
+      const el = reveal(openId)
+      if (el) setOpen({ id: openId, style: placeNear(el.getBoundingClientRect(), POPOVER_W, 'above') })
+    }
+    window.addEventListener('resize', place)
+    return () => window.removeEventListener('resize', place)
+  }, [openId, reveal])
   const onScroll = () => {
     updateEdges()
     // The open settings stay attached to their badge
@@ -142,6 +153,10 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
   }))
 
   const sources = [...p.channels.map((c) => c.wave.id), ...p.math.map((m) => m.def.id)]
+  // The FFT button acts on the selected channel (the first one when none is selected, or it has no waveform)
+  const hasWave = (id: string) => p.channels.some((c) => c.wave.id === id) || p.math.some((m) => m.def.id === id && m.result?.wave)
+  const fftId = p.selected && hasWave(p.selected) ? p.selected : p.channels[0]?.wave.id
+  const fftOn = fftId !== undefined && p.spectrumSources.has(fftId)
   // Trace colours as shown on the current background (pale ones are darkened on light)
   const { ink } = useTheme().theme
   const triggerColor = p.channels.find((c) => c.wave.id === p.trigger?.source)?.display.color
@@ -280,6 +295,7 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
           type="button"
           className="add-math"
           disabled={p.math.length >= MAX_MATH}
+          aria-label="Add a math channel"
           title={p.math.length >= MAX_MATH ? `At most ${MAX_MATH} math channels` : 'Add a math channel (computed from other channels)'}
           onClick={() => {
             // Render the new badge right away, then open its editor at it
@@ -290,16 +306,30 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
             if (id) openFor(id, reveal(id))
           }}
         >
-          <Plus size={14} aria-hidden /> Math
+          <Plus size={14} aria-hidden /> <span className="add-label">Math</span>
         </button>
         <button
           type="button"
-          className="add-math"
-          disabled={!p.canAddSpectrum}
-          title={p.canAddSpectrum ? `Show the frequency spectrum (FFT) of ${p.selected ? channelName(p.selected) : 'a channel'}` : 'Too many spectra'}
-          onClick={p.onAddSpectrum}
+          className={`add-math ${fftOn ? 'active' : ''}`}
+          aria-pressed={fftOn}
+          aria-label={fftId ? `${fftOn ? 'Remove' : 'Show'} the spectrum of ${channelName(fftId)}` : 'Show a spectrum'}
+          disabled={fftId === undefined || (!fftOn && !p.canAddSpectrum)}
+          title={
+            fftId === undefined
+              ? 'No channel'
+              : fftOn
+                ? `Remove the frequency spectrum (FFT) of ${channelName(fftId)}`
+                : p.canAddSpectrum
+                  ? `Show the frequency spectrum (FFT) of ${channelName(fftId)}, the selected channel`
+                  : 'Too many spectra'
+          }
+          onClick={() => fftId && p.onToggleSpectrum(fftId)}
         >
-          <AudioLines size={14} aria-hidden /> FFT
+          <AudioLines size={14} aria-hidden />
+          <span className="add-label">
+            FFT
+            {fftId && <small>{channelName(fftId)}</small>}
+          </span>
         </button>
       </div>
       <div className="spacer" />

@@ -25,9 +25,12 @@ ranges computed, in Web Workers, so long records do not block the page. Session 
   the overview strip and measurements; *Focus* (`\`) hides everything except the plot
 - **Channel bar** (bottom) – one badge per channel like on the scope, with its V/div, termination and bandwidth
   (and its label); click a badge for its settings
-  (label, colour, V/div, position, offset, view), the eye toggles visibility. The badges stay in one row:
+  (label, colour, V/div, position, offset, view), the eye toggles visibility. V/div, position and offset can be
+  typed (`500m`, `2 V`, `1,5`; Enter applies, Esc drops, `↑`/`↓` step). The **FFT** button next to **+ Math** shows
+  or removes the spectrum of the selected channel (its name is under the label). The badges stay in one row:
   in a narrow window the row scrolls sideways (mouse wheel or the arrows at its edges), and the selected
-  channel is always scrolled into view
+  channel is always scrolled into view; below 700 px the badges get a row of their own above the buttons and
+  the horizontal and trigger summaries
 
 Which panels are open is remembered in the browser.
 

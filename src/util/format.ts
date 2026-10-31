@@ -38,14 +38,27 @@ export function siTick(value: number, unit = '', step?: number): string {
 
 const INPUT_PREFIXES: Record<string, number> = { p: 1e-12, n: 1e-9, u: 1e-6, µ: 1e-6, m: 1e-3, k: 1e3 }
 
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
+
+/**
+ * A value as typed, with an optional SI prefix and one of the given units: "-5.5m", "25 µs", "2K",
+ * "1.2e-3", "500 mV". The prefix and the unit are not case sensitive ("M" is milli); a comma is a
+ * decimal point. Undefined when it is not a number.
+ */
+export function parseValue(text: string, units: string[] = []): number | undefined {
+  const unit = units.length ? `(?:${units.map(escapeRegExp).join('|')})?` : ''
+  const m = new RegExp(`^([-+]?(?:\\d+[.,]?\\d*|[.,]\\d+)(?:e[-+]?\\d+)?)\\s*([pnuµmk]?)\\s*${unit}$`, 'i').exec(text.trim())
+  if (!m) return undefined
+  const v = parseFloat(m[1].replace(',', '.')) * (m[2] ? INPUT_PREFIXES[m[2].toLowerCase()] : 1)
+  return Number.isFinite(v) ? v : undefined
+}
+
 /**
  * A time as typed, with an optional SI prefix and unit: "-5.5m", "25 µs", "2K", "1.2e-3". The
  * prefix is not case sensitive (in a time "M" is milli); undefined when it is not a number.
  */
 export function parseTime(text: string): number | undefined {
-  const m = /^([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)\s*([pnuµmk]?)\s*s?$/i.exec(text.trim())
-  if (!m) return undefined
-  return parseFloat(m[1]) * (m[2] ? INPUT_PREFIXES[m[2].toLowerCase()] : 1)
+  return parseValue(text, ['s'])
 }
 
 /** Round a step up to the 1-2-5 sequence. */

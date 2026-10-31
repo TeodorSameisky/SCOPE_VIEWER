@@ -972,7 +972,6 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
         onOpenMathReference={() => openReference('math')}
         spectrumSources={spectrumSources}
         canAddSpectrum={spectra.length < MAX_SPECTRA}
-        onAddSpectrum={() => addSpectrum()}
         onToggleSpectrum={toggleSpectrum}
         views={views}
         selected={selected}

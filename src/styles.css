@@ -1116,13 +1116,13 @@ code {
 .stepper button {
   padding: 1px 8px;
 }
-.stepper > .mono:not(input) {
-  min-width: 90px;
-  text-align: center;
-}
 .stepper input.num {
   width: 70px;
   text-align: right;
+}
+.stepper input.num.mid {
+  width: 92px;
+  text-align: center;
 }
 .stepper input.num.wide {
   width: 110px;
@@ -1477,6 +1477,24 @@ button.pill.active {
   color: var(--text);
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+/* The spectrum of the selected channel is shown: the button removes it again */
+.add-math.active {
+  color: var(--accent);
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+/* A label with a second line: the channel the button acts on */
+.add-label {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.25;
+}
+.add-label small {
+  font-size: 10.5px;
+  color: var(--muted);
 }
 .math-editor {
   display: flex;
@@ -2238,6 +2256,26 @@ button.primary {
     display: none;
   }
   .info-box .info-sub {
+    display: none;
+  }
+}
+
+/* A narrow window: the badges get a row of their own, the rest of the bar follows below */
+@media (max-width: 700px) {
+  .channel-bar {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .badges-wrap {
+    flex: 1 0 100%;
+  }
+  .badges-track {
+    height: 57px;
+  }
+}
+@media (max-width: 480px) {
+  /* Icons only; the buttons keep their tooltips and names */
+  .add-label {
     display: none;
   }
 }

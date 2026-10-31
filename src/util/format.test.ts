@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatCount, niceStep, parseTime, si, siTick, ticksBetween } from './format'
+import { formatCount, niceStep, parseTime, parseValue, si, siTick, ticksBetween } from './format'
 import { snapToGrid, stepScale, timeTicks } from '../model/view'
 
 describe('format', () => {
@@ -70,5 +70,20 @@ describe('format', () => {
     expect(parseTime('.5 s')).toBe(0.5)
     expect(parseTime('abc')).toBeUndefined()
     expect(parseTime('5 x')).toBeUndefined()
+  })
+
+  it('reads typed values with a prefix and one of the units', () => {
+    const volts = ['V/div', 'V']
+    expect(parseValue('500m', volts)).toBeCloseTo(0.5)
+    expect(parseValue('500 mV', volts)).toBeCloseTo(0.5)
+    expect(parseValue('2 V/div', volts)).toBe(2)
+    expect(parseValue('-1.5 mv', volts)).toBeCloseTo(-1.5e-3)
+    // A decimal comma is read as a point
+    expect(parseValue('3,3', volts)).toBeCloseTo(3.3)
+    expect(parseValue(',5')).toBe(0.5)
+    expect(parseValue('2 A', volts)).toBeUndefined()
+    expect(parseValue('', volts)).toBeUndefined()
+    expect(parseValue('-')).toBeUndefined()
+    expect(parseValue('1e999')).toBeUndefined()
   })
 })
