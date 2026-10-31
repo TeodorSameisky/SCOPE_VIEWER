@@ -13,7 +13,7 @@ import { FREQ_AXIS_H, drawSpectrum, levelValue, readLevel, xToF, type FreqMap, t
 import { SANS, font } from '../render/fonts'
 import type { Theme } from '../render/theme'
 import { formatCount, niceStep, si } from '../util/format'
-import { channelName } from '../util/names'
+import { channelName, channelWithLabel } from '../util/names'
 import { MEASURE_RANGES, RANGE_LABEL, type CursorState, type LiveChannel, type TimeWindow } from '../model/view'
 import { useContextMenu, type MenuEntry } from './ui/menuContext'
 import { useTheme } from './ui/themeContext'
@@ -57,9 +57,12 @@ interface SpectrumJob {
 }
 type Shown = Result & { channel: LiveChannel; spec: Spectrum }
 
-export type SpectrumViewHandle = SpectrumSource
+export type SpectrumViewHandle = SpectrumSource & {
+  /** Scroll the view into sight (in a narrow window the column scrolls and it lies below the plot) */
+  reveal: () => void
+}
 
-type Drag = { kind: 'pan'; x0: number; y0: number; f: FreqRange; y: FreqRange } | { kind: 'band'; x0: number; x1: number }
+type Drag = { kind: 'pan'; x0: number; f: FreqRange } | { kind: 'level'; y0: number; y: FreqRange } | { kind: 'band'; x0: number; x1: number }
 
 const MIN_BAND_PX = 5
 
@@ -128,8 +131,9 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
     [p.defs, p.channels, range, win, cursors, cache, p.engine, done],
   )
   const shown = useMemo(() => results.filter((r): r is Shown => !!r.spec && r.def.visible), [results])
-  // Each spectrum is read in the unit of its channel; the level axis has a unit when all shown spectra share it
-  const units = [...new Set(shown.map((r) => r.channel.wave.yUnit))]
+  // Each spectrum is read in the unit of its channel; the level axis has a unit when all shown spectra share it.
+  // Taken from the channels, not from the computed spectra: the buttons keep their size while one is computed.
+  const units = [...new Set(results.flatMap((r) => (r.channel && r.def.visible ? [r.channel.wave.yUnit] : [])))]
   const unit = units.length === 1 ? units[0] : ''
   const mixedUnits = units.length > 1
 
@@ -154,6 +158,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
   }, [shown, p.options.peaks, fr.lo, fr.hi])
 
   // ---------- canvas ----------
+  const sectionRef = useRef<HTMLElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [size, setSize] = useState({ w: 800, h: 200 })
@@ -195,7 +200,11 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
     return () => cancelAnimationFrame(id)
   }, [shown, peaks, size, axis, fr.lo, fr.hi, plotW, scale, yr, unit, hoverF, drag, screenTheme])
 
+  /** A channel's name with its label, as in the channel bar and the measurement table */
+  const nameOf = (id: string) => channelWithLabel(id, p.channels.find((c) => c.wave.id === id)?.display.label)
+
   useImperativeHandle(ref, () => ({
+    reveal: () => sectionRef.current?.scrollIntoView({ block: 'nearest' }),
     renderImage: (k: number, theme: Theme) => {
       if (!shown.length) return null
       const CAPTION = 20
@@ -214,7 +223,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
       x += ctx.measureText('Spectrum').width + 14
       ctx.font = font(12, SANS)
       for (const r of shown) {
-        const label = `${channelName(r.def.source)} · ${windowDef(r.def.window).label}${mixedUnits ? ` (${levelUnit(scale, r.channel.wave.yUnit)})` : ''}`
+        const label = `${nameOf(r.def.source)} · ${windowDef(r.def.window).label}${mixedUnits ? ` (${levelUnit(scale, r.channel.wave.yUnit)})` : ''}`
         ctx.fillStyle = theme.ink(r.channel.display.color)
         ctx.fillRect(x, CAPTION / 2 - 4, 8, 8)
         ctx.fillStyle = theme.textDim
@@ -243,7 +252,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
     getData: () => ({
       scale,
       items: shown.map((r) => ({
-        name: channelName(r.def.source),
+        name: nameOf(r.def.source),
         levelUnit: levelUnit(scale, r.channel.wave.yUnit),
         color: r.channel.display.color,
         window: windowDef(r.def.window).label,
@@ -282,7 +291,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
   useEffect(() => {
     const el = wrapRef.current
     if (!el) return
-    // As in the plot: the wheel zooms (Ctrl: the level axis), Shift+wheel or a sideways swipe pans
+    // As in the plot: the wheel zooms (Ctrl, or on the level scale: the level axis), Shift+wheel or a sideways swipe pans
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       const r = el.getBoundingClientRect()
@@ -291,7 +300,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
       if (pan !== undefined) {
         const du = (toU(fr.hi) - toU(fr.lo)) * panShare(pan)
         if (du) setF(fromU(toU(fr.lo) + du), fromU(toU(fr.hi) + du))
-      } else if (e.ctrlKey) zoomY(e.clientY - r.top, factor)
+      } else if (e.ctrlKey || e.clientX - r.left > plotW) zoomY(e.clientY - r.top, factor)
       else zoomF(e.clientX - r.left, factor)
     }
     el.addEventListener('wheel', onWheel, { passive: false })
@@ -305,15 +314,17 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return
     const { x, y } = local(e)
-    if (x > plotW) return
+    if (x > plotW && y > plotH) return
     try {
       ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
     } catch {
       // synthetic events have no active pointer
     }
-    // Shift+drag or a drag along the frequency axis marks a range to zoom into
-    if (e.shiftKey || y > plotH) setDrag({ kind: 'band', x0: x, x1: x })
-    else setDrag({ kind: 'pan', x0: x, y0: y, f: fr, y: yr })
+    // A drag on the level scale moves the level range; Shift+drag or a drag along the frequency axis marks a range to zoom into;
+    // any other drag pans the frequency (the level range stays, however the pointer drifts)
+    if (x > plotW) setDrag({ kind: 'level', y0: y, y: yr })
+    else if (e.shiftKey || y > plotH) setDrag({ kind: 'band', x0: x, x1: x })
+    else setDrag({ kind: 'pan', x0: x, f: fr })
   }
   const onPointerMove = (e: React.PointerEvent) => {
     const { x, y } = local(e)
@@ -321,13 +332,12 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
     if (!drag) return
     if (drag.kind === 'band') {
       setDrag({ ...drag, x1: Math.min(plotW, Math.max(0, x)) })
-      return
-    }
-    const du = ((x - drag.x0) / plotW) * (toU(drag.f.hi) - toU(drag.f.lo))
-    setF(fromU(toU(drag.f.lo) - du), fromU(toU(drag.f.hi) - du))
-    if (Math.abs(y - drag.y0) > 2 || yZoom) {
+    } else if (drag.kind === 'level') {
       const dv = ((y - drag.y0) / plotH) * (drag.y.hi - drag.y.lo)
       setYZoom({ lo: drag.y.lo + dv, hi: drag.y.hi + dv, scale })
+    } else {
+      const du = ((x - drag.x0) / plotW) * (toU(drag.f.hi) - toU(drag.f.lo))
+      setF(fromU(toU(drag.f.lo) - du), fromU(toU(drag.f.hi) - du))
     }
   }
   const onPointerUp = () => {
@@ -341,6 +351,9 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
     setFZoom(null)
     setYZoom(null)
   }
+
+  const onLevelScale = !drag && hover !== null && hover.x > plotW && hover.y <= plotH
+  const cursor = drag?.kind === 'pan' ? 'grabbing' : drag?.kind === 'band' ? 'col-resize' : drag?.kind === 'level' || onLevelScale ? 'ns-resize' : 'crosshair'
 
   const sources = p.channels.map((c) => c.wave.id)
   /** A channel's colour as drawn; the muted text colour for a source that is gone */
@@ -364,7 +377,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
   const menu = useContextMenu()
   const peakLines = (rs: Shown[]) => [
     ['Spectrum', '#', 'Frequency', 'Level'].join('\t'),
-    ...rs.flatMap((r) => (peaks.get(r.def.id) ?? []).map((pk, i) => [channelName(r.def.source), i + 1, si(pk.freq, 'Hz', 5), lvlOf(r, pk.rms)].join('\t'))),
+    ...rs.flatMap((r) => (peaks.get(r.def.id) ?? []).map((pk, i) => [nameOf(r.def.source), i + 1, si(pk.freq, 'Hz', 5), lvlOf(r, pk.rms)].join('\t'))),
   ]
   const hasPeaks = shown.some((r) => peaks.get(r.def.id)?.length)
   const options: MenuEntry[] = [
@@ -400,7 +413,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
           return v ? [{ s, v }] : []
         })
       : []
-    const readout = [si(f, 'Hz', 5), ...levels.map(({ s, v }) => `${channelName(s.def.source)}: ${lvlOf(s, v.rms)} at ${si(v.freq, 'Hz', 5)}`)]
+    const readout = [si(f, 'Hz', 5), ...levels.map(({ s, v }) => `${nameOf(s.def.source)}: ${lvlOf(s, v.rms)} at ${si(v.freq, 'Hz', 5)}`)]
     menu(e, [
       inPlot && { kind: 'heading', label: 'Frequency', detail: si(f, 'Hz', 5) },
       levels.length > 0 && { label: 'Copy frequency and levels', icon: Copy, onClick: () => p.onCopy(readout.join('\n'), 'Spectrum readout') },
@@ -414,16 +427,16 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
   const peakMenu = (e: React.MouseEvent, r: Shown, i: number) => {
     const pk = peaks.get(r.def.id)![i]
     menu(e, [
-      { kind: 'heading', label: `${channelName(r.def.source)} · peak ${i + 1}`, color: r.channel.display.color, detail: si(pk.freq, 'Hz', 5) },
-      { label: 'Copy peak', icon: Copy, onClick: () => p.onCopy(`${si(pk.freq, 'Hz', 5)}\t${lvlOf(r, pk.rms)}`, `Peak ${i + 1} of ${channelName(r.def.source)}`) },
-      { label: `Copy peaks of ${channelName(r.def.source)}`, icon: ClipboardList, onClick: () => p.onCopy(peakLines([r]).join('\n'), `Peaks of ${channelName(r.def.source)}`) },
+      { kind: 'heading', label: `${nameOf(r.def.source)} · peak ${i + 1}`, color: r.channel.display.color, detail: si(pk.freq, 'Hz', 5) },
+      { label: 'Copy peak', icon: Copy, onClick: () => p.onCopy(`${si(pk.freq, 'Hz', 5)}\t${lvlOf(r, pk.rms)}`, `Peak ${i + 1} of ${nameOf(r.def.source)}`) },
+      { label: `Copy peaks of ${nameOf(r.def.source)}`, icon: ClipboardList, onClick: () => p.onCopy(peakLines([r]).join('\n'), `Peaks of ${nameOf(r.def.source)}`) },
       '-',
       ...options,
     ])
   }
 
   return (
-    <section className="spectrum" aria-label="Spectrum" onContextMenu={(e) => menu(e, options)}>
+    <section ref={sectionRef} className="spectrum" aria-label="Spectrum" onContextMenu={(e) => menu(e, options)}>
       <ResizeHandle height={p.height} setHeight={p.setHeight} />
       <div className="spectrum-bar">
         <span className="section-title">Spectrum</span>
@@ -434,7 +447,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
                 {!sources.includes(d.source) && <option value={d.source}>{channelName(d.source)}</option>}
                 {sources.map((s) => (
                   <option key={s} value={s}>
-                    {channelName(s)}
+                    {nameOf(s)}
                   </option>
                 ))}
               </select>
@@ -529,7 +542,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
         <div
           ref={wrapRef}
           className="spectrum-plot"
-          style={{ cursor: drag?.kind === 'pan' ? 'grabbing' : drag?.kind === 'band' ? 'col-resize' : 'crosshair' }}
+          style={{ cursor }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -537,7 +550,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
           onPointerLeave={() => setHover(null)}
           onDoubleClick={resetZoom}
           onContextMenu={plotMenu}
-          title="Wheel: zoom frequency · Ctrl+wheel: zoom level · Drag: pan · Shift+drag: zoom to range · Double-click: full span"
+          title="Wheel: zoom frequency · Drag: pan frequency · Shift+drag: zoom to range · Level scale (right): wheel zooms, drag moves · Ctrl+wheel: zoom level · Double-click: full span"
         >
           <canvas
             ref={canvasRef}
@@ -566,7 +579,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
             <div key={r.def.id} className={`spec-block ${r.def.visible ? '' : 'off'}`}>
               <div className="spec-block-head">
                 <span className="dot" style={{ background: colorOf(r.def.source) }} />
-                <strong>{channelName(r.def.source)}</strong>
+                <strong>{nameOf(r.def.source)}</strong>
                 <span className="muted">{windowDef(r.def.window).label}</span>
               </div>
               {r.error ? (

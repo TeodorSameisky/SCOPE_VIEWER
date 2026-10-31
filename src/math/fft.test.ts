@@ -243,5 +243,41 @@ describe('peak search', () => {
     const g = gauss(4)
     const x = Float32Array.from({ length: n }, () => g())
     expect(findPeaks(computeSpectrum(x, 0, n, 1 / fs, 'hann')!, 5)).toEqual([])
+    expect(findPeaks(computeSpectrum(new Float32Array(n), 0, n, 1 / fs, 'hann')!, 5)).toEqual([])
+  })
+
+  it('lists a tone on a steeply falling noise floor, not the wiggles of the floor', () => {
+    // A random walk falls 40 dB per decade: its low frequencies are far above the tone, but only
+    // a tone stands out from the noise around it
+    const g = gauss(6)
+    let walk = 0
+    const x = Float32Array.from({ length: n }, (_, i) => {
+      walk += g()
+      return walk + 0.5 * Math.sin(2 * Math.PI * 100e3 * (i / fs) + 0.3)
+    })
+    const s = computeSpectrum(x, 0, n, 1 / fs, 'hann')!
+    expect(findPeaks(s, 5).map((p) => Math.round(p.freq / 1e3))).toEqual([100])
+    // Zoomed in on the low frequencies: only noise
+    expect(findPeaks(s, 5, 2e3 / s.df, 20e3 / s.df)).toEqual([])
+  })
+
+  it('lists two tones within a few resolution bandwidths once, and tones farther apart separately', () => {
+    const g = gauss(9)
+    const s = (spacing: number) => {
+      const a = sine(n, fs, 100e3, 1)
+      const b = sine(n, fs, 100e3 + spacing, 0.8, 0, 1.1)
+      return computeSpectrum(a.map((v, i) => v + b[i] + 1e-4 * g()), 0, n, 1 / fs, 'hann')!
+    }
+    const rbw = s(0).rbw
+    expect(findPeaks(s(2.5 * rbw), 5)).toHaveLength(1)
+    expect(findPeaks(s(8 * rbw), 5)).toHaveLength(2)
+  })
+
+  it('does not let a strong tone hide a weak one near it', () => {
+    const g = gauss(8)
+    const a = sine(n, fs, 100e3, 1)
+    const b = sine(n, fs, 108e3, 0.003)
+    const x = a.map((v, i) => v + b[i] + 1e-4 * g())
+    expect(findPeaks(computeSpectrum(x, 0, n, 1 / fs, 'blackmanHarris')!, 5).map((p) => Math.round(p.freq / 1e3))).toEqual([100, 108])
   })
 })

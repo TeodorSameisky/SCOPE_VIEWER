@@ -1,4 +1,4 @@
-import { DEFAULT_WINDOW, isWindowKind, type WindowKind } from '../math/fft'
+import { DEFAULT_WINDOW, WINDOW_DEFS, isWindowKind, type WindowKind } from '../math/fft'
 import { isMeasureRange, type MeasureRange } from './view'
 
 /** An FFT spectrum of one channel or math channel; its colour follows the source. */
@@ -36,8 +36,23 @@ export function nextSpectrumId(defs: SpectrumDef[]): string {
 }
 
 export function newSpectrum(defs: SpectrumDef[], source: string): SpectrumDef {
-  // A new spectrum uses the same window as the last one, so comparisons are like for like
-  return { id: nextSpectrumId(defs), source, window: defs[defs.length - 1]?.window ?? DEFAULT_WINDOW, visible: true }
+  // A new spectrum uses the same window as the last one, so comparisons are like for like, unless the
+  // channel has a spectrum in it already: the same one again would only be drawn over the first
+  const last = defs[defs.length - 1]?.window ?? DEFAULT_WINDOW
+  const taken = (w: WindowKind) => defs.some((d) => d.source === source && d.window === w)
+  const window = taken(last) ? (WINDOW_DEFS.find((w) => !taken(w.key))?.key ?? last) : last
+  return { id: nextSpectrumId(defs), source, window, visible: true }
+}
+
+/**
+ * The channel a new spectrum is for: the selected one, unless it has a spectrum already; then the first
+ * visible channel without one (or any without one), and only when all have one the selected one again.
+ * `channels` are the channels with a waveform, in order.
+ */
+export function spectrumSource(channels: { id: string; visible: boolean }[], defs: SpectrumDef[], selected?: string): string | undefined {
+  const free = channels.filter((c) => !defs.some((d) => d.source === c.id))
+  if (free.some((c) => c.id === selected)) return selected
+  return (free.find((c) => c.visible) ?? free[0] ?? channels.find((c) => c.id === selected) ?? channels[0])?.id
 }
 
 /** Unit of the level axis: dBV for volts, dB(A) for amps etc. */

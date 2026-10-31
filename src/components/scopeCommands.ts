@@ -34,7 +34,7 @@ import { MEASUREMENT_DEFS } from '../dsp/measureDefs'
 import type { ExportKind } from '../export/sessionExport'
 import { CALLOUT_COLORS, CALLOUT_TYPE_LABEL, calloutName, calloutSpan, calloutTitle, hasTimeSpan, type Callout } from '../model/callouts'
 import { MAX_MATH, type MathDef } from '../model/math'
-import { MAX_SPECTRA, type SpectrumDef } from '../model/spectrum'
+import { MAX_SPECTRA, spectrumSource, type SpectrumDef } from '../model/spectrum'
 import type { ChannelDisplay, Session } from '../model/types'
 import { MEASURE_RANGES, RANGE_LABEL, RANGE_SHORT, type CursorState, type DisplayPatch, type LiveChannel, type MeasureRange, type TimeWindow, type Tool } from '../model/view'
 import { valueAt } from '../render/draw'
@@ -425,7 +425,7 @@ export function paletteCommands(api: ScopeApi): Command[] {
     api.spectra.length < MAX_SPECTRA && {
       id: 'edit:fft',
       group: 'Edit',
-      label: `Add spectrum (FFT) of ${channelName(api.selected && hasWave(api, api.selected) ? api.selected : firstId)}`,
+      label: `Add spectrum (FFT) of ${channelName(spectrumSource(api.channels.map((c) => ({ id: c.wave.id, visible: c.display.visible })), api.spectra, api.selected) ?? firstId)}`,
       keywords: 'frequency',
       icon: AudioLines,
       run: api.addSpectrum,

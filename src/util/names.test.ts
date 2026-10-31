@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Channel } from '../model/types'
-import { channelName, channelTag, displayUnit, perDiv, slopeSymbol, sourceUnit, triggerText } from './names'
+import { channelName, channelTag, channelWithLabel, displayUnit, perDiv, slopeSymbol, sourceUnit, triggerText } from './names'
 
 const channel = (id: string, yUnit: string): Channel => ({
   wave: { id, data: new Float32Array(2), t0: 0, dt: 1, yUnit, xUnit: 's' },
@@ -14,6 +14,12 @@ describe('names', () => {
     expect(channelName('REF3')).toBe('Ref 3')
     expect(channelName('AUX')).toBe('AUX')
     expect(channelTag('MATH2')).toBe('M2')
+  })
+
+  it('adds the label to the name', () => {
+    expect(channelWithLabel('CH4', 'pwr_FLT2')).toBe('Ch 4 pwr_FLT2')
+    expect(channelWithLabel('CH4', '')).toBe('Ch 4')
+    expect(channelWithLabel('MATH1')).toBe('Math 1')
   })
 
   it('shows trigger slopes as arrows', () => {

@@ -211,7 +211,9 @@ The Reference panel lists all functions.
 ### Spectrum (FFT)
 
 Click **FFT** in the channel bar (or **Show FFT** in a channel's settings) to show the frequency spectrum
-of a channel or math channel in a view below the time views, like the FFT math function of the scope.
+of a channel or math channel in a view below the time views, like the FFT math function of the scope. The view
+scrolls into sight when it is added (in a narrow window it lies below the plot). The **+** in its bar adds the
+spectrum of the next visible channel that has none; names show the channel's label, as in the channel bar.
 
 - Computed over the samples **on screen**, **between the cursors** or of the **whole record**; it
   follows zooming and panning. Each spectrum picks its own window: Rectangular, Hann (default),
@@ -219,10 +221,14 @@ of a channel or math channel in a view below the time views, like the FFT math f
 - Levels in **dBV** (dB relative to 1 V RMS; dB(A) etc. for other units) or linear **V RMS**, each spectrum in the
   unit of its channel (with channels of different units the level axis is in plain dB / RMS);
   a sine of amplitude A reads A/√2 with every window (Flat-top keeps that between bins too)
-- **Log** or **linear** frequency axis; wheel zooms the frequency, Ctrl+wheel the level axis, drag or Shift+wheel pans,
-  Shift+drag zooms to a range, double-click shows the full span. Point at the plot to read frequency and level
-- **Peak list**: the highest 3/5/10 peaks in view per spectrum, with interpolated frequency and level,
-  ignoring noise and the window's own side lobes
+- **Log** or **linear** frequency axis; wheel zooms the frequency, drag or Shift+wheel pans it (a drag moves
+  only the frequency, however the pointer drifts), Shift+drag zooms to a range, double-click shows the full span.
+  On the level scale at the right the wheel zooms the level range and a drag moves it (Ctrl+wheel zooms it anywhere).
+  Point at the plot to read frequency and level
+- **Peak list**: the highest 3/5/10 peaks in view per spectrum, with interpolated frequency and level.
+  A peak stands at least 16 dB above the noise around it (so the wiggles of a falling noise floor are not listed,
+  nor noise in a zoomed range), above the window's own side lobes, and at least 4 resolution bandwidths from a
+  higher peak (a tone with some jitter is one peak)
 - Radix-2 FFT in the browser; ranges are zero-padded to a power of two, up to 2²⁰ points (longer ranges
   are averaged in blocks first). The Reference panel explains the windows (ENBW, scalloping loss, side
   lobes), the dB scale and the resolution bandwidth

@@ -108,6 +108,6 @@ export const HELP_ROWS: [string[], string][] = [
   [['Alt'], 'Hold while placing or dragging an edge or an end: no snapping to edges'],
   [[KEYS.undo, KEYS.redo], 'Undo / redo changes (Ctrl + Shift + Z also redoes)'],
   [[`${KEYS.overview}  ${KEYS.measurements}  ${KEYS.focus}`], 'Overview / measurements / focus mode'],
-  [['Wheel', 'Drag'], 'In the spectrum: zoom / pan frequency (Ctrl + wheel: level)'],
+  [['Wheel', 'Drag'], 'In the spectrum: zoom / pan frequency (on the level scale at the right, or Ctrl + wheel: the level range)'],
   [[KEYS.cancel], 'Cancel what is being dragged, back to Pan'],
 ]

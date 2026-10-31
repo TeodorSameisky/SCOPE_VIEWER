@@ -321,12 +321,59 @@ export function toDb(rms: number): number {
 }
 
 /**
- * A peak must be this far above the median level (15 dB): the bins of pure noise follow a
- * Rayleigh distribution and even the highest of a million stay about 13 dB above the median.
+ * A peak must be this far above the noise level around it (16 dB): the bins of pure noise follow a
+ * Rayleigh distribution and even the highest of a million stay about 14 dB above the mean of their
+ * dB levels, a little more is left for the error of that mean.
  */
-const PEAK_ABOVE_MEDIAN = Math.pow(10, 15 / 20)
+const PEAK_ABOVE_NOISE_DB = 16
+/** The noise level of a bin is taken from the bins within a quarter of its frequency (at least 32 bins) to either side, so a sloping noise floor is followed */
+const NOISE_REL_HALF = 0.25
+const NOISE_MIN_HALF = 32
+/** Bins more than this far (10 dB) above the first estimate of the noise level are tones: the second estimate leaves them out */
+const NOISE_CLIP_DB = 10
 /** …and this far (6 dB) above the leakage of any higher peak: closer to it, noise on a side lobe looks like a peak */
 const PEAK_ABOVE_LEAKAGE = 2
+/** Peaks are listed at least this many resolution bandwidths apart: a tone with some jitter or modulation is one peak, not several */
+const PEAK_MIN_SEPARATION = 4
+
+/** Mean of `v` around every index: the neighbours within the noise window */
+function noiseWindowMeans(v: Float64Array): Float64Array {
+  const m = v.length
+  const sum = new Float64Array(m + 1)
+  for (let k = 0; k < m; k++) sum[k + 1] = sum[k] + v[k]
+  const out = new Float64Array(m)
+  for (let k = 0; k < m; k++) {
+    const h = Math.max(NOISE_MIN_HALF, Math.floor(k * NOISE_REL_HALF))
+    const a = Math.max(0, k - h)
+    const b = Math.min(m, k + h + 1)
+    out[k] = (sum[b] - sum[a]) / (b - a)
+  }
+  return out
+}
+
+const noiseCache = new WeakMap<Float32Array, Float64Array>()
+
+/**
+ * The noise level in dB around every bin: the mean of the dB levels of its neighbours, estimated twice,
+ * the second time with the tones of the first one clipped, so a strong tone does not lift the level
+ * next to it. Cached per spectrum: it does not depend on the range of the search.
+ */
+function noiseLevels(r: Float32Array): Float64Array {
+  let noise = noiseCache.get(r)
+  if (noise) return noise
+  let max = 0
+  for (let k = 1; k < r.length; k++) if (r[k] > max) max = r[k]
+  // Bins that are exactly 0 (digital silence) would be −∞; DC is no part of the noise
+  const floor = max > 0 ? max * 1e-9 : 1
+  const db = new Float64Array(r.length)
+  for (let k = 0; k < r.length; k++) db[k] = toDb(Math.max(r[k], floor))
+  db[0] = db[Math.min(1, r.length - 1)]
+  const first = noiseWindowMeans(db)
+  for (let k = 0; k < db.length; k++) db[k] = Math.min(db[k], first[k] + NOISE_CLIP_DB)
+  noise = noiseWindowMeans(db)
+  noiseCache.set(r, noise)
+  return noise
+}
 
 const LEAK_RES = 16
 const LEAK_BINS = 128
@@ -386,32 +433,33 @@ export interface Peak {
 /**
  * The `count` highest peaks between bins k0 and k1 (inclusive), highest first.
  *
- * A peak is a local maximum at least 15 dB above the median level of the range (so noise is not
- * listed) that rises above the main lobe and side lobes of every higher peak and of the DC level
- * (so the window's own leakage is not listed either). The frequency is refined with a parabola through the dB levels of
- * the three bins around the maximum, the level by undoing the window's response at that offset
- * from the bin (its scalloping loss).
+ * A peak is a local maximum at least 16 dB above the noise level around it (so noise is not listed,
+ * also not on the slope of a falling noise floor) that rises above the main lobe and side lobes of
+ * every higher peak and of the DC level (so the window's own leakage is not listed either). The
+ * frequency is refined with a parabola through the dB levels of the three bins around the maximum,
+ * the level by undoing the window's response at that offset from the bin (its scalloping loss).
  */
 export function findPeaks(s: Spectrum, count: number, k0 = 1, k1 = s.rms.length - 1): Peak[] {
   const r = s.rms
   const lo = Math.max(1, Math.floor(k0))
   const hi = Math.min(r.length - 2, Math.ceil(k1))
   if (count <= 0 || hi < lo) return []
-  const threshold = median(r, lo, hi + 1) * PEAK_ABOVE_MEDIAN
+  const noise = noiseLevels(r)
   const candidates: number[] = []
   for (let k = lo; k <= hi; k++) {
     const v = r[k]
-    if (v > threshold && v > r[k - 1] && v >= r[k + 1]) candidates.push(k)
+    if (v > r[k - 1] && v >= r[k + 1] && toDb(v) > noise[k] + PEAK_ABOVE_NOISE_DB) candidates.push(k)
   }
   candidates.sort((p, q) => r[q] - r[p])
   // FFT bins per frequency-resolution bin (zero padding makes a lobe span more FFT bins)
   const pad = s.n / s.used
+  const minSeparation = PEAK_MIN_SEPARATION * windowDef(s.window).enbw * pad
   // The DC level leaks like a tone at 0 Hz (DC reads without the factor √2 of the other bins)
   const dcLeak = (k: number) => Math.SQRT2 * r[0] * leakage(s.window, k / pad) * PEAK_ABOVE_LEAKAGE
   const picked: number[] = []
   for (const k of candidates) {
     if (r[k] < dcLeak(k)) continue
-    if (picked.some((p) => r[k] < r[p] * leakage(s.window, Math.abs(k - p) / pad) * PEAK_ABOVE_LEAKAGE)) continue
+    if (picked.some((p) => Math.abs(k - p) < minSeparation || r[k] < r[p] * leakage(s.window, Math.abs(k - p) / pad) * PEAK_ABOVE_LEAKAGE)) continue
     picked.push(k)
     if (picked.length >= count) break
   }
@@ -423,15 +471,4 @@ export function findPeaks(s: Spectrum, count: number, k0 = 1, k1 = s.rms.length 
     const p = Number.isFinite(den) && den < 0 ? Math.max(-0.5, Math.min(0.5, (0.5 * (al - ga)) / den)) : 0
     return { freq: (k + p) * s.df, rms: r[k] / windowGain(s.window, Math.min(1, Math.abs(p / pad))), bin: k }
   })
-}
-
-function median(r: Float32Array, a: number, b: number): number {
-  const n = b - a
-  if (n <= 0) return 0
-  // Large ranges: a strided sample is precise enough for a threshold
-  const stride = Math.max(1, Math.floor(n / 4096))
-  const vals: number[] = []
-  for (let k = a; k < b; k += stride) vals.push(r[k])
-  vals.sort((x, y) => x - y)
-  return vals[Math.floor(vals.length / 2)]
 }

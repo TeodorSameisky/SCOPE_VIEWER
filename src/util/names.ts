@@ -9,6 +9,11 @@ export function channelName(id: string): string {
   return `${kind === 'CH' ? 'Ch' : kind === 'MATH' ? 'Math' : 'Ref'} ${m[2]}`
 }
 
+/** A channel's name with its label, if it has one: "Ch 4 pwr_FLT2" */
+export function channelWithLabel(id: string, label?: string): string {
+  return label ? `${channelName(id)} ${label}` : channelName(id)
+}
+
 /** Short tag used on the plot: CH1 → "C1", MATH2 → "M2" */
 export function channelTag(id: string): string {
   return id.replace(/^CH/i, 'C').replace(/^MATH/i, 'M').replace(/^REF/i, 'R')

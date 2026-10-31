@@ -239,8 +239,9 @@ export function ReferencePanel({ section, setSection, focus }: Props) {
             <div className="note-card">
               <strong>Mouse</strong>
               <p>
-                Wheel: zoom frequency · Shift+wheel: pan · Ctrl+wheel: zoom the level axis · Drag: pan · Shift+drag or drag on the frequency axis:
-                zoom to a range · Double-click: full span. Point at the spectrum to read frequency and level.
+                Wheel: zoom frequency · Shift+wheel or drag: pan frequency · Shift+drag or drag on the frequency axis: zoom to a range · On the
+                level scale (right): wheel zooms the level range, drag moves it (Ctrl+wheel zooms it anywhere) · Double-click: full span. Point
+                at the spectrum to read frequency and level.
               </p>
             </div>
           )}

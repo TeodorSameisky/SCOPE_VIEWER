@@ -34,7 +34,7 @@ import { DEFAULT_CALLOUT_COLOR, calloutSpan, calloutTitle, hasTimeSpan, newCallo
 import type { MinMaxPyramid } from '../dsp/minmax'
 import { ComputeEngine } from '../compute/engine'
 import { MATH_COLORS, MAX_MATH, nextMathId, type MathDef } from '../model/math'
-import { MAX_SPECTRA, newSpectrum, type SpectrumDef } from '../model/spectrum'
+import { MAX_SPECTRA, newSpectrum, spectrumSource, type SpectrumDef } from '../model/spectrum'
 import {
   ANALYSIS_EXT,
   BUNDLE_EXT,
@@ -469,11 +469,19 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
 
   // ---------- spectra ----------
   const spectrumSources = useMemo(() => new Set(spectra.map((s) => s.source)), [spectra])
+  /** A spectrum was just added: bring the spectrum view into sight (in a narrow window it is below the plot) */
+  const revealSpectrum = useRef(false)
   const addSpectrum = (source?: string) => {
     if (spectra.length >= MAX_SPECTRA) return
-    const src = source ?? (selected && channels.some((c) => c.wave.id === selected) ? selected : firstId)
+    const src = source ?? spectrumSource(channels.map((c) => ({ id: c.wave.id, visible: c.display.visible })), spectra, selected) ?? firstId
+    revealSpectrum.current = true
     setSpectra([...spectra, newSpectrum(spectra, src)])
   }
+  useEffect(() => {
+    if (!revealSpectrum.current) return
+    revealSpectrum.current = false
+    spectrumRef.current?.reveal()
+  }, [spectra])
   /** Show the spectrum of a channel, or remove it again */
   const toggleSpectrum = (source: string) => {
     if (spectrumSources.has(source)) setSpectra(spectra.filter((s) => s.source !== source))
