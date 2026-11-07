@@ -130,9 +130,12 @@ Two ideas to hold on to:
 - **The page stays light.** Anything that scales with the length of the record (parsing, building the
   pyramid, evaluating math, FFT of a million samples, measuring a whole record) happens in a worker.
   The page only does work that scales with the number of *pixels*.
-- **Big arrays are moved, not copied.** `Float32Array` buffers are *transferred* between page and
-  worker, and each array crosses the boundary at most once. Afterwards both sides refer to it by a
-  short name ("ref"). See [Workers and compute](workers-and-compute.md).
+- **Big arrays cross a boundary at most once.** From the parse worker to the page, the sample buffers
+  are *transferred* (moved, not copied). The compute worker is different: it needs the input samples
+  while the page keeps its own for drawing, so they are *copied* to it, and a record used for math,
+  spectra or long measurements therefore exists in memory twice. Math samples coming back are copied
+  for the same reason; their pyramid levels and spectra are transferred. Afterwards both sides refer to
+  an array by a short name ("ref"). See [Workers and compute](workers-and-compute.md).
 
 ## 4. The life of a file
 

@@ -57,6 +57,12 @@ Defined in [`compute/protocol.ts`](../src/compute/protocol.ts). Sample arrays ar
 
 Each array crosses the boundary **once**; afterwards both sides know it by its ref.
 
+**Copied or transferred?** Samples that *both* sides keep are copied (structured clone): the input channels
+sent with `sources` (the page needs them to draw) and the samples of a math result (the worker keeps them for
+spectra and other math channels). Buffers that only the receiver needs are transferred: the pyramid levels of
+a math result, and the `rms` array of a spectrum. The price of this design is that a long record used with
+math, spectra or long measurements is held in memory twice (once on the page, once in the compute worker).
+
 | Request (page → worker) | Meaning | Reply |
 | --- | --- | --- |
 | `sources { waves }` | Send input channels the worker will need. No `seq`, no reply. | – |
