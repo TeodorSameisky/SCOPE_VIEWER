@@ -200,6 +200,15 @@ Wheel behaviour (`onWheel`, registered non-passive so it can `preventDefault`):
 | Ctrl+wheel | V/div of the selected channel |
 | Alt+wheel | position of the selected channel (0.1 div steps) |
 
+**Dragging a cursor is kept out of the analysis while it lasts.** Every move re-rendered the whole workspace
+(top bar, channel bar, tables, panels – they all follow the analysis, and the cursors are part of it), which is
+much more work than moving a line. So the drag state holds where the pointer has taken the cursors (`now` in
+`Drag`), the plot shows those, and only the plot is drawn again. The analysis follows through a `throttle`
+([`util/throttle.ts`](../src/util/throttle.ts)): at once for the first move, then at most every `CURSOR_SYNC_MS`
+(100 ms) with the latest position, so the readouts in the panels and tables still follow while dragging.
+Releasing the pointer sends the final position in the same update that ends the preview (`flush`), so the drag
+is still one undo step and one save; Esc drops the waiting update and puts the original cursors back.
+
 **Edge snapping.** For markers, regions, boxes and spans, `PlotArea` builds an *edge finder* per channel
 (`edgesOf`): it asks the compute engine for the measurements of the visible range (the same ones the
 table uses, via slot `edges:<id>`) to get the 10/50/90 % levels, then `nearestEdge` within 8 px. While a

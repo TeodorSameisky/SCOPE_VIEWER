@@ -17,7 +17,11 @@ export const MIN_BOX_PX = 5
 /** What a press in the plot does until the pointer is released (Esc or a cancelled pointer drops it) */
 export type Drag =
   | { kind: 'pan'; x0: number; win: TimeWindow }
-  | { kind: 'cursor'; which: 'a' | 'b'; orig: CursorState }
+  /**
+   * A cursor dragged. `orig`: the cursors when the drag started (Esc puts them back). `now`: where the
+   * pointer has taken them; the plot shows these until the drag ends, while the analysis follows at a slower pace.
+   */
+  | { kind: 'cursor'; which: 'a' | 'b'; orig: CursorState; now?: CursorState }
   /** time-only zoom band */
   | { kind: 'band'; x0: number; x1: number }
   /** time + vertical zoom rectangle inside one view, or (`box`) a new box callout */

@@ -29,6 +29,7 @@ import { loadTex, useTexVersion } from '../render/tex'
 import type { Theme } from '../render/theme'
 import { si } from '../util/format'
 import { channelName, displayUnit } from '../util/names'
+import { throttle } from '../util/throttle'
 import { useAnalysis, useAnalysisStore } from './analysisContext'
 import { useEngineResults } from './useEngineResults'
 import { CalloutLayer } from './CalloutLayer'
@@ -53,6 +54,11 @@ import {
 const AXIS_H = 24
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 const GRAB_PX = 8
+/**
+ * While a cursor is dragged, the analysis (and with it the whole workspace: tables, panels, menus) is
+ * brought up to date at most this often (ms); the plot itself follows the pointer at every move.
+ */
+const CURSOR_SYNC_MS = 100
 /** Markers and region edges snap to an edge of the selected trace this close to the pointer */
 const SNAP_PX = 8
 /** Wheel delta (px) of one step of V/div or position: about one notch of a mouse wheel */
@@ -150,9 +156,15 @@ export interface PlotAreaHandle extends PlotImageSource {
 
 export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(props, ref) {
   const store = useAnalysisStore()
-  const { views, viewSizes, cursors, callouts } = useAnalysis()
+  const { views, viewSizes, cursors: savedCursors, callouts } = useAnalysis()
   const { nav, ...rest } = props
   const update = store.update
+  const [drag, setDrag] = useState<Drag | null>(null)
+  // A cursor being dragged is shown where the pointer has taken it (the drag holds that position, so only
+  // the plot is drawn again). The analysis, which the whole workspace follows, gets it at a slower pace.
+  const cursors = drag?.kind === 'cursor' && drag.now ? drag.now : savedCursors
+  const cursorSync = useMemo(() => throttle((c: CursorState) => update((a) => edits.setCursors(a, c)), CURSOR_SYNC_MS), [update])
+  useEffect(() => () => cursorSync.cancel(), [cursorSync])
   const p: Resolved = {
     ...rest,
     views,
@@ -179,7 +191,6 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
   const [size, setSize] = useState({ w: 800, h: 600 })
   /** Pointer position over the plot (CSS pixels) */
   const [hover, setHover] = useState<{ x: number; y: number; alt: boolean } | undefined>()
-  const [drag, setDrag] = useState<Drag | null>(null)
   const dragMoved = useRef(false)
 
   const nViews = Math.max(1, p.views.length)
@@ -632,9 +643,12 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
         p.onNavigate({ start: drag.win.start - dt, end: drag.win.end - dt }, 'pan')
         break
       }
-      case 'cursor':
-        p.setCursors({ ...p.cursors, [drag.which]: xToT(clampX(x)) })
+      case 'cursor': {
+        const now = { ...p.cursors, [drag.which]: xToT(clampX(x)) }
+        setDrag({ ...drag, now })
+        cursorSync(now)
         break
+      }
       case 'band':
         setDrag({ ...drag, x1: clampX(x) })
         break
@@ -675,7 +689,10 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
     if (!d) return
     setDrag(null)
     if (d.kind === 'tag' && d.moved) p.onAdjust(d.id, { position: d.pos0 })
-    else if (d.kind === 'cursor') p.setCursors(d.orig)
+    else if (d.kind === 'cursor') {
+      cursorSync.cancel()
+      p.setCursors(d.orig)
+    }
     else if (d.kind === 'pan') p.onNavigate(d.win, 'pan')
   }
   useEffect(() => {
@@ -691,6 +708,8 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
     const d = drag
     setDrag(null)
     if (!d) return
+    // The analysis gets the cursors where the drag left them, in the same update that ends the preview
+    if (d.kind === 'cursor') cursorSync.flush()
     const release = releaseOutcome(d, {
       pointer: { x, y, alt: e.altKey },
       moved: dragMoved.current,

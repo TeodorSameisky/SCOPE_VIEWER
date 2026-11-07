@@ -169,6 +169,7 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 | `util/format.ts` | SI formatting and parsing, 1-2-5 `niceStep`, tick generation, counts, bytes |
 | `util/names.ts` | Display names (`CH1` → "Ch 1"), per-div text, trigger text, units |
 | `util/sampleCache.ts` | Per-sample-array LRU cache with slots |
+| `util/throttle.ts` | `throttle(fn, ms)` with `flush`/`cancel`: first call at once, then at most once per period with the latest arguments |
 | `util/lastResults.ts` | `LastResults`: the last result seen per key, while a new one is computed |
 | `util/sameContent.ts` | Structural comparison of JSON-like values that skips shared parts (undo, tab sync) |
 | `util/sha256.ts` | SHA-256 with a fallback for insecure contexts |

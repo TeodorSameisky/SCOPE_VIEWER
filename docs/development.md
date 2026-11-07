@@ -32,8 +32,8 @@ tests that need them (see below). The expected names are `SessionSample/Tek000.t
 
 ## 2. Tests
 
-[Vitest](https://vitest.dev/), plain unit tests next to the code (`foo.ts` → `foo.test.ts`). There are 48
-test files and 475 tests, and they run in a few seconds.
+[Vitest](https://vitest.dev/), plain unit tests next to the code (`foo.ts` → `foo.test.ts`). There are 49
+test files and 482 tests, and they run in a few seconds.
 
 **What is tested:** the parts that are pure and where bugs are subtle – parsers and the whole path from
 bytes to `Session` (`loadFiles`, on synthetic files), measurements and edge finding, the expression language,

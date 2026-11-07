@@ -9,7 +9,7 @@ This folder explains **how the code works**. The user-facing manual (features, s
 formats) is the [root README](../README.md); read it first if you have never used the app.
 
 > **Snapshot:** version 0.1.0 · React 19 + TypeScript 6 + Vite 8 · about 23,000 lines of TypeScript
-> including tests · 48 test files, 475 tests.
+> including tests · 49 test files, 482 tests.
 
 ---
 
