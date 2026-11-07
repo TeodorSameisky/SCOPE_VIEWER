@@ -6,6 +6,8 @@ it like on the instrument: stacked waveform views, cursors, automatic measuremen
 Everything happens **in the browser**: files are parsed, and math channels, spectra and the measurements of long
 ranges computed, in Web Workers, so long records do not block the page. Session files are never uploaded.
 
+Looking for how the code works? See the [developer documentation](docs/README.md).
+
 ## Supported files
 
 | Format | Notes |
@@ -346,6 +348,9 @@ are generated from `public/favicon.svg` with `npx pwa-assets-generator` (config 
 `pwa-assets.config.ts`).
 
 ## Development
+
+The code is documented in [`docs/`](docs/README.md): architecture, data model, how files are loaded and
+rendered, how state is saved, and recipes for common changes (a new file format, measurement, math function or command).
 
 ```bash
 npm install
