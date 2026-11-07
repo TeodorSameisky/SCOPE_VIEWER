@@ -71,7 +71,9 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 | `types.ts` | `Waveform`, `ChannelDisplay`, `ChannelInput`, `Channel`, `Session` |
 | `workspace.ts` | `Workspace`/`Analysis`; defaults from a file; `sanitizeWorkspace`; autosave storage; analysis files; zoom limits |
 | `view.ts` | Time window, cursors, measurement range, tools; zoom/pan/autoscale/view-size helpers; `LiveChannel` |
-| `callouts.ts` | `Callout` type, colours, `sanitizeCallouts`, helpers |
+| `callouts.ts` | `Callout` and `NewCallout` types, colours, `sanitizeCallouts`; navigation helpers (`adjacentCallout`, `calloutWindow`, `isOffRecord`, `boxZoomPatch`, `calloutsOn`) |
+| `edits.ts` | The changes a user can make to the analysis, as pure functions `(Analysis, args) → Analysis` (channels, views, math, callouts, cursors, measurements, spectra, notes) |
+| `analysisStore.ts` | `AnalysisStore`: the analysis in an external store with `update`, `subscribe`, `changedAt` and `adopt` (tab sync) |
 | `calloutValues.ts` | Text of values shown in callout labels (note value, region/box measurements) |
 | `math.ts` | `MathDef`, ids, colours, quick-operation presets |
 | `spectrum.ts` | `SpectrumDef`, options, new-spectrum rules, level units, stored-spectra parsing |
@@ -111,10 +113,11 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 
 | File | Purpose |
 | --- | --- |
-| `Scope.tsx` | The workspace: analysis state, navigation, undo, autosave, tab sync, actions, layout of all parts |
+| `Scope.tsx` | The workspace: creates the analysis store and calls its edits, navigation, undo, autosave and tab sync wiring, interface state, actions, layout of all parts |
+| `analysisContext.ts` | `AnalysisContext` and the hooks `useAnalysisStore`, `useAnalysis`, `useStoreAnalysis` |
 | `scopeCommands.ts` | `ScopeActions`/`ScopeApi`; all menus; palette commands |
 | `keymap.ts` | `KEYS`, `TOOLS`, `HELP_ROWS` |
-| `PlotArea.tsx` | Interactive plot: canvases, pointer tools, wheel, snapping, callout layer, `renderImage` |
+| `PlotArea.tsx` | Interactive plot: canvases, pointer tools, wheel, snapping, callout layer, `renderImage`; reads and changes the analysis through the store |
 | `CalloutLayer.tsx` | SVG layer: drag/resize/edit callouts, inline editor |
 | `CalloutPanel.tsx`, `CalloutValueEditor.tsx` | Callout list with search; measurements/values editor |
 | `ColorSwatches.tsx` | Callout colour choice |
@@ -131,9 +134,9 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 | `ExportDialog.tsx` | Export options and preview sizes |
 | `PwaStatus.tsx` | Service worker registration and update/offline toasts |
 | `ErrorBoundary.tsx` | Render-error fallback |
-| `useAutosave.ts` | Debounced saving, flush on hide, status |
+| `useAutosave.ts` | Debounced saving that follows the store (and the view), flush on hide, status |
 | `useNavigation.ts` | Time window, Back history, zoom helpers |
-| `useUndoHistory.ts` | Connects `UndoHistory` to gestures and React |
+| `useUndoHistory.ts` | Subscribes `UndoHistory` to the store and cuts steps by gestures |
 | `useMathResults.ts` | Subscribes to the engine's math state |
 | `useShortcuts.ts` | Global keyboard handling |
 

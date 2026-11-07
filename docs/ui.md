@@ -48,7 +48,8 @@ flowchart TD
 [`Scope.tsx`](../src/components/Scope.tsx) is where state meets UI. In reading order it contains:
 
 1. **Boot** – `initWorkspace(session, initial)` builds the starting workspace.
-2. **The analysis document** and its field setters; the undo history object.
+2. **The analysis store** (`AnalysisStore`, read with `useStoreAnalysis`) and the undo history object. Changes are
+   made with `update((a) => edits.xxx(a, …))`.
 3. **Layout** (`usePersistentState`), including Focus mode (hide everything, remember what was open).
 4. **Channels** – the `ComputeEngine`, `useMathResults`, and the derived lists (`inputChannels`,
    `mathItems`, `channels`, `viewsShown`).
@@ -61,9 +62,15 @@ flowchart TD
 9. **Exports** – build an `ExportContext` on demand.
 10. **Actions and the `ScopeApi`**, then the keyboard hook, then the JSX.
 
-State flows **down as props**; changes flow **up as callbacks** (`onAdjust`, `onAddCallout`, `onNavigate`, …).
-There is no context for analysis state, so each component's `Props` interface lists exactly what it
-reads and may change – `PlotArea` is the largest at ~40 props, which is deliberate: its dependencies are visible.
+Most components still get their data **as props** and report changes **as callbacks** (`onAdjust`, `onNavigate`, …),
+so each `Props` interface lists exactly what the component reads and may change. `PlotArea`, the one with the
+most to do, is different: it follows the analysis store itself through
+[`AnalysisContext`](../src/components/analysisContext.ts) (`useAnalysis()` for the views, their sizes, the cursors
+and the callouts; `store.update(...)` with an edit for moving a channel, dragging a cursor, resizing views,
+editing a callout). Its props shrank from 35 to 22: what remains is the interface state (tool, selection), the
+time window (`nav`), and what needs the workspace – menus, and creating a callout, which also selects and opens it.
+Everything the interface does *around* a change (select, open an editor, offer Undo) stays in `Scope`; the change
+itself is an edit in `model/edits.ts`.
 
 ## 3. Actions: one definition, four places
 
@@ -221,8 +228,8 @@ is closest in pixels (within 20 px).
   `SpectrumViewHandle` (`reveal`, export data), `ChannelBarHandle` (`openSettings`), `ScopeHandle`
   (`importAnalysisFile`), via `forwardRef` + `useImperativeHandle`.
 - **Heavy computation never runs in render** without caching: `useMemo`, `useDeferredValue`, `SampleCache`.
-- **`useSyncExternalStore`** is used for external, non-React state: the undo history, the compute engine's
-  measurement version, TeX renders, the install prompt, the system colour scheme.
+- **`useSyncExternalStore`** is used for external, non-React state: the analysis store, the undo history, the
+  compute engine's measurement version, TeX renders, the install prompt, the system colour scheme.
 - **`eslint-disable react-hooks/exhaustive-deps`** comments appear where an effect deliberately reads
   props through a closure and lists only what should retrigger it; each is explained next to it.
 - **Keys cause remounts on purpose**: `Scope` is remounted per session generation; the plot's canvas

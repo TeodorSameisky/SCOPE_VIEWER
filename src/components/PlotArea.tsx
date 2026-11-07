@@ -2,7 +2,8 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffec
 import type { ComputeEngine } from '../compute/engine'
 import { levelsOf, nearestEdge, type EdgeLevels } from '../dsp/edges'
 import type { PlotImageSource } from '../export/sessionExport'
-import { DEFAULT_CALLOUT_COLOR, calloutSpan, type Callout } from '../model/callouts'
+import { DEFAULT_CALLOUT_COLOR, calloutSpan, type Callout, type NewCallout } from '../model/callouts'
+import * as edits from '../model/edits'
 import type { SpanMeasure } from '../model/calloutValues'
 import { calloutsSvg, flagsBottom, layoutCallouts } from '../render/callouts'
 import {
@@ -28,7 +29,9 @@ import { loadTex, useTexVersion } from '../render/tex'
 import type { Theme } from '../render/theme'
 import { si } from '../util/format'
 import { channelName, displayUnit } from '../util/names'
+import { useAnalysis, useAnalysisStore } from './analysisContext'
 import { CalloutLayer } from './CalloutLayer'
+import type { Navigation } from './useNavigation'
 import { useTheme } from './ui/themeContext'
 import { panShare, wheelPan, wheelPixels, wheelZoomFactor } from './ui/wheel'
 import {
@@ -73,57 +76,72 @@ export interface PlotPoint {
   edgeT?: number
 }
 
-export type NewCallout = Pick<Callout, 'type' | 't' | 't2' | 'channel' | 'channel2' | 'v' | 'v2' | 'view' | 'div' | 'div2' | 'dy'>
-
+/**
+ * What the workspace hands to the plot. The analysis itself (views and their sizes, cursors, callouts)
+ * is not among it: the plot reads it from the analysis store and changes channel settings, cursors,
+ * view sizes and callout contents there directly. What stays are the state of the interface (tool,
+ * selection), the time window, and the things that need the workspace: menus, dialogs, creating a
+ * callout (which selects and opens it).
+ */
 interface Props {
   /** Measures the samples on screen for edge snapping (long ranges in its worker) */
   engine: Pick<ComputeEngine, 'measured' | 'subscribeMeasured' | 'measuredVersion'>
+  /** Everything that has a waveform: inputs and computed math channels */
   channels: LiveChannel[]
-  views: string[][]
-  /** Share of the plot's height of each view; equal without */
-  viewSizes?: number[]
   /** Which views the plot shows (a view whose channels are all hidden is left out); all without */
   viewsShown?: boolean[]
   /** A view outlined while the pointer is on its channels in the channel bar */
   highlightView?: number
-  /** A splitter between two views was dragged (undefined: all views the same height again) */
-  onResizeViews: (sizes: number[] | undefined) => void
-  win: TimeWindow
-  record: TimeWindow
-  minSpan: number
+  /** The time window: the plot zooms and pans it (the wheel, the tools) */
+  nav: Pick<Navigation, 'win' | 'record' | 'minSpan' | 'navigate' | 'zoomTo'>
   tool: Tool
   /** Short instruction shown while a non-default tool is active */
   hint?: string
   /** Show the values of all channels at the pointer */
   readout: boolean
-  /** Continuous navigation (wheel, pan) */
-  onNavigate: (w: TimeWindow, kind: NavKind) => void
-  /** Discrete zoom, optionally with new vertical settings for some channels */
-  onZoomTo: (w: TimeWindow, patches?: { id: string; patch: DisplayPatch }[]) => void
-  cursors: CursorState
-  setCursors: (c: CursorState) => void
   selected?: string
   setSelected: (id: string) => void
   trigger?: { source: string; level?: number; slope?: string }
-  onAdjust: (id: string, patch: DisplayPatch) => void
-  /** A channel tag was dropped onto another view */
-  onMoveToView: (id: string, view: number) => void
   /** Double-click on a channel tag */
   onChannelSettings?: (id: string) => void
   /** Right-click on a channel tag */
   onChannelMenu?: (e: React.MouseEvent, id: string) => void
-  callouts: Callout[]
   selectedCallout?: string
   editingCallout?: string
   onSelectCallout: (id: string | undefined) => void
   onAddCallout: (c: NewCallout) => void
-  onUpdateCallout: (id: string, patch: Partial<Callout>) => void
   onEditCallout: (id: string | null) => void
   onDeleteCallout: (id: string) => void
   onContextMenu?: (e: React.MouseEvent, at: PlotPoint) => void
   onCalloutMenu?: (e: React.MouseEvent, c: Callout) => void
   /** Go to a callout (the counters of callouts outside the view) */
   onJumpToCallout: (c: Callout) => void
+}
+
+/**
+ * What the component works with: its props, the analysis it follows in the store, and the changes it
+ * makes to it. The names are the ones the drawing and pointer code uses throughout.
+ */
+interface Resolved extends Omit<Props, 'nav'> {
+  views: string[][]
+  /** Share of the plot's height of each view; equal without */
+  viewSizes?: number[]
+  cursors: CursorState
+  callouts: Callout[]
+  win: TimeWindow
+  record: TimeWindow
+  minSpan: number
+  /** Continuous navigation (wheel, pan) */
+  onNavigate: (w: TimeWindow, kind: NavKind) => void
+  /** Discrete zoom, optionally with new vertical settings for some channels */
+  onZoomTo: (w: TimeWindow, patches?: { id: string; patch: DisplayPatch }[]) => void
+  setCursors: (c: CursorState) => void
+  onAdjust: (id: string, patch: DisplayPatch) => void
+  /** A channel tag was dropped onto another view */
+  onMoveToView: (id: string, view: number) => void
+  onUpdateCallout: (id: string, patch: Partial<Callout>) => void
+  /** A splitter between two views was dragged (undefined: all views the same height again) */
+  onResizeViews: (sizes: number[] | undefined) => void
 }
 
 export interface PlotAreaHandle extends PlotImageSource {
@@ -151,7 +169,28 @@ type Drag =
    */
   | { kind: 'tag'; id: string; view: number; y0: number; x: number; y: number; pos0: number; moved: boolean; target?: number }
 
-export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(p, ref) {
+export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(props, ref) {
+  const store = useAnalysisStore()
+  const { views, viewSizes, cursors, callouts } = useAnalysis()
+  const { nav, ...rest } = props
+  const update = store.update
+  const p: Resolved = {
+    ...rest,
+    views,
+    viewSizes,
+    cursors,
+    callouts,
+    win: nav.win,
+    record: nav.record,
+    minSpan: nav.minSpan,
+    onNavigate: nav.navigate,
+    onZoomTo: nav.zoomTo,
+    setCursors: (c) => update((a) => edits.setCursors(a, c)),
+    onAdjust: (id, patch) => update((a) => edits.patchChannel(a, id, patch)),
+    onMoveToView: (id, view) => update((a) => edits.moveToView(a, id, view)),
+    onUpdateCallout: (id, patch) => update((a) => edits.updateCallout(a, id, patch)),
+    onResizeViews: (sizes) => update((a) => edits.setViewSizes(a, sizes)),
+  }
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([])
   /** Transparent canvases over the views: the pointer line and what is being dragged */
@@ -1089,15 +1128,18 @@ function HoverReadout(p: { t: number; x: number; y: number; channels: LiveChanne
   )
 }
 
+/** What the cursor readouts need: the cursors and the channels they read */
+type CursorReadout = Pick<Resolved, 'cursors' | 'channels'>
+
 /** Δt between the cursors and Δv of their source channel */
-function cursorDeltas(p: Props) {
+function cursorDeltas(p: CursorReadout) {
   const dt = p.cursors.b - p.cursors.a
   const src = p.channels.find((c) => c.wave.id === p.cursors.source)
   const dv = src ? valueAt(src.wave, p.cursors.b) - valueAt(src.wave, p.cursors.a) : NaN
   return { dt, dv, src, unit: src?.wave.yUnit ?? '', name: src ? channelName(src.wave.id) : '?' }
 }
 
-function cursorSummary(p: Props, theme: Theme) {
+function cursorSummary(p: CursorReadout, theme: Theme) {
   const { dt, dv, src, unit, name } = cursorDeltas(p)
   return (
     <>
@@ -1127,7 +1169,7 @@ async function svgToImage(xml: string): Promise<HTMLImageElement | null> {
 }
 
 /** The Δt / Δv box of the cursors, drawn into exported images (on screen it is HTML) */
-function drawCursorReadout(ctx: CanvasRenderingContext2D, scale: number, p: Props, tToX: (t: number) => number, theme: Theme, top: number) {
+function drawCursorReadout(ctx: CanvasRenderingContext2D, scale: number, p: CursorReadout, tToX: (t: number) => number, theme: Theme, top: number) {
   const { dt, dv, unit, name } = cursorDeltas(p)
   const lines = [`Δt: ${si(dt, 's')}   1/Δt: ${si(1 / Math.abs(dt), 'Hz')}`, `Δv: ${si(dv, unit)} (${name})   Δv/Δt: ${si(dv / dt, `${displayUnit(unit)}/s`)}`]
   ctx.save()

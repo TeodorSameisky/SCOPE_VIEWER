@@ -6,21 +6,27 @@ const IDLE_MS = 700
 /** Typing in these does not end a step */
 const TEXT = 'input, textarea, select, [contenteditable="true"]'
 
+/** A document that can be followed: the analysis store is one */
+export interface Followable<T> {
+  get: () => T
+  subscribe: (listener: () => void) => () => void
+}
+
 /**
- * Records every change of `doc` (a document built from React state) in `h`. A step ends when the
- * next gesture starts (pointer press, key press outside text fields) or after a pause without the
- * pointer held down, so a drag, a wheel gesture or a burst of typing is one step. Releasing the
- * pointer does not end the step itself: React may apply the last move of a drag only after the
- * release, and it belongs to the same step. Neither does a key pressed during a drag (Esc puts it
- * back, which leaves no step) or a key held down (its repeats are one step).
+ * Records every change of the document in `h`. The history subscribes to the document itself, so a
+ * change is recorded at once, not after the next render. A step ends when the next gesture starts
+ * (pointer press, key press outside text fields) or after a pause without the pointer held down, so a
+ * drag, a wheel gesture or a burst of typing is one step. Releasing the pointer does not end the step
+ * itself: the last move of a drag belongs to the same step. Neither does a key pressed during a drag
+ * (Esc puts it back, which leaves no step) or a key held down (its repeats are one step).
  *
  * While `hold` is true the step stays open across gestures and pauses (a new callout and what is
  * written into it); it ends once `hold` turns false, together with the change made then (an empty
  * new note that is discarded leaves no step).
  *
- * `apply` restores a snapshot into the state, and the view when the step moved one.
+ * `apply` restores a snapshot into the document, and the view when the step moved one.
  */
-export function useUndoHistory<T, V>(h: UndoHistory<T, V>, doc: T, apply: (d: T, view: V | undefined) => void, hold = false) {
+export function useUndoHistory<T, V>(h: UndoHistory<T, V>, doc: Followable<T>, apply: (d: T, view: V | undefined) => void, hold = false) {
   // Re-render when the stacks change (undo/redo buttons)
   useSyncExternalStore(h.subscribe, h.getVersion)
   const applyRef = useRef(apply)
@@ -39,11 +45,15 @@ export function useUndoHistory<T, V>(h: UndoHistory<T, V>, doc: T, apply: (d: T,
   }, [h])
 
   useEffect(() => {
-    h.change(doc)
-    commitWhenIdle()
+    const record = () => {
+      h.change(doc.get())
+      commitWhenIdle()
+    }
+    record()
+    return doc.subscribe(record)
   }, [doc, h, commitWhenIdle])
 
-  // After the change above: the render that ends the hold may also make the last change of the step
+  // After the effect above, so a change made in the render that ends the hold joins the step first
   useEffect(() => {
     held.current = hold
     if (!hold) h.commit()

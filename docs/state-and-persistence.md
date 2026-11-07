@@ -1,9 +1,11 @@
 # State and persistence
 
 Where the app's state lives, how it changes, how undo works, and how it is saved and shared between
-browser tabs. Code: [`src/components/Scope.tsx`](../src/components/Scope.tsx) and its hooks,
-[`src/model/workspace.ts`](../src/model/workspace.ts), [`undoHistory.ts`](../src/model/undoHistory.ts),
-[`tabSync.ts`](../src/model/tabSync.ts), [`fileStore.ts`](../src/model/fileStore.ts).
+browser tabs. Code: [`src/model/analysisStore.ts`](../src/model/analysisStore.ts),
+[`edits.ts`](../src/model/edits.ts), [`workspace.ts`](../src/model/workspace.ts),
+[`undoHistory.ts`](../src/model/undoHistory.ts), [`tabSync.ts`](../src/model/tabSync.ts),
+[`fileStore.ts`](../src/model/fileStore.ts), and the hooks in [`src/components/`](../src/components) that connect
+them to `Scope.tsx`.
 
 ## 1. Four kinds of state
 
@@ -12,7 +14,7 @@ state is tells you whether it can be undone, saved or shared.
 
 | Kind | Examples | Lives in | Undo | Saved | Shared with other tabs |
 | --- | --- | --- | --- | --- | --- |
-| **Analysis** – the user's work | channel settings, views, math, spectra, callouts, cursors, measurement choice, notes | `doc` (`useState<Analysis>`) | yes | yes (400 ms after a change) | yes |
+| **Analysis** – the user's work | channel settings, views, math, spectra, callouts, cursors, measurement choice, notes | `AnalysisStore` (not React state) | yes | yes (400 ms after a change) | yes |
 | **View** – where you are looking | time window, selected channel | `useNavigation`, `useState` | no (use **Back**) | yes (with the workspace) | no |
 | **Interaction** | active tool, selected/edited callout, open menus and dialogs, highlighted view | `useState` in `Scope`/components | no | no | no |
 | **Layout / preferences** | open panel, overview and table visibility, heights, theme, export options | `usePersistentState` | no | yes, separately (see §2) | no |
@@ -20,26 +22,62 @@ state is tells you whether it can be undone, saved or shared.
 Plus two derived/async kinds: **derived** values computed with `useMemo` (`displayById`, `inputChannels`,
 `channels`, `viewsShown`) and **computed** results that arrive later from the worker (math channels).
 
-### The analysis document
+### The analysis store and its edits
 
-`Scope` keeps the whole analysis as **one object** and gives every field a setter built by
-`fieldSetter(setDoc, 'callouts')` and similar:
+The whole analysis is **one immutable object** in an [`AnalysisStore`](../src/model/analysisStore.ts), a small
+class that React does not own:
 
 ```ts
-const [doc, setDoc] = useState<Analysis>(() => analysisOf(ws0))
-const { math: mathDefs, channels: displays, views, callouts, … } = doc
-const setCallouts = fieldSetter(setDoc, 'callouts')   // takes a value or an updater, like setState
+const store = new AnalysisStore(analysisOf(workspace), changedAt)
+store.get()                       // the current Analysis
+store.subscribe(listener)         // called after every change
+store.update((a) => edits.addMath(a, ids))   // make a change
 ```
 
-Two fields change together and have special setters: `setViews` also carries `viewSizes` with it
-(`carryViewSizes`: a size follows the channels of its view), and `setMeasKeys/Range/Exclude` update the
-nested `measurements` object.
+```mermaid
+flowchart LR
+  UI["components / Scope<br/>(user actions)"] -- "update(a => edits.xxx(a, …))" --> S[("AnalysisStore<br/>Analysis + changedAt")]
+  E["model/edits.ts<br/>pure functions<br/>(Analysis, args) → Analysis"] -. "used inside update" .-> S
+  S -- "subscribe" --> R["React components<br/>useAnalysis · useSyncExternalStore"]
+  S -- "subscribe" --> U["undo history<br/>useUndoHistory"]
+  S -- "subscribe" --> A["autosave<br/>useAutosave"]
+  T["other tabs<br/>store.adopt(next, changedAt)"] --> S
+```
 
-Because the document is a plain immutable JSON-able object, three systems get it for free:
+**What changes the analysis is a function in [`edits.ts`](../src/model/edits.ts).** Each takes the current
+`Analysis` and returns the next one, returning the *same* object when nothing changes. They are pure: no React,
+no selection, no time window, no notice to show. What an edit needs besides the analysis (the ids of the file's
+channels, the visible window, the live channels with their samples) is passed in. The workspace does the UI part
+of a change itself, around the edit:
 
-- **undo** compares and stores JSON snapshots,
-- **autosave** serialises it,
-- **tab sync** sends it.
+```ts
+const removeMath = (id: string) => {
+  const attached = calloutsOn(callouts, id)                  // for the message
+  offerUndo(`${channelName(id)} deleted …`)
+  update((a) => edits.removeMath(a, id, firstId))            // the change to the analysis
+  if (selected === id) setSelected(firstId)                  // what the interface does about it
+}
+```
+
+The edits cover channels (`patchChannel`, `adjustChannel`, `showOnly`, `autoscale`), views (`moveToView`,
+`withViews`), math channels (`addMath`, `changeMath`, `removeMath`), callouts (`addCallout`, `updateCallout`,
+`deleteCallout`, `duplicateCallout`, `shiftCallout`, `mergeCallouts`), cursors, measurements, spectra and notes.
+`edits.test.ts` checks each one, and also that none changes its input (the test analysis is deeply frozen, so an
+edit that mutates throws). Two edits change several fields together: `withViews` carries `viewSizes` with the
+channels (`carryViewSizes`: a size follows the channels of its view), and `removeMath` removes everything that
+refers to the channel (settings, view, spectra, callouts on its trace, measurement choices, cursor source).
+
+Because the document is a plain immutable JSON-able object **in a store**, the systems that follow it need
+no help from the components:
+
+- **React components** read it with `useAnalysis()` (`useSyncExternalStore`) and change it with `store.update`;
+  `PlotArea` does this itself, through `AnalysisContext`, instead of receiving the fields and setters as props,
+- **undo** subscribes and compares/stores JSON snapshots (see §3),
+- **autosave** subscribes and serialises it (see §5),
+- **tab sync** is decided by the store (`changedAt`, `adopt`, see §6).
+
+Several `update` calls in a row each see the result of the one before, so there is no stale-closure problem
+when a handler changes the analysis twice.
 
 > **Rule:** anything the user should be able to undo or find again after a reload belongs in `Analysis`.
 > Anything that is "where I am looking" or "what I am doing right now" does not.
@@ -86,7 +124,8 @@ Code: [`UndoHistory`](../src/model/undoHistory.ts) (data structure) + [`useUndoH
 
 ### Deciding what is one step
 
-`useUndoHistory` records `doc` after every render and decides *when to commit*:
+`useUndoHistory` **subscribes to the analysis store**, so a change is recorded the moment it is made (not after the
+next render), and decides *when to commit*:
 
 | Event | Effect |
 | --- | --- |
@@ -104,8 +143,10 @@ own undo applies as usual.
 Navigation (zoom, pan) is *not* part of undo – **Back** (Backspace) handles it. One exception: a zoom
 that also **rescales channels** (zoom rectangle, zoom-to-box) changes the analysis. That change is an undo
 step that must take the window with it, so `moveView(from, to)` attaches the window change to the step;
-`undo()` returns `{ doc, view: step.view.from }` and `Scope` calls `nav.show(view)` before applying the
-document.
+`undo()` returns `{ doc, view: step.view.from }` and `Scope` calls `nav.show(view)` before putting the
+document back with `store.update(doc)`. (Because the history follows the store, it makes no difference whether
+`moveView` is called before or after the channels change: it attaches to the open step, or to the step the next
+change opens.) The history sees the restored document as a change that equals its base, so it records no step.
 
 ### After an undo
 
@@ -119,7 +160,7 @@ recorded.
 [`useNavigation`](../src/components/useNavigation.ts) owns the time window.
 
 ```ts
-const nav = useNavigation(session, ws0.window, displays, setDisplays, onScale)
+const nav = useNavigation(session, ws0.window, displays, patchChannels, onScale)
 nav.win         // current { start, end }
 nav.navigate(w, 'wheel' | 'pan' | 'zoom')    // continuous: grouped into one Back step
 nav.zoomTo(w, patches?, free?)               // discrete; may rescale channels
@@ -131,21 +172,25 @@ nav.zoomBack()                               // Backspace
   Back step, so a wheel gesture is one step back, not hundreds.
 - `keepInRecord` clamps panning and zooming to the record unless `free` is set.
 - A zoom that scales channels stores the channels' previous vertical settings in the history entry
-  (`Verticals`); Back restores them.
+  (`Verticals`); Back restores them. The hook changes channels through the `patchChannels` callback it is
+  given (in `Scope`: `store.update((a) => edits.patchChannels(a, patches))`), not through React state.
 - Limits come from `spanLimits(session)` – see [Data model](data-model.md#4-coordinates-and-units).
 
 ## 5. Autosave
 
-[`useAutosave`](../src/components/useAutosave.ts) saves `workspaceOf(doc, win, selected)`.
+[`useAutosave`](../src/components/useAutosave.ts) saves `workspaceOf(store.get(), window, selected)`. It
+**subscribes to the analysis store** for changes of the analysis, and is given the *view* (the time window and the
+selected channel, which are not in the store) as an argument; either one schedules a save. The workspace is built at
+the moment of saving, from the then-current store and view.
 
 ```mermaid
 flowchart TD
-  A["workspace changes"] --> B{"equal to what the session<br/>started with, and nothing<br/>changed yet?"}
+  A["store changes, or the<br/>window / selection changes"] --> B{"equal to what the session<br/>started with, and nothing<br/>changed yet?"}
   B -- yes --> Z["do nothing<br/>(opening a file stores nothing)"]
   B -- no --> C["restart 400 ms timer"]
   C --> D["flush()"]
   E["pagehide · tab hidden · session closed"] --> D
-  D --> F["saveWorkspace(session, ws, changedAt)"]
+  D --> F["saveWorkspace(session, ws, store.changedAt)"]
   F --> G{"result"}
   G -- "ok" --> H["status: saved<br/>announce() to other tabs"]
   G -- "removed: [...]" --> I["notice: these other analyses were<br/>removed to make room"]
@@ -172,16 +217,20 @@ The same session can be open in several tabs. Rules (see [`tabSync.ts`](../src/m
 
 - Each analysis has a **`changedAt`** timestamp (ms): when it was last *changed*. The index in
   `localStorage` stores it next to the saved workspace.
-- `Scope` keeps a `stamp = { doc, at }` ref. A new `doc` made here gets
-  `at = max(Date.now(), previous + 1)`, so versions are strictly ordered even within the same millisecond.
+- **The `AnalysisStore` keeps it** (`store.changedAt`). Every change made here (`update`) sets
+  `changedAt = max(Date.now(), previous + 1)`, so versions are strictly ordered even within the same
+  millisecond, and a change made here is always later than a version taken over from another tab.
 - After every successful save, the tab `announce()`s `{ fingerprint, changedAt, workspace }` on a
   `BroadcastChannel`. A tab does not hear its own messages.
-- On news for its session, a tab runs `takeOver(ws, changedAt)`:
-  - ignores it if `changedAt <= stamp.at` (it is not newer);
-  - if the content is identical, just adopts the timestamp;
-  - otherwise sanitises the workspace, sets it as `doc`, **resets the undo history** (the change was not
-    made here, so Undo here must not take it back), keeps selections valid, and shows "Updated with the
-    changes saved in another tab". The **view stays** (each tab keeps its own zoom).
+- On news for its session, a tab runs `takeOver(ws, changedAt)` in `Scope`:
+  - ignores it if `changedAt <= store.changedAt` (it is not newer);
+  - otherwise sanitises the workspace and offers it to **`store.adopt(next, changedAt)`**, which takes it only
+    if the content differs from what is shown (an identical one just moves the timestamp forward) and
+    returns whether it did;
+  - if it was taken, the tab **resets the undo history** (the change was not made here, so Undo here must not
+    take it back), keeps selections valid, and shows "Updated with the changes saved in another tab". The
+    **view stays** (each tab keeps its own zoom). Components, undo and autosave learn of the new analysis
+    like of any other change, by subscription.
 - `saveWorkspace` **refuses to overwrite a newer analysis** (`index[fp].changedAt > changedAt`) and
   returns `{ ok: false, newer: true }`. This covers the case when the broadcast was missed: the tab then
   loads the stored analysis and takes it over.

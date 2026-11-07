@@ -9,7 +9,7 @@ This folder explains **how the code works**. The user-facing manual (features, s
 formats) is the [root README](../README.md); read it first if you have never used the app.
 
 > **Snapshot:** version 0.1.0 · React 19 + TypeScript 6 + Vite 8 · about 20,000 lines of TypeScript
-> including tests · 38 test files, 276 tests.
+> including tests · 40 test files, 329 tests.
 
 ---
 
@@ -27,6 +27,7 @@ After that, pick what you need:
 | Add support for a new file format (e.g. Rigol) | [File loading](file-loading.md), then the recipe in [Development](development.md#add-a-file-format) |
 | Add or change a measurement | [Analysis](analysis.md#measurements), then [Development](development.md#add-a-measurement) |
 | Add a math function | [Analysis](analysis.md#the-math-channel-language), then [Development](development.md#add-a-math-function) |
+| Change what a user action does to the analysis (add/remove a channel, callout, …) | [State and persistence](state-and-persistence.md#the-analysis-store-and-its-edits), then [Development](development.md#add-an-edit-a-change-a-user-can-make-to-the-analysis) |
 | Change how saving, undo, or multi-tab sync works | [State and persistence](state-and-persistence.md) |
 | Add a command, a menu item or a shortcut | [User interface](ui.md#3-actions-one-definition-four-places), then [Development](development.md#add-a-command-or-shortcut) |
 | Change colours, fonts or the light/dark theme | [Rendering](rendering.md#6-themes) |

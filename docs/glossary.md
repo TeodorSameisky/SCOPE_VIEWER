@@ -37,12 +37,14 @@ Words used in the code, the UI and these documents. Oscilloscope terms first, th
 | --- | --- |
 | **Action** | A command defined once (`Action`) and offered by the toolbar, menus, command palette and keyboard. |
 | **Analysis** | The undoable, saveable, shareable part of the workspace – everything but the time window and the selected channel. Also the name of the `.scopeview.json` file. |
+| **Analysis store** | `AnalysisStore`: the analysis in one place outside React. Components, undo and autosave subscribe to it; changes are made with `update`. |
 | **Autosave** | Writing the workspace to `localStorage` 400 ms after a change. |
 | **Badge** | A channel's chip in the channel bar. |
 | **Bundle** | A `.scopeview` file: the session file(s) plus the analysis in one zip. |
 | **Callout** | An annotation: note, marker, region, box or span. |
 | **Channel tag** | The handle at the left edge of a view, at the channel's position; drag to move the trace. |
 | **Compute engine / worker** | `ComputeEngine` (page) and the worker it controls, which evaluates math channels and computes spectra and long measurements. |
+| **Edit** | A pure function `(Analysis, args) → Analysis` in `model/edits.ts` that makes one change a user can make; it returns the same object when nothing changes. |
 | **Fingerprint** | SHA-256 of a session's file contents; identifies a session across visits, renames and tabs. |
 | **Focus mode** | Hides all panels; remembers what was open. |
 | **Generation** | A counter in `App` used as the React `key` of `Scope`, so a new file or replaced analysis remounts the workspace. |

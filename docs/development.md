@@ -32,18 +32,21 @@ tests that need them (see below). The expected names are `SessionSample/Tek000.t
 
 ## 2. Tests
 
-[Vitest](https://vitest.dev/), plain unit tests next to the code (`foo.ts` → `foo.test.ts`). There are 38
-test files and 276 tests, and they run in a few seconds.
+[Vitest](https://vitest.dev/), plain unit tests next to the code (`foo.ts` → `foo.test.ts`). There are 40
+test files and 329 tests, and they run in a few seconds.
 
 **What is tested:** the parts that are pure and where bugs are subtle – parsers, measurements and edge
 finding, the expression language, FFT and peak search, window/view geometry (`view.ts`, `draw.ts`), the
-workspace (sanitising, defaults), the undo history, the compute engine and core, callout layout and
-values, colour handling, formatting, command search, menu normalisation, the measurement rows.
+workspace (sanitising, defaults), **every edit of the analysis (`edits.ts`) and the analysis store**, the undo
+history, the compute engine and core, callout layout, values and navigation helpers, colour handling,
+formatting, command search, menu normalisation, the measurement rows.
 
 **What is not tested:** React components (there is no DOM environment and no component test library).
-That is why logic is pulled out of components into plain modules – `commandSearch.ts`, `wheel.ts`,
-`menuContext.ts`, `view.ts` – where it can be tested. When you add behaviour to a component, ask whether
-the decision part can be a pure function.
+That is why logic is pulled out of components into plain modules – `edits.ts`, `analysisStore.ts`,
+`commandSearch.ts`, `wheel.ts`, `menuContext.ts`, `view.ts` – where it can be tested. When you add behaviour
+to a component, ask whether the decision part can be a pure function. What still lives only in components, and
+is therefore checked by hand in the browser, is the pointer handling of `PlotArea` and the undo grouping by
+gestures in `useUndoHistory`.
 
 **Patterns worth knowing:**
 
@@ -169,13 +172,33 @@ Add a test to `expr.test.ts`.
 2. Give it a value in `defaultWorkspace(session)`.
 3. **Validate it in `sanitizeWorkspace(raw, session)`**: accept only a well-formed value, otherwise use the
    default. This is the step people forget, and it is what protects the viewer from old or broken data.
-4. Create its setter in `Scope.tsx` with `fieldSetter(setDoc, 'myField')` and use it.
-5. That is all for undo, autosave, analysis files, bundles and tab sync – they work on the whole document.
+4. Write the changes the user can make to it as **edits** in [`model/edits.ts`](../src/model/edits.ts) (see the
+   next recipe) and call them from the workspace with `update((a) => edits.setMyField(a, value))`.
+5. That is all for undo, autosave, analysis files, bundles and tab sync – they follow the store and work on the
+   whole document.
 6. Add a case to `workspace.test.ts` (round trip and sanitising of garbage). Bump `WORKSPACE_VERSION` only for
    an *incompatible* change; additive fields are filled from defaults.
 
 If the new state is a *view* concern (where you look, what is open), do **not** put it in `Analysis`; keep it
 in component state or `usePersistentState`.
+
+### Add an edit (a change a user can make to the analysis)
+
+An edit is a pure function in [`model/edits.ts`](../src/model/edits.ts): `(a: Analysis, …args) => Analysis`.
+
+1. **Write it so it returns the same object when nothing changes** (`return a`), and never mutates its input.
+   Build the next analysis with spreads. If several fields must change together (a channel and its view, a math
+   channel and everything that refers to it), change them in one edit, so it is one undo step and one save.
+2. **Pass in what it needs** instead of reaching for it: the ids of the file's channels, the visible window, the
+   live channels with their samples. An edit must not know about React, the selection, or notices.
+3. **Do the interface part in the caller.** The workspace (`Scope.tsx`) calls `update((a) => edits.xxx(a, …))` and then
+   selects, opens an editor, offers Undo, and so on. If the caller needs something the edit computed (the id of
+   the new callout), let the edit return it: `{ doc, callout }`, as `addCallout` does.
+4. **Test it in `edits.test.ts`.** The fixture there deep-freezes the analysis, so an edit that mutates its input
+   throws. Check the same-object-when-unchanged case too.
+
+Components that read the analysis call `useAnalysis()`; components that change it call `useAnalysisStore().update`
+(only `PlotArea` does so today; the others receive callbacks from `Scope`).
 
 ### Add a theme colour
 

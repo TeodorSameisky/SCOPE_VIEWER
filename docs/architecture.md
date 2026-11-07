@@ -50,7 +50,7 @@ flowchart TB
 
   subgraph Core["Core – plain TypeScript, no React, runs in workers and tests"]
     direction LR
-    Model["model/<br/>types · workspace · view · callouts<br/>undo · storage · tab sync"]
+    Model["model/<br/>types · workspace · view · callouts<br/>edits · store · undo · storage · tab sync"]
     Dsp["dsp/<br/>min/max pyramid<br/>measurements · edges"]
     Math["math/<br/>expressions · filters · FFT"]
     Parsers["parsers/<br/>Tektronix formats"]
@@ -88,7 +88,7 @@ flowchart TB
 | `parsers/` | Bytes → `Session`. Knows Tektronix file layouts and SCPI setup files. | `session.ts`, `tekWfm.ts` |
 | `dsp/` | Numeric analysis of sample arrays: the min/max pyramid, automatic measurements, edge finding. | `measure.ts`, `minmax.ts` |
 | `math/` | The math-channel language, filters, and the FFT with windows and peak search. | `expr.ts`, `fft.ts` |
-| `model/` | What the app *means*: data types, the workspace document, view/zoom helpers, callouts, undo history, browser storage, tab sync. | `workspace.ts`, `view.ts` |
+| `model/` | What the app *means*: data types, the workspace document and the store that holds it, the pure edits that change it, view/zoom helpers, callouts, undo history, browser storage, tab sync. | `workspace.ts`, `edits.ts`, `view.ts` |
 | `compute/` | Moves math, spectra and long measurements off the page into a worker. | `engine.ts`, `core.ts` |
 | `render/` | Pure drawing: canvas functions, geometry, themes, callout layout, TeX. | `draw.ts`, `callouts.tsx` |
 | `export/` | Turns the current state into files. | `sessionExport.ts` |
@@ -183,19 +183,25 @@ edits a math expression:
 
 ```mermaid
 flowchart LR
-  A["User action"] --> B["fieldSetter → setDoc<br/>the Analysis document changes"]
-  B --> C["useUndoHistory<br/>JSON snapshot → undo step"]
-  B --> D["workspaceOf(doc, window, selected)"]
-  D --> E["useAutosave<br/>waits 400 ms"]
+  A["User action"] --> B["store.update(a => edits.xxx(a, …))<br/>a pure edit makes the next Analysis"]
+  B --> C["undo history<br/>(subscriber): JSON snapshot → undo step"]
+  B --> D["autosave (subscriber)<br/>workspaceOf(store, window, selected)"]
+  D --> E["waits 400 ms"]
   E --> F["saveWorkspace<br/>→ localStorage"]
   F --> G["announce()<br/>→ BroadcastChannel"]
-  G --> H["other tabs with this session:<br/>takeOver()"]
-  B --> I["React re-renders<br/>canvases redraw"]
+  G --> H["other tabs with this session:<br/>takeOver() → store.adopt()"]
+  B --> I["React components (subscribers)<br/>re-render, canvases redraw"]
   B --> J["math defs changed?<br/>ComputeEngine.setMath"]
 ```
 
-The important property is that **one serialisable document** (`Analysis`) drives undo, autosave,
-analysis files, bundles and multi-tab sync. Add a field to it and all five work, with no extra code.
+Two properties make this cheap to extend:
+
+- **The analysis lives in a store, and changes are pure functions** (`model/edits.ts`: `(Analysis, args) → Analysis`).
+  The logic of a change can be tested without React, and undo, autosave and the components follow the store by
+  subscription instead of being threaded through the component that owns the state.
+- **One serialisable document** (`Analysis`) drives undo, autosave, analysis files, bundles and multi-tab
+  sync. Add a field to it and all five work, with no extra code.
+
 See [State and persistence](state-and-persistence.md).
 
 ## 6. Key design decisions
@@ -211,6 +217,7 @@ See [State and persistence](state-and-persistence.md).
 | **Callouts are stored in data coordinates** (time, channel value) | They stay attached to the waveform when you zoom, pan or change V/div | [`model/callouts.ts`](../src/model/callouts.ts) |
 | **Canvas for traces, SVG for callouts** | Traces need raw speed; callouts need hit-testing, text layout and crisp vector output in exports | [`render/`](../src/render) |
 | **Screen and exports use the same drawing functions** | An exported image is exactly what is on screen, only larger and optionally in the light theme | `PlotArea.renderImage` |
+| **The analysis lives in an `AnalysisStore`, changed only by pure `edits`** | A change is testable without a browser (`edits.test.ts`); undo, autosave, tab sync and the plot follow the store themselves instead of being wired through one component; several changes in a row cannot act on stale state | [`model/analysisStore.ts`](../src/model/analysisStore.ts), [`model/edits.ts`](../src/model/edits.ts) |
 | **Each command is one `Action`**, offered by the toolbar, menus, palette and keyboard | The four can never disagree on label, icon, shortcut or enabled state | [`components/ui/action.ts`](../src/components/ui/action.ts) |
 | **Theme colours exist twice** (CSS tokens and a TypeScript `Theme`), and a test compares them | Canvases and exports need concrete colours in code; the page needs CSS variables | [`render/themeSync.test.ts`](../src/render/themeSync.test.ts) |
 | **The service worker asks before updating** (`registerType: 'prompt'`) | The app never changes under the user's hands; because work is autosaved, reloading loses nothing | [`vite.config.ts`](../vite.config.ts), [`PwaStatus.tsx`](../src/components/PwaStatus.tsx) |
@@ -218,14 +225,20 @@ See [State and persistence](state-and-persistence.md).
 
 ## 7. Where complexity lives
 
-Three files hold most of the integration logic; knowing them makes the rest easy to navigate:
+A few files hold most of the integration logic; knowing them makes the rest easy to navigate:
 
-- [`components/Scope.tsx`](../src/components/Scope.tsx) (~1000 lines) – the **composition root of the
-  workspace**. It owns the `Analysis` document, navigation, undo, autosave and tab sync (via hooks),
-  defines all `Action`s, and passes props down. Nothing below it owns analysis state.
-- [`components/PlotArea.tsx`](../src/components/PlotArea.tsx) (~1100 lines) – the interactive plot:
-  pointer handling for every tool, drawing orchestration, callout layer, image rendering for exports.
+- [`components/Scope.tsx`](../src/components/Scope.tsx) (~930 lines) – the **composition root of the
+  workspace**. It creates the `AnalysisStore` and connects it to undo, autosave and tab sync (via hooks), owns
+  the interface state (tool, selection, layout) and navigation, defines all `Action`s, and passes props down. The
+  *rules* of a change to the analysis are not here but in `model/edits.ts`; `Scope` calls them and does the
+  interface's part (select the new callout, offer Undo, …).
+- [`components/PlotArea.tsx`](../src/components/PlotArea.tsx) (~1190 lines) – the interactive plot:
+  pointer handling for every tool, drawing orchestration, callout layer, image rendering for exports. It reads
+  the analysis from the store and changes it there (`AnalysisContext`); its 22 props are the interface state, the
+  time window, and the things that need the workspace (menus, creating a callout).
 - [`model/workspace.ts`](../src/model/workspace.ts) – defaults from a file, sanitising untrusted
   input, and the storage format.
+- [`model/edits.ts`](../src/model/edits.ts) and [`analysisStore.ts`](../src/model/analysisStore.ts) – every
+  change a user can make to the analysis, and the store that holds it.
 
 Everything else is small and single-purpose. The [Module map](module-map.md) lists them all.

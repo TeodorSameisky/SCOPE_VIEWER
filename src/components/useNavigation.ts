@@ -13,6 +13,9 @@ interface ViewState {
 /** Continuous changes of the same kind within this time count as one Back step */
 const GESTURE_MS = 800
 
+/** The time window and the ways to change it (what `useNavigation` returns) */
+export type Navigation = ReturnType<typeof useNavigation>
+
 /**
  * The time window: zooming and panning, and the history Back steps through. Navigation is not
  * part of undo, except for a zoom that also scales channels (zoom rectangle, zoom to box): Back
@@ -23,7 +26,7 @@ export function useNavigation(
   session: Session,
   initial: TimeWindow,
   displays: ChannelDisplay[],
-  setDisplays: React.Dispatch<React.SetStateAction<ChannelDisplay[]>>,
+  patchChannels: (patches: Record<string, DisplayPatch>) => void,
   onScale: (from: TimeWindow, to: TimeWindow) => void,
 ) {
   const record = useMemo(() => recordWindow(session), [session])
@@ -57,7 +60,7 @@ export function useNavigation(
     const byId = Object.fromEntries(patches.map((x) => [x.id, x.patch]))
     navigate(to, 'zoom', Object.keys(byId), true)
     if (patchDisplays(displays, byId) === displays) return
-    setDisplays((ds) => patchDisplays(ds, byId))
+    patchChannels(byId)
     onScale(win, to)
   }
   const zoomBack = () => {
@@ -67,7 +70,7 @@ export function useNavigation(
     setWin(prev.win)
     lastNav.current = { kind: null, time: 0 }
     if (patchDisplays(displays, prev.vertical) === displays) return
-    setDisplays((ds) => patchDisplays(ds, prev.vertical))
+    patchChannels(prev.vertical)
     onScale(win, prev.win)
   }
   /** Go to a window without a Back step (undo / redo of a zoom that scaled channels) */

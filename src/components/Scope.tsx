@@ -30,11 +30,13 @@ import {
 } from 'lucide-react'
 import type { Session } from '../model/types'
 import type { MeasurementKey } from '../dsp/measure'
-import { DEFAULT_CALLOUT_COLOR, calloutSpan, calloutTitle, hasTimeSpan, newCalloutId, nextCalloutNumber, type Callout } from '../model/callouts'
+import { adjacentCallout, boxZoomPatch, calloutTitle, calloutWindow, calloutsOn, isOffRecord, type Callout, type NewCallout } from '../model/callouts'
 import type { MinMaxPyramid } from '../dsp/minmax'
 import { ComputeEngine } from '../compute/engine'
-import { MATH_COLORS, MAX_MATH, nextMathId, type MathDef } from '../model/math'
-import { MAX_SPECTRA, newSpectrum, spectrumSource, type SpectrumDef } from '../model/spectrum'
+import { AnalysisStore } from '../model/analysisStore'
+import * as edits from '../model/edits'
+import type { MathDef } from '../model/math'
+import { MAX_SPECTRA, spectrumSource, type SpectrumDef } from '../model/spectrum'
 import {
   ANALYSIS_EXT,
   BUNDLE_EXT,
@@ -70,7 +72,7 @@ import { InfoPanel } from './InfoPanel'
 import { KEYS, TOOLS, TOOL_ORDER } from './keymap'
 import { MeasurementTable } from './MeasurementTable'
 import { Overview } from './Overview'
-import { PlotArea, type NewCallout, type PlotAreaHandle } from './PlotArea'
+import { PlotArea, type PlotAreaHandle } from './PlotArea'
 import { ReferencePanel, type ReferenceSection } from './ReferencePanel'
 import { Rail, type PanelId } from './Rail'
 import { calloutMenu, channelItems, channelMenu, overviewMenu, paletteCommands, plotMenu, timebaseMenu, type ScopeActions, type ScopeApi } from './scopeCommands'
@@ -78,13 +80,11 @@ import { SpectrumView, type SpectrumViewHandle } from './SpectrumView'
 import { StorageSection } from './StorageSection'
 import { TopBar } from './TopBar'
 import {
-  autoscalePatches,
-  carryViewSizes,
   shownViews,
   cursorsInView,
-  patchDisplays,
   sampleRange,
   timeTicks,
+  type CursorState,
   type DisplayPatch,
   type LiveChannel,
   type MeasureRange,
@@ -96,6 +96,7 @@ import { useFeedback } from './ui/feedbackContext'
 import { useContextMenu } from './ui/menuContext'
 import { useTheme } from './ui/themeContext'
 import { UndoHistory } from '../model/undoHistory'
+import { AnalysisContext, useStoreAnalysis } from './analysisContext'
 import { useAutosave } from './useAutosave'
 import { useMathResults } from './useMathResults'
 import { useNavigation } from './useNavigation'
@@ -186,32 +187,18 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   // Everything the user can change starts from the workspace (saved state, analysis file or file defaults)
   const [boot] = useState(() => initWorkspace(session, initial))
   const ws0 = boot.workspace
-  // The analysis is one document: undo restores it, autosave keeps it and other tabs share it (the
-  // view on it, the time window and the selected channel, is not part of it). Its fields are set
-  // with the setters below, which take a value or an update as state setters do.
-  const [doc, setDoc] = useState<Analysis>(() => analysisOf(ws0))
-  const { math: mathDefs, channels: displays, views, viewSizes, cursors, notes, callouts, spectra, spectrumOptions: specOptions } = doc
+  // The analysis is one document in a store: the components follow it, undo restores it, autosave keeps
+  // it and other tabs share it (the view on it, the time window and the selected channel, is not part
+  // of it). It is changed with the functions of edits.ts: `update((a) => edits.addMath(a, ids))`.
+  const [store] = useState(() => new AnalysisStore(analysisOf(ws0), boot.changedAt))
+  const doc = useStoreAnalysis(store)
+  const update = store.update
+  const { math: mathDefs, channels: displays, views, cursors, notes, callouts, spectra, spectrumOptions: specOptions } = doc
   const { keys: measKeys, range: measRange, exclude: measExclude } = doc.measurements
-  const [{ setMathDefs, setDisplays, setCursors, setNotes, setCallouts, setSpectra, setSpecOptions, setMeasKeys, setMeasRange, setMeasExclude, setViews, setViewSizes }] = useState(() => ({
-    setMathDefs: fieldSetter(setDoc, 'math'),
-    setDisplays: fieldSetter(setDoc, 'channels'),
-    setCursors: fieldSetter(setDoc, 'cursors'),
-    setNotes: fieldSetter(setDoc, 'notes'),
-    setCallouts: fieldSetter(setDoc, 'callouts'),
-    setSpectra: fieldSetter(setDoc, 'spectra'),
-    setSpecOptions: fieldSetter(setDoc, 'spectrumOptions'),
-    setMeasKeys: (keys: MeasurementKey[]) => setDoc((d) => ({ ...d, measurements: { ...d.measurements, keys } })),
-    setMeasRange: (range: MeasureRange) => setDoc((d) => ({ ...d, measurements: { ...d.measurements, range } })),
-    setMeasExclude: (change: string[] | ((ids: string[]) => string[])) =>
-      setDoc((d) => ({ ...d, measurements: { ...d.measurements, exclude: typeof change === 'function' ? change(d.measurements.exclude) : change } })),
-    // The views and their sizes change together: a size goes with the channels of its view (see carryViewSizes)
-    setViews: (change: (vs: string[][]) => string[][]) =>
-      setDoc((d) => {
-        const next = change(d.views)
-        return { ...d, views: next, viewSizes: carryViewSizes(d.views, d.viewSizes, next) }
-      }),
-    setViewSizes: (sizes: number[] | undefined) => setDoc((d) => ({ ...d, viewSizes: sizes })),
-  }))
+  const setCursors = useCallback((c: CursorState) => update((a) => edits.setCursors(a, c)), [update])
+  const setNotes = useCallback((text: string) => update((a) => edits.setNotes(a, text)), [update])
+  const setMeasKeys = (keys: MeasurementKey[]) => update((a) => edits.setMeasurementKeys(a, keys))
+  const setMeasExclude = (change: string[] | ((ids: string[]) => string[])) => update((a) => edits.setMeasurementExclude(a, change))
   // Undo history of the analysis (recorded in "undo / redo" below)
   const [editHistory] = useState(() => new UndoHistory<Analysis, TimeWindow>(doc))
 
@@ -275,45 +262,29 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   const viewsShown = useMemo(() => shownViews(views, (id) => !!displayById.get(id)?.visible), [views, displayById])
   const firstId = session.channels[0].wave.id
 
-  const onAdjust = useCallback((id: string, patch: DisplayPatch) => {
-    setDisplays((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d)))
-  }, [setDisplays])
-  /**
-   * Change a channel's settings from its badge or a menu. A new colour also goes to the notes on its
-   * trace that still have its old colour (one undo step); a note given a colour of its own keeps it.
-   */
-  const adjustChannel = (id: string, patch: DisplayPatch) => {
-    const old = displayById.get(id)?.color
-    onAdjust(id, patch)
-    const color = patch.color
-    if (color !== undefined && old !== undefined && color !== old) {
-      setCallouts((cs) => cs.map((c) => (c.type === 'note' && c.channel === id && c.color === old ? { ...c, color } : c)))
-    }
-  }
-  const showOnly = (id: string) => setDisplays((ds) => ds.map((x) => ({ ...x, visible: x.id === id })))
-  const showAll = () => setDisplays((ds) => ds.map((x) => ({ ...x, visible: true })))
-  const onMoveToView = (id: string, view: number) => {
-    setViews((vs) => {
-      const next = vs.map((v) => v.filter((x) => x !== id))
-      if (view >= next.length) next.push([id])
-      else next[view].push(id)
-      return next.filter((v) => v.length > 0)
-    })
-  }
+  const onAdjust = useCallback((id: string, patch: DisplayPatch) => update((a) => edits.patchChannel(a, id, patch)), [update])
+  /** Change a channel's settings from its badge or a menu (a new colour also goes to the notes on its trace) */
+  const adjustChannel = (id: string, patch: DisplayPatch) => update((a) => edits.adjustChannel(a, id, patch))
+  const showOnly = (id: string) => update((a) => edits.showOnly(a, id))
+  const showAll = () => update(edits.showAll)
+  const onMoveToView = (id: string, view: number) => update((a) => edits.moveToView(a, id, view))
   const openSettings = (id: string) => channelBarRef.current?.openSettings(id)
 
   // ---------- navigation ----------
   // A zoom that scales channels (or Back from it) is an undo step that takes the window with it
-  const nav = useNavigation(session, ws0.window, displays, setDisplays, (from, to) => editHistory.moveView(from, to))
+  const nav = useNavigation(
+    session,
+    ws0.window,
+    displays,
+    (patches) => update((a) => edits.patchChannels(a, patches)),
+    (from, to) => editHistory.moveView(from, to),
+  )
   const { win, record, minSpan } = nav
   const ticks = timeTicks(win)
   const tPerDiv = ticks.length > 1 ? ticks[1] - ticks[0] : (win.end - win.start) / 10
 
   /** Fit channels into their views (one undo step): what is in `range`, by default what is on screen */
-  const autoscale = (ids: string[], range: TimeWindow = win) => {
-    const patches = autoscalePatches(channels, views, ids, range, DIVS_Y)
-    setDisplays((ds) => patchDisplays(ds, patches))
-  }
+  const autoscale = (ids: string[], range: TimeWindow = win) => update((a) => edits.autoscale(a, channels, ids, range, DIVS_Y))
   const onAutoscale = (id: string) => autoscale([id])
 
   // New or changed math channels are fitted over the whole record once the result of their expression is available
@@ -322,74 +293,47 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     const ready = [...pendingAutoscale.current].filter(([id, expr]) => math.defs.some((d) => d.id === id && d.expr === expr)).map(([id]) => id)
     if (!ready.length) return
     for (const id of ready) pendingAutoscale.current.delete(id)
-    const patches = autoscalePatches(channels, views, ready, record, DIVS_Y)
-    setDisplays((ds) => patchDisplays(ds, patches))
-  }, [math.defs, channels, views, record, setDisplays])
+    update((a) => edits.autoscale(a, channels, ready, record, DIVS_Y))
+  }, [math.defs, channels, record, update])
 
   const addMath = (): string | undefined => {
-    if (mathDefs.length >= MAX_MATH) return
-    const id = nextMathId(mathDefs, session.channels.map((c) => c.wave.id))
-    const vis = session.channels.filter((c) => displayById.get(c.wave.id)?.visible).map((c) => c.wave.id)
-    const a = vis[0] ?? firstId
-    const b = vis.find((x) => x !== a)
-    const expr = b ? `${a} - ${b}` : `-${a}`
-    setMathDefs([...mathDefs, { id, expr }])
-    const color = MATH_COLORS[(parseInt(id.slice(4), 10) - 1) % MATH_COLORS.length]
-    setDisplays((ds) => [...ds, { id, label: '', color, visible: true, scale: 1, position: 0, offset: 0 }])
-    setViews((vs) => [...vs, [id]])
-    setSelected(id)
-    pendingAutoscale.current.set(id, expr)
-    return id
+    const added = edits.addMath(store.get(), session.channels.map((c) => c.wave.id))
+    if (!added) return undefined
+    update(added.doc)
+    setSelected(added.id)
+    pendingAutoscale.current.set(added.id, added.expr)
+    return added.id
   }
   const changeMath = (id: string, patch: Partial<MathDef>) => {
-    setMathDefs((ms) => ms.map((m) => (m.id === id ? { ...m, ...patch } : m)))
+    update((a) => edits.changeMath(a, id, patch))
     if (patch.expr !== undefined) pendingAutoscale.current.set(id, patch.expr)
   }
   /** Delete a math channel with everything that refers to it: its spectra and the callouts on its trace */
   const removeMath = (id: string) => {
-    const onIt = (c: Callout) => c.channel === id || c.channel2 === id
-    const attached = callouts.filter(onIt).length
-    offerUndo(`${channelName(id)} deleted${attached ? ` with ${attached} callout${attached > 1 ? 's' : ''}` : ''}`)
-    setMathDefs((ms) => ms.filter((m) => m.id !== id))
-    setDisplays((ds) => ds.filter((d) => d.id !== id))
-    setViews((vs) => vs.map((v) => v.filter((x) => x !== id)).filter((v) => v.length > 0))
-    setSpectra((ss) => ss.filter((s) => s.source !== id))
-    // A math channel made later under the same name is measured again
-    setMeasExclude((ids) => ids.filter((x) => x !== id))
-    // Notes, boxes and spans on its trace go with it; regions and boxes stop measuring it
-    setCallouts((cs) => cs.filter((c) => !onIt(c)).map((c) => (c.measure?.channel === id ? { ...c, measure: undefined } : c)))
-    if (selectedCallout && callouts.some((c) => c.id === selectedCallout && onIt(c))) setSelectedCallout(undefined)
-    if (editing && callouts.some((c) => c.id === editing.id && onIt(c))) setEditing(null)
+    const attached = calloutsOn(callouts, id)
+    offerUndo(`${channelName(id)} deleted${attached.length ? ` with ${attached.length} callout${attached.length > 1 ? 's' : ''}` : ''}`)
+    update((a) => edits.removeMath(a, id, firstId))
+    // Nothing may stay selected or open that went with the channel
+    if (selectedCallout && attached.some((c) => c.id === selectedCallout)) setSelectedCallout(undefined)
+    if (editing && attached.some((c) => c.id === editing.id)) setEditing(null)
     if (selected === id) setSelected(firstId)
-    if (cursors.source === id) setCursors({ ...cursors, source: firstId })
   }
 
   // ---------- callouts ----------
   const addCallout = (nc: NewCallout) => {
-    // A note takes the colour of its trace; boxes and spans stand out in colours of their own
-    const ch = nc.type === 'note' && nc.channel ? displayById.get(nc.channel) : undefined
-    const c: Callout = {
-      id: newCalloutId(),
-      n: nextCalloutNumber(callouts),
-      text: '',
-      color: ch?.color ?? DEFAULT_CALLOUT_COLOR[nc.type],
-      ...nc,
-      ...(nc.type === 'note' ? { dx: 24, dy: nc.dy ?? -46 } : {}),
-    }
-    setCallouts([...callouts, c])
-    setSelectedCallout(c.id)
-    setEditing({ id: c.id, isNew: true })
+    const { doc: next, callout } = edits.addCallout(store.get(), nc)
+    update(next)
+    setSelectedCallout(callout.id)
+    setEditing({ id: callout.id, isNew: true })
     setTool('pan')
   }
-  const updateCallout = useCallback((id: string, patch: Partial<Callout>) => {
-    setCallouts((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)))
-  }, [setCallouts])
+  const updateCallout = useCallback((id: string, patch: Partial<Callout>) => update((a) => edits.updateCallout(a, id, patch)), [update])
   /** Delete a callout; offers undo unless `silent` (an empty new note that is discarded) */
   const deleteCallout = (id: string, silent = false) => {
     const c = callouts.find((x) => x.id === id)
     // Its own step, also for a new callout whose step is still open (Delete in its editor), so the Undo offered brings it back
     if (!silent) editHistory.commit()
-    setCallouts((cs) => cs.filter((x) => x.id !== id))
+    update((a) => edits.deleteCallout(a, id))
     if (editing?.id === id) setEditing(null)
     if (selectedCallout === id) setSelectedCallout(undefined)
     if (c && !silent) offerUndo(`${calloutTitle(c)} deleted`)
@@ -405,75 +349,39 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     if (editing?.isNew && c?.type === 'note' && !c.text.trim()) deleteCallout(c.id, true)
     setEditing(null)
   }
-  /** The time window around a callout: its time span with some room, or the current width centred on it */
-  const calloutWindow = (c: Callout): TimeWindow => {
-    const [a, b] = calloutSpan(c)
-    if (!hasTimeSpan(c)) return { start: c.t - (win.end - win.start) / 2, end: c.t + (win.end - win.start) / 2 }
-    const pad = Math.max((b - a) * 0.15, minSpan)
-    return { start: a - pad, end: b + pad }
-  }
-  /** A callout placed off the record (zoomed out beyond it) is shown where it is; others keep the view on the record */
-  const offRecord = (c: Callout) => {
-    const [a, b] = calloutSpan(c)
-    return a < record.start || b > record.end
-  }
+  /** Go to a callout: its time span with some room. One placed off the record (zoomed out beyond it) is shown where it is */
   const jumpToCallout = (c: Callout) => {
-    nav.zoomTo(calloutWindow(c), [], offRecord(c))
+    nav.zoomTo(calloutWindow(c, win, minSpan), [], isOffRecord(c, record))
     setSelectedCallout(c.id)
   }
   /** Zoom to a box: its time span, and its channel scaled so the box fills most of the view */
   const zoomToBox = (c: Callout) => {
-    const d = c.channel ? displayById.get(c.channel) : undefined
-    if (!d || c.v === undefined || c.v2 === undefined || c.v === c.v2) return jumpToCallout(c)
-    const span = Math.abs(c.v - c.v2)
-    const scale = parseFloat((span / (DIVS_Y * 0.7)).toPrecision(4))
-    nav.zoomTo(calloutWindow(c), [{ id: d.id, patch: { scale, offset: parseFloat(((c.v + c.v2) / 2).toPrecision(6)), position: 0 } }], offRecord(c))
+    const zoom = boxZoomPatch(c, c.channel ? displayById.get(c.channel) : undefined, DIVS_Y)
+    if (!zoom) return jumpToCallout(c)
+    nav.zoomTo(calloutWindow(c, win, minSpan), [zoom], isOffRecord(c, record))
     setSelectedCallout(c.id)
   }
   /** A copy of a callout, a little later in time, selected */
   const duplicateCallout = (c: Callout) => {
-    const shift = (win.end - win.start) * 0.03
-    const copy: Callout = { ...c, id: newCalloutId(), n: nextCalloutNumber(callouts), t: c.t + shift, ...(c.t2 !== undefined ? { t2: c.t2 + shift } : {}) }
-    setCallouts([...callouts, copy])
-    setSelectedCallout(copy.id)
+    const { doc: next, callout } = edits.duplicateCallout(store.get(), c, (win.end - win.start) * 0.03)
+    update(next)
+    setSelectedCallout(callout.id)
   }
   /** Move a callout by one pixel of the current view */
   const nudgeCallout = (id: string, dir: -1 | 1) => {
     const plotW = Math.max(1, (plotRef.current?.size().w ?? 1000) - AXIS_GUTTER)
-    const dt = (dir * (win.end - win.start)) / plotW
-    setCallouts((cs) => cs.map((c) => (c.id === id ? { ...c, t: c.t + dt, ...(c.t2 !== undefined ? { t2: c.t2 + dt } : {}) } : c)))
+    update((a) => edits.shiftCallout(a, id, (dir * (win.end - win.start)) / plotW))
   }
   /** Go to the previous / next callout in time: from the selected one, else from the middle of the view */
   const stepCallout = (dir: -1 | 1) => {
-    const sorted = [...callouts].sort((a, b) => calloutSpan(a)[0] - calloutSpan(b)[0])
-    const i = sorted.findIndex((c) => c.id === selectedCallout)
-    const mid = (win.start + win.end) / 2
-    const next =
-      i >= 0 ? sorted[i + dir] : dir > 0 ? sorted.find((c) => calloutSpan(c)[0] > mid) : sorted.findLast((c) => calloutSpan(c)[0] < mid)
+    const next = adjacentCallout(callouts, selectedCallout, (win.start + win.end) / 2, dir)
     if (next) jumpToCallout(next)
   }
 
   // ---------- cursors ----------
-  /** "Between cursors" needs visible cursors: turn them on, in the current view if they are off-screen */
-  const showCursors = () => {
-    if (cursors.on) return
-    const inView = (t: number) => t >= win.start && t <= win.end
-    setCursors(inView(cursors.a) && inView(cursors.b) ? { ...cursors, on: true } : cursorsInView(cursors, win))
-  }
   /** Put cursor A or B at `t`; when the cursors come on, the other one is moved into view if needed */
-  const placeCursor = (which: 'a' | 'b', t: number) => {
-    const next = { ...cursors, on: true, [which]: t }
-    const other = which === 'a' ? 'b' : 'a'
-    if (!cursors.on && (next[other] < win.start || next[other] > win.end)) {
-      const span = win.end - win.start
-      next[other] = Math.min(win.end, Math.max(win.start, t + (which === 'a' ? 0.2 : -0.2) * span))
-    }
-    setCursors(next)
-  }
-  const changeMeasRange = (r: MeasureRange) => {
-    setMeasRange(r)
-    if (r === 'cursors') showCursors()
-  }
+  const placeCursor = (which: 'a' | 'b', t: number) => update((a) => edits.placeCursor(a, which, t, win))
+  const changeMeasRange = (r: MeasureRange) => update((a) => edits.setMeasurementRange(a, r, win))
 
   // ---------- spectra ----------
   const spectrumSources = useMemo(() => new Set(spectra.map((s) => s.source)), [spectra])
@@ -483,7 +391,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     if (spectra.length >= MAX_SPECTRA) return
     const src = source ?? spectrumSource(channels.map((c) => ({ id: c.wave.id, visible: c.display.visible })), spectra, selected) ?? firstId
     revealSpectrum.current = true
-    setSpectra([...spectra, newSpectrum(spectra, src)])
+    update((a) => edits.addSpectrum(a, src))
   }
   useEffect(() => {
     if (!revealSpectrum.current) return
@@ -492,10 +400,10 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   }, [spectra])
   /** Show the spectrum of a channel, or remove it again */
   const toggleSpectrum = (source: string) => {
-    if (spectrumSources.has(source)) setSpectra(spectra.filter((s) => s.source !== source))
+    if (spectrumSources.has(source)) update((a) => edits.toggleSpectrum(a, source))
     else addSpectrum(source)
   }
-  const changeSpectrum = (id: string, patch: Partial<SpectrumDef>) => setSpectra((ss) => ss.map((s) => (s.id === id ? { ...s, ...patch } : s)))
+  const changeSpectrum = (id: string, patch: Partial<SpectrumDef>) => update((a) => edits.changeSpectrum(a, id, patch))
 
   // ---------- reference panel ----------
   const [refSection, setRefSection] = useState<ReferenceSection>('measurements')
@@ -514,7 +422,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   // A deletion offers Undo in a notice, which goes once something else changes
   const undoNotice = useRef<{ id: number; steps: number } | null>(null)
   const offerUndo = (message: string) => {
-    undoNotice.current = { id: notify({ message, action: { label: 'Undo', hint: KEYS.undo, run: () => edits.undo() }, timeout: 8000 }), steps: editHistory.started }
+    undoNotice.current = { id: notify({ message, action: { label: 'Undo', hint: KEYS.undo, run: () => undoRedo.undo() }, timeout: 8000 }), steps: editHistory.started }
   }
   const dropUndoNotice = useCallback(() => {
     if (undoNotice.current) dismiss(undoNotice.current.id)
@@ -536,38 +444,34 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   // ---------- undo / redo ----------
   // Every change of the analysis is a step; the time window and the selection are navigation
   // (Back / Backspace) and not part of it, except that a step in which a zoom scaled channels
-  // restores the window with them. A new callout and what is written into it while its editor is
+  // restores the window with it. A new callout and what is written into it while its editor is
   // open are one step.
-  const edits = useUndoHistory(editHistory, doc, (d, view) => {
-    if (view) nav.show(view)
-    setDoc(d)
-    keepSelectionsIn(d)
-  }, !!editing?.isNew)
+  const undoRedo = useUndoHistory(
+    editHistory,
+    store,
+    (d, view) => {
+      if (view) nav.show(view)
+      update(d)
+      keepSelectionsIn(d)
+    },
+    !!editing?.isNew,
+  )
   // The Undo of a deletion applies only while the deletion is the latest step
   useEffect(() => {
     const u = undoNotice.current
-    if (u && edits.steps > u.steps + 1) dropUndoNotice()
-  }, [edits.steps, dropUndoNotice])
+    if (u && undoRedo.steps > u.steps + 1) dropUndoNotice()
+  }, [undoRedo.steps, dropUndoNotice])
 
   // ---------- other tabs ----------
   // Tabs with the same session open share the analysis (see tabSync): a newer one saved in another
-  // tab is taken over here, and saves never overwrite a newer one. `at`: when the analysis shown
-  // was changed, here or in the tab it was taken over from.
-  const stamp = useRef({ doc, at: boot.changedAt })
-  useEffect(() => {
-    // A change made here is later than any version taken over so far
-    if (stamp.current.doc !== doc) stamp.current = { doc, at: Math.max(Date.now(), stamp.current.at + 1) }
-  }, [doc])
+  // tab is taken over here, and saves never overwrite a newer one (the store knows when its analysis
+  // was changed, here or in the tab it was taken over from).
   /** Take over the analysis another tab saved (null: it was reset to the file defaults) when it is newer; the view here stays */
   const takeOver = (ws: Workspace | null, changedAt: number) => {
-    if (changedAt <= stamp.current.at) return
+    if (changedAt <= store.changedAt) return
     const next = analysisOf(ws ? sanitizeWorkspace(ws, session) : defaultWorkspace(session))
-    if (JSON.stringify(next) === JSON.stringify(doc)) {
-      stamp.current = { doc, at: changedAt }
-      return
-    }
-    stamp.current = { doc: next, at: changedAt }
-    setDoc(next)
+    // The store takes it only if it differs from what is shown here
+    if (!store.adopt(next, changedAt)) return
     // Not a step of this tab: undo here does not take it back
     editHistory.reset(next)
     keepSelectionsIn(next)
@@ -580,8 +484,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   const fingerprint = session.fingerprint
   useEffect(() => (fingerprint ? onNews(fingerprint, (n) => takeOverRef.current(n.workspace, n.changedAt)) : undefined), [fingerprint])
 
-  const { status: saveStatus, cancel: cancelSave } = useAutosave(session, workspace, boot, {
-    changedAt: () => stamp.current.at,
+  const savedView = useMemo(() => ({ window: win, selected }), [win, selected])
+  const { status: saveStatus, cancel: cancelSave } = useAutosave(session, store, savedView, boot, {
     onRemoved: (names) => {
       const list = names.map((n) => `“${n}”`).join(', ')
       notify({ kind: 'error', message: `Browser storage was full: to save this session, the saved analyses of ${list} were removed from this browser.` })
@@ -626,8 +530,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
       const foreign = parsed.fingerprint && session.fingerprint && parsed.fingerprint !== session.fingerprint
       if (parsed.kind === 'callouts') {
         if (foreign && !(await confirm({ title: 'Add the callouts?', message: 'They were saved for a different session file.', confirmLabel: 'Add them' }))) return
-        const ids = new Set(parsed.callouts.map((c) => c.id))
-        setCallouts((cs) => [...cs.filter((c) => !ids.has(c.id)), ...parsed.callouts])
+        update((a) => edits.mergeCallouts(a, parsed.callouts))
         setPanel('callouts')
         return
       }
@@ -693,8 +596,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   const actions: ScopeActions = {
     tools,
     // Their buttons do not close an open callout editor first: Undo takes back what was done in it (a new callout goes)
-    undo: { label: 'Undo', icon: Undo2, hint: KEYS.undo, disabled: !edits.canUndo, keepFocus: true, run: edits.undo },
-    redo: { label: 'Redo', icon: Redo2, hint: KEYS.redo, disabled: !edits.canRedo, keepFocus: true, run: edits.redo },
+    undo: { label: 'Undo', icon: Undo2, hint: KEYS.undo, disabled: !undoRedo.canUndo, keepFocus: true, run: undoRedo.undo },
+    redo: { label: 'Redo', icon: Redo2, hint: KEYS.redo, disabled: !undoRedo.canRedo, keepFocus: true, run: undoRedo.redo },
     back: { label: 'Back to the previous view', icon: ArrowLeft, hint: KEYS.back, disabled: !nav.canGoBack, run: nav.zoomBack },
     savedView: { label: 'Saved view', icon: Home, title: 'The view the scope showed when the session was saved', run: () => nav.zoomTo(nav.savedWin, [], true) },
     fullRecord: { label: 'Full record', icon: Maximize2, hint: KEYS.fullRecord, disabled: nav.showsRecord, run: () => nav.zoomTo(record) },
@@ -813,232 +716,213 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   })
 
   return (
-    <div className="scope">
-      <TopBar fileName={session.fileName} saveStatus={saveStatus} actions={actions} />
-      <input
-        ref={analysisInput}
-        type="file"
-        accept=".json,application/json"
-        hidden
-        onChange={(e) => {
-          const f = e.target.files?.[0]
-          if (f) importAnalysisFile(f)
-          e.target.value = ''
-        }}
-      />
+    <AnalysisContext.Provider value={store}>
+      <div className="scope">
+        <TopBar fileName={session.fileName} saveStatus={saveStatus} actions={actions} />
+        <input
+          ref={analysisInput}
+          type="file"
+          accept=".json,application/json"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) importAnalysisFile(f)
+            e.target.value = ''
+          }}
+        />
 
-      <div className="workspace">
-        <main className="main">
-          {layout.overview && (
-            <Overview
+        <div className="workspace">
+          <main className="main">
+            {layout.overview && (
+              <Overview
+                channels={channels}
+                views={views}
+                record={record}
+                win={win}
+                minSpan={minSpan}
+                onNavigate={nav.navigate}
+                onContextMenu={(e, t) => openMenu(e, overviewMenu(api, t))}
+                callouts={callouts}
+                selectedCallout={selectedCallout}
+                onJumpToCallout={jumpToCallout}
+              />
+            )}
+            <PlotArea
+              ref={plotRef}
+              engine={engine}
               channels={channels}
-              views={views}
-              record={record}
-              win={win}
-              minSpan={minSpan}
-              onNavigate={nav.navigate}
-              onContextMenu={(e, t) => openMenu(e, overviewMenu(api, t))}
-              callouts={callouts}
+              viewsShown={viewsShown}
+              highlightView={highlightView}
+              nav={nav}
+              tool={tool}
+              hint={TOOLS[tool].hint}
+              readout={layout.readout}
+              selected={selected}
+              setSelected={setSelected}
+              trigger={session.trigger}
+              onChannelSettings={openSettings}
+              onChannelMenu={(e, id) => openMenu(e, channelMenu(api, id))}
               selectedCallout={selectedCallout}
+              editingCallout={editing?.id}
+              onSelectCallout={setSelectedCallout}
+              onAddCallout={addCallout}
+              onEditCallout={editCallout}
+              onDeleteCallout={deleteCallout}
+              onContextMenu={(e, at) => {
+                if (at.channel) setSelected(at.channel)
+                openMenu(e, plotMenu(api, at))
+              }}
+              onCalloutMenu={(e, c) => openMenu(e, calloutMenu(api, c))}
               onJumpToCallout={jumpToCallout}
             />
-          )}
-          <PlotArea
-            ref={plotRef}
-            engine={engine}
-            channels={channels}
-            views={views}
-            viewSizes={viewSizes}
-            viewsShown={viewsShown}
-            highlightView={highlightView}
-            onResizeViews={setViewSizes}
-            win={win}
-            record={record}
-            minSpan={minSpan}
-            tool={tool}
-            hint={TOOLS[tool].hint}
-            readout={layout.readout}
-            onNavigate={nav.navigate}
-            onZoomTo={nav.zoomTo}
-            cursors={cursors}
-            setCursors={setCursors}
-            selected={selected}
-            setSelected={setSelected}
-            trigger={session.trigger}
-            onAdjust={onAdjust}
-            onMoveToView={onMoveToView}
-            onChannelSettings={openSettings}
-            onChannelMenu={(e, id) => openMenu(e, channelMenu(api, id))}
-            callouts={callouts}
-            selectedCallout={selectedCallout}
-            editingCallout={editing?.id}
-            onSelectCallout={setSelectedCallout}
-            onAddCallout={addCallout}
-            onUpdateCallout={updateCallout}
-            onEditCallout={editCallout}
-            onDeleteCallout={deleteCallout}
-            onContextMenu={(e, at) => {
-              if (at.channel) setSelected(at.channel)
-              openMenu(e, plotMenu(api, at))
-            }}
-            onCalloutMenu={(e, c) => openMenu(e, calloutMenu(api, c))}
-            onJumpToCallout={jumpToCallout}
-          />
-          {spectra.length > 0 && (
-            <SpectrumView
-              ref={spectrumRef}
-              engine={engine}
-              defs={spectra}
-              options={specOptions}
-              setOptions={(patch) => {
-                setSpecOptions((o) => ({ ...o, ...patch }))
-                if (patch.range === 'cursors') showCursors()
-              }}
-              channels={channels}
-              win={win}
-              cursors={cursors}
-              height={layout.specHeight}
-              setHeight={(specHeight) => setLayout((l) => ({ ...l, specHeight }))}
-              onAdd={() => addSpectrum()}
-              onChange={changeSpectrum}
-              onRemove={(id) => setSpectra((ss) => ss.filter((s) => s.id !== id))}
-              onClose={() => setSpectra([])}
-              onOpenReference={() => openReference('spectrum')}
-              onCopy={copy}
-            />
-          )}
-          {layout.measurements && (
-            <MeasurementTable
-              engine={engine}
-              channels={channels}
-              win={win}
-              cursors={cursors}
-              range={measRange}
-              setRange={changeMeasRange}
-              keys={measKeys}
-              setKeys={setMeasKeys}
-              exclude={measExclude}
-              setExclude={setMeasExclude}
-              height={layout.measHeight === FORMER_MEAS_HEIGHT ? null : layout.measHeight}
-              setHeight={(measHeight) => setLayout((l) => ({ ...l, measHeight }))}
-              selected={selected}
-              onSelect={setSelected}
-              onShowChannel={(id) => onAdjust(id, { visible: true })}
-              onClose={toggleMeasurements}
-              onOpenReference={(key) => openReference('measurements', key)}
-              channelMenu={(id) => channelItems(api, id)}
-              onCopy={copy}
-            />
-          )}
-        </main>
-
-        {layout.panel && (
-          <aside className="sidebar" aria-label={PANEL_TITLE[layout.panel]}>
-            <div className="sidebar-head">
-              <h3>{PANEL_TITLE[layout.panel]}</h3>
-              <button type="button" className="icon-btn" title="Close panel" aria-label="Close panel" onClick={() => setPanel(null)}>
-                <X size={16} />
-              </button>
-            </div>
-            {layout.panel === 'cursors' && <CursorPanel channels={channels} cursors={cursors} setCursors={setCursors} win={win} />}
-            {layout.panel === 'callouts' && (
-              <CalloutPanel
-                callouts={callouts}
+            {spectra.length > 0 && (
+              <SpectrumView
+                ref={spectrumRef}
+                engine={engine}
+                defs={spectra}
+                options={specOptions}
+                setOptions={(patch) => update((a) => edits.setSpectrumOptions(a, patch, win))}
                 channels={channels}
-                selectedId={selectedCallout}
-                tools={tools}
-                tool={tool}
-                onSelect={setSelectedCallout}
-                onUpdate={updateCallout}
-                onDelete={deleteCallout}
-                onJump={jumpToCallout}
-                onContextMenu={(e, c) => openMenu(e, calloutMenu(api, c))}
-                onClear={() => {
-                  const n = callouts.length
-                  setCallouts([])
-                  setEditing(null)
-                  setSelectedCallout(undefined)
-                  offerUndo(`${n} callout${n > 1 ? 's' : ''} deleted`)
-                }}
+                win={win}
+                cursors={cursors}
+                height={layout.specHeight}
+                setHeight={(specHeight) => setLayout((l) => ({ ...l, specHeight }))}
+                onAdd={() => addSpectrum()}
+                onChange={changeSpectrum}
+                onRemove={(id) => update((a) => edits.removeSpectrum(a, id))}
+                onClose={() => update(edits.clearSpectra)}
+                onOpenReference={() => openReference('spectrum')}
+                onCopy={copy}
               />
             )}
-            {layout.panel === 'info' && (
-              <InfoPanel
-                session={session}
-                channels={inputChannels}
-                storage={
-                  <StorageSection
-                    fingerprint={session.fingerprint}
-                    status={saveStatus}
-                    notes={notes}
-                    setNotes={setNotes}
-                    onSaveAnalysis={saveAnalysis}
-                    onSaveBundle={saveBundle}
-                    onReset={resetToDefaults}
-                    onOpenStored={onOpenStored}
-                    onKeepCurrent={onKeepFiles}
-                    filesVersion={filesVersion}
-                  />
-                }
+            {layout.measurements && (
+              <MeasurementTable
+                engine={engine}
+                channels={channels}
+                win={win}
+                cursors={cursors}
+                range={measRange}
+                setRange={changeMeasRange}
+                keys={measKeys}
+                setKeys={setMeasKeys}
+                exclude={measExclude}
+                setExclude={setMeasExclude}
+                height={layout.measHeight === FORMER_MEAS_HEIGHT ? null : layout.measHeight}
+                setHeight={(measHeight) => setLayout((l) => ({ ...l, measHeight }))}
+                selected={selected}
+                onSelect={setSelected}
+                onShowChannel={(id) => onAdjust(id, { visible: true })}
+                onClose={toggleMeasurements}
+                onOpenReference={(key) => openReference('measurements', key)}
+                channelMenu={(id) => channelItems(api, id)}
+                onCopy={copy}
               />
             )}
-            {layout.panel === 'reference' && <ReferencePanel section={refSection} setSection={setRefSection} focus={refFocus} />}
-          </aside>
-        )}
+          </main>
 
-        <Rail panel={layout.panel} setPanel={setPanel} actions={actions} calloutCount={callouts.length} />
-      </div>
+          {layout.panel && (
+            <aside className="sidebar" aria-label={PANEL_TITLE[layout.panel]}>
+              <div className="sidebar-head">
+                <h3>{PANEL_TITLE[layout.panel]}</h3>
+                <button type="button" className="icon-btn" title="Close panel" aria-label="Close panel" onClick={() => setPanel(null)}>
+                  <X size={16} />
+                </button>
+              </div>
+              {layout.panel === 'cursors' && <CursorPanel channels={channels} cursors={cursors} setCursors={setCursors} win={win} />}
+              {layout.panel === 'callouts' && (
+                <CalloutPanel
+                  callouts={callouts}
+                  channels={channels}
+                  selectedId={selectedCallout}
+                  tools={tools}
+                  tool={tool}
+                  onSelect={setSelectedCallout}
+                  onUpdate={updateCallout}
+                  onDelete={deleteCallout}
+                  onJump={jumpToCallout}
+                  onContextMenu={(e, c) => openMenu(e, calloutMenu(api, c))}
+                  onClear={() => {
+                    const n = callouts.length
+                    update(edits.clearCallouts)
+                    setEditing(null)
+                    setSelectedCallout(undefined)
+                    offerUndo(`${n} callout${n > 1 ? 's' : ''} deleted`)
+                  }}
+                />
+              )}
+              {layout.panel === 'info' && (
+                <InfoPanel
+                  session={session}
+                  channels={inputChannels}
+                  storage={
+                    <StorageSection
+                      fingerprint={session.fingerprint}
+                      status={saveStatus}
+                      notes={notes}
+                      setNotes={setNotes}
+                      onSaveAnalysis={saveAnalysis}
+                      onSaveBundle={saveBundle}
+                      onReset={resetToDefaults}
+                      onOpenStored={onOpenStored}
+                      onKeepCurrent={onKeepFiles}
+                      filesVersion={filesVersion}
+                    />
+                  }
+                />
+              )}
+              {layout.panel === 'reference' && <ReferencePanel section={refSection} setSection={setRefSection} focus={refFocus} />}
+            </aside>
+          )}
 
-      <ChannelBar
-        ref={channelBarRef}
-        channels={inputChannels}
-        math={mathItems}
-        onAddMath={addMath}
-        onChangeMath={changeMath}
-        onRemoveMath={removeMath}
-        onOpenMathReference={() => openReference('math')}
-        spectrumSources={spectrumSources}
-        canAddSpectrum={spectra.length < MAX_SPECTRA}
-        onToggleSpectrum={toggleSpectrum}
-        views={views}
-        selected={selected}
-        setSelected={setSelected}
-        onAdjust={adjustChannel}
-        onMoveToView={onMoveToView}
-        onAutoscale={onAutoscale}
-        win={win}
-        timePerDiv={tPerDiv}
-        sampleRate={1 / nav.minDt}
-        recordLength={session.channels[0].wave.data.length}
-        trigger={session.trigger}
-        onChannelMenu={(e, id) => openMenu(e, channelMenu(api, id))}
-        onTimebaseMenu={(e) => openMenu(e, timebaseMenu(api, tPerDiv))}
-        onHighlightView={setHighlightView}
-      />
+          <Rail panel={layout.panel} setPanel={setPanel} actions={actions} calloutCount={callouts.length} />
+        </div>
 
-      {paletteOpen && <CommandPalette getCommands={() => paletteCommands(api)} onClose={() => setPaletteOpen(false)} />}
-
-      {exportKind && (
-        <ExportDialog
-          initial={exportKind}
-          onClose={() => setExportKind(null)}
-          hasSpectra={hasSpectra}
-          cursorsOn={cursors.on}
-          waveformRows={(o) => waveformRows(exportContext(), o)}
-          plotSize={exportPlotSize}
-          measurementInfo={{ range: measRange, count: measKeys.length, channels: measuredCount }}
-          notes={notes}
-          setNotes={setNotes}
-          defaultTitle={stem(session.fileName)}
-          canCopyImage={typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write && window.isSecureContext}
-          onExport={(kind, prefs, extra) => runExport(exportContext(), kind, prefs, extra)}
+        <ChannelBar
+          ref={channelBarRef}
+          channels={inputChannels}
+          math={mathItems}
+          onAddMath={addMath}
+          onChangeMath={changeMath}
+          onRemoveMath={removeMath}
+          onOpenMathReference={() => openReference('math')}
+          spectrumSources={spectrumSources}
+          canAddSpectrum={spectra.length < MAX_SPECTRA}
+          onToggleSpectrum={toggleSpectrum}
+          views={views}
+          selected={selected}
+          setSelected={setSelected}
+          onAdjust={adjustChannel}
+          onMoveToView={onMoveToView}
+          onAutoscale={onAutoscale}
+          win={win}
+          timePerDiv={tPerDiv}
+          sampleRate={1 / nav.minDt}
+          recordLength={session.channels[0].wave.data.length}
+          trigger={session.trigger}
+          onChannelMenu={(e, id) => openMenu(e, channelMenu(api, id))}
+          onTimebaseMenu={(e) => openMenu(e, timebaseMenu(api, tPerDiv))}
+          onHighlightView={setHighlightView}
         />
-      )}
-    </div>
+
+        {paletteOpen && <CommandPalette getCommands={() => paletteCommands(api)} onClose={() => setPaletteOpen(false)} />}
+
+        {exportKind && (
+          <ExportDialog
+            initial={exportKind}
+            onClose={() => setExportKind(null)}
+            hasSpectra={hasSpectra}
+            cursorsOn={cursors.on}
+            waveformRows={(o) => waveformRows(exportContext(), o)}
+            plotSize={exportPlotSize}
+            measurementInfo={{ range: measRange, count: measKeys.length, channels: measuredCount }}
+            notes={notes}
+            setNotes={setNotes}
+            defaultTitle={stem(session.fileName)}
+            canCopyImage={typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write && window.isSecureContext}
+            onExport={(kind, prefs, extra) => runExport(exportContext(), kind, prefs, extra)}
+          />
+        )}
+      </div>
+    </AnalysisContext.Provider>
   )
 })
-
-/** A setter of one field of the analysis, taking a value or an update as a state setter does */
-function fieldSetter<K extends keyof Analysis>(setDoc: React.Dispatch<React.SetStateAction<Analysis>>, key: K): React.Dispatch<React.SetStateAction<Analysis[K]>> {
-  return (v) => setDoc((d) => ({ ...d, [key]: typeof v === 'function' ? (v as (prev: Analysis[K]) => Analysis[K])(d[key]) : v }))
-}

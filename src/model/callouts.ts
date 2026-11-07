@@ -1,5 +1,7 @@
 import type { MeasurementKey } from '../dsp/measure'
 import { MEASUREMENT_DEFS } from '../dsp/measureDefs'
+import type { ChannelDisplay } from './types'
+import type { DisplayPatch, TimeWindow } from './view'
 
 /**
  * User annotations on a session ("callouts", after the Tektronix feature of the same name).
@@ -92,12 +94,62 @@ export function calloutSpan(c: Callout): [number, number] {
   return hasTimeSpan(c) ? [Math.min(c.t, t2), Math.max(c.t, t2)] : [c.t, c.t]
 }
 
+/**
+ * What the plot hands over to create a callout (where it is and what it is attached to); its id,
+ * number, colour and text are added when it is created (see `addCallout` in edits.ts)
+ */
+export type NewCallout = Pick<Callout, 'type' | 't' | 't2' | 'channel' | 'channel2' | 'v' | 'v2' | 'view' | 'div' | 'div2' | 'dy'>
+
 export function newCalloutId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
 }
 
 export function nextCalloutNumber(list: Callout[]): number {
   return list.reduce((m, c) => Math.max(m, c.n), 0) + 1
+}
+
+/** The callouts attached to a channel's trace: notes, boxes and spans on it, and spans that end on it */
+export function calloutsOn(list: Callout[], channel: string): Callout[] {
+  return list.filter((c) => c.channel === channel || c.channel2 === channel)
+}
+
+/**
+ * The callout before (`dir` -1) or after (1) the selected one in time. Without a selection (or when
+ * it is gone): the first one after / the last one before `mid`, the middle of the view.
+ */
+export function adjacentCallout(list: Callout[], selectedId: string | undefined, mid: number, dir: -1 | 1): Callout | undefined {
+  const sorted = [...list].sort((a, b) => calloutSpan(a)[0] - calloutSpan(b)[0])
+  const i = sorted.findIndex((c) => c.id === selectedId)
+  if (i >= 0) return sorted[i + dir]
+  return dir > 0 ? sorted.find((c) => calloutSpan(c)[0] > mid) : sorted.findLast((c) => calloutSpan(c)[0] < mid)
+}
+
+/** The time window around a callout: its time span with some room, or the width of `current` centred on it */
+export function calloutWindow(c: Callout, current: TimeWindow, minSpan: number): TimeWindow {
+  const [a, b] = calloutSpan(c)
+  if (!hasTimeSpan(c)) {
+    const half = (current.end - current.start) / 2
+    return { start: c.t - half, end: c.t + half }
+  }
+  const pad = Math.max((b - a) * 0.15, minSpan)
+  return { start: a - pad, end: b + pad }
+}
+
+/** Whether a callout lies (partly) outside the record: such a callout is shown where it is, not clamped to the record */
+export function isOffRecord(c: Callout, record: TimeWindow): boolean {
+  const [a, b] = calloutSpan(c)
+  return a < record.start || b > record.end
+}
+
+/**
+ * The vertical settings that make a box fill most (70 %) of a view `divs` high: its channel scaled to
+ * the box's two levels and centred on them. Undefined for a box that is not on a channel or has no height.
+ */
+export function boxZoomPatch(c: Callout, channel: ChannelDisplay | undefined, divs: number): { id: string; patch: DisplayPatch } | undefined {
+  if (!channel || c.v === undefined || c.v2 === undefined || c.v === c.v2) return undefined
+  const span = Math.abs(c.v - c.v2)
+  const scale = parseFloat((span / (divs * 0.7)).toPrecision(4))
+  return { id: channel.id, patch: { scale, offset: parseFloat(((c.v + c.v2) / 2).toPrecision(6)), position: 0 } }
 }
 
 export function sanitizeCallouts(list: unknown): Callout[] {
