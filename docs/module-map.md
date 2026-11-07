@@ -33,10 +33,13 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 | --- | --- |
 | `load.ts` | `loadSession(files, signal)`: reads files, runs the parse worker, wraps pyramid levels |
 | `worker.ts` | Parse worker: unpack bundle → fingerprint → `loadFiles` → pyramid levels → transfer |
-| `session.ts` | `loadFiles`: unzip, dispatch by type, `buildSession` (channels, views, time base, trigger, cursors, measurements), channel colours and ids |
+| `session.ts` | `loadFiles(files, adapters)`: unpack archives, choose the first `FormatAdapter` that finds a waveform, say what is wrong when none does; the `ADAPTERS` list |
+| `formats.ts` | `FormatAdapter` (what a family of scopes provides), `InputFile`/`Entry`/`LoadContext`, shared helpers (`channelIdFromName`, `CHANNEL_COLORS`, `reasonFor`) |
+| `tektronix.ts` | The Tektronix adapter: reads `.wfm`/`.isf`/`.set`/screenshot entries, `buildSession` (channels, views, time base, trigger, cursors, measurements), colours |
 | `tekWfm.ts` | Tektronix `.wfm` (WFM#001–003) binary parser |
 | `tekIsf.ts` | Tektronix `.isf` (preamble + curve block, binary or ASCII, envelope) parser |
 | `tekSetup.ts` | SCPI "learn" setup parser; `readChannelInput` for coupling, termination, probe, … |
+| `fixtures.ts` | Synthetic `.wfm`, `.isf`, setup and `.tss` files built in code, for tests |
 
 ## `src/dsp/` – sample-array analysis
 
@@ -62,14 +65,15 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 | `protocol.ts` | Message types between page and worker; ref naming |
 | `core.ts` | `ComputeCore`: the worker's logic (math, spectrum, measure) without the worker |
 | `worker.ts` | Thin shell: `self.onmessage` → `ComputeCore` |
-| `engine.ts` | `ComputeEngine`: page-side scheduler (queueing, slots, caching, restart), `WorkerLike` |
+| `engine.ts` | `ComputeEngine`: page-side scheduler (queueing, slots, caching, restart), `WorkerLike`; `math`, `measured` and `spectrum` answer from the cache and `subscribeResults`/`resultsVersion` say when to ask again |
 
 ## `src/model/` – what the app means
 
 | File | Purpose |
 | --- | --- |
 | `types.ts` | `Waveform`, `ChannelDisplay`, `ChannelInput`, `Channel`, `Session` |
-| `workspace.ts` | `Workspace`/`Analysis`; defaults from a file; `sanitizeWorkspace`; autosave storage; analysis files; zoom limits |
+| `workspace.ts` | `Workspace`/`Analysis`; `WORKSPACE_FIELDS`, `WORKSPACE_VERSION`/`WORKSPACE_MIGRATIONS`; defaults from a file; `sanitizeWorkspace`; autosave storage; analysis files; zoom limits |
+| `migrations.ts` | `upgrade`: bring saved data of an older version up to date with a chain of steps; `versionOf` |
 | `view.ts` | Time window, cursors, measurement range, tools; zoom/pan/autoscale/view-size helpers; `LiveChannel` |
 | `callouts.ts` | `Callout` and `NewCallout` types, colours, `sanitizeCallouts`; navigation helpers (`adjacentCallout`, `calloutWindow`, `isOffRecord`, `boxZoomPatch`, `calloutsOn`) |
 | `edits.ts` | The changes a user can make to the analysis, as pure functions `(Analysis, args) → Analysis` (channels, views, math, callouts, cursors, measurements, spectra, notes) |
@@ -79,6 +83,7 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 | `spectrum.ts` | `SpectrumDef`, options, new-spectrum rules, level units, stored-spectra parsing |
 | `input.ts` | `ChannelInput` → display strings (settings table, badge flags, one-line summary) |
 | `undoHistory.ts` | `UndoHistory<T, V>`: snapshot steps with optional view movement |
+| `stepGrouping.ts` | `StepGrouper`: the rules that end an undo step (pointer, key, pause, hold), with no DOM |
 | `tabSync.ts` | `BroadcastChannel` news between tabs with the same session |
 | `fileStore.ts` | IndexedDB store for kept session files, eviction planning |
 | `recent.ts` | Merge saved analyses and kept files into the "recent sessions" list |
@@ -88,8 +93,9 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 
 | File | Purpose |
 | --- | --- |
-| `draw.ts` | View geometry (`viewBoxes`, `gridRows`, `layoutTags`), `drawView`, `drawTrace`, `drawHover`, `drawTimeAxis`, value↔division |
-| `callouts.tsx` | `layoutCallouts` (geometry), `calloutShapes` (React elements), `calloutsSvg` (string for export) |
+| `draw.ts` | View geometry (`viewBoxes`, `gridRows`, `layoutTags`, `scaleLabels`, `triggerMark`, `cursorMarks`), `drawView`, `drawTrace`, `drawHover`, `drawTimeAxis`, value↔division |
+| `plotInteraction.ts` | What a pointer gesture in the plot means, as pure functions: `Drag`, `nearestTrace`, `boxCallout`, `noteAnchor`, `rectZoomPatches`, `releaseOutcome` |
+| `callouts.tsx` | `layoutCallouts` (geometry), `calloutShapes` (React elements), `calloutsSvg` (SVG document for export, written without a DOM) |
 | `spectrum.ts` | Frequency/level mapping, ticks, `drawSpectrum`, level reading |
 | `theme.ts` | `Theme` type, `DARK_THEME`, `LIGHT_THEME` |
 | `color.ts` | Colour parsing, WCAG contrast, `printColor` (darken pale colours for light backgrounds), `textOn` |
@@ -136,15 +142,16 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 | `ErrorBoundary.tsx` | Render-error fallback |
 | `useAutosave.ts` | Debounced saving that follows the store (and the view), flush on hide, status |
 | `useNavigation.ts` | Time window, Back history, zoom helpers |
-| `useUndoHistory.ts` | Subscribes `UndoHistory` to the store and cuts steps by gestures |
+| `useUndoHistory.ts` | Subscribes `UndoHistory` to the store and passes the page's pointer and key events to the `StepGrouper` |
 | `useMathResults.ts` | Subscribes to the engine's math state |
+| `useEngineResults.ts` | `useEngineResults` (re-render when a measurement or spectrum arrives), `useLastResults` (keep the last result while the next is computed) |
 | `useShortcuts.ts` | Global keyboard handling |
 
 ### `src/components/ui/` – shared UI toolkit
 
 | File | Purpose |
 | --- | --- |
-| `action.ts` | `Action`, `menuItem`, `command` |
+| `action.ts` | `Action` (with its palette info), `actionsOf`, `shortcutMap`, `paletteEntries`, `menuItem`, `command` |
 | `ContextMenu.tsx`, `Menu.tsx`, `menuContext.ts` | Menus (right-click and drop-down) |
 | `Feedback.tsx`, `feedbackContext.ts` | Notices and confirm dialogs |
 | `ThemeProvider.tsx`, `themeContext.ts` | Appearance preference and canvas theme |
@@ -162,6 +169,8 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 | `util/format.ts` | SI formatting and parsing, 1-2-5 `niceStep`, tick generation, counts, bytes |
 | `util/names.ts` | Display names (`CH1` → "Ch 1"), per-div text, trigger text, units |
 | `util/sampleCache.ts` | Per-sample-array LRU cache with slots |
+| `util/lastResults.ts` | `LastResults`: the last result seen per key, while a new one is computed |
+| `util/sameContent.ts` | Structural comparison of JSON-like values that skips shared parts (undo, tab sync) |
 | `util/sha256.ts` | SHA-256 with a fallback for insecure contexts |
 | `util/usePersistentState.ts` | `useState` mirrored to `localStorage` |
 | `util/clipboard.ts`, `util/download.ts`, `util/html.ts` | Copy text, download a Blob, escape HTML |

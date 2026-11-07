@@ -35,16 +35,35 @@ Design points:
 
 ## 2. `loadFiles` – turning files into a session
 
-[`loadFiles(files: InputFile[]): Session`](../src/parsers/session.ts) is synchronous and has no browser
-dependencies, so it is easy to test.
+[`loadFiles(files, adapters = ADAPTERS): Session`](../src/parsers/session.ts) is synchronous and has no
+browser dependencies, so it is easy to test. It does two things itself – **unpack archives** and
+**choose the format** – and leaves the reading to a *format adapter*.
 
 ```mermaid
 flowchart TD
   In["files[]"] --> U{"archive?<br/>.tss, .zip, or zip magic bytes<br/>(but not .set / .scopeview)"}
   U -- yes --> X["unzip → entries<br/>(skip folders, __MACOSX, ._ files)"]
   U -- no --> Y["entry as is"]
-  X --> Loop
-  Y --> Loop
+  X --> Pick
+  Y --> Pick
+  Pick{"first adapter that finds a waveform<br/>among the entries<br/>(<code>ADAPTERS</code> in session.ts)"}
+  Pick -- none --> Err["error that says what is wrong:<br/>unsupported file / no waveform files"]
+  Pick -- found --> Load["adapter.load(entries, ctx) → Session"]
+```
+
+A **`FormatAdapter`** ([`formats.ts`](../src/parsers/formats.ts)) is a small object: `id`,
+`waveformExtensions` (for messages), `isWaveform(file)` (by name or content), `recognises(file)`
+(a waveform, or what goes with one – a setup, a screenshot) and `load(entries, ctx)`. `ctx` says what
+the files came in (`archive`: `'tss'`, `'zip'` or none), the session's name, and a `recognised(file)`
+that asks *all* adapters, so a file of another known format is not reported as unsupported. The
+shared helpers (`channelIdFromName`, `CHANNEL_COLORS`, `reasonFor`) live there too. Today there is one
+adapter, the Tektronix family in [`tektronix.ts`](../src/parsers/tektronix.ts); the tests pass their own
+adapters to `loadFiles` to check the dispatch.
+
+The Tektronix adapter reads each entry according to its kind:
+
+```mermaid
+flowchart TD
   Loop["for each entry"] --> K{"kind?"}
   K -- ".set" --> S["readSetup → merge into <code>setup</code>"]
   K -- ".wfm or WFM magic" --> W["parseTekWfm → Waveform"]
@@ -180,6 +199,13 @@ Reading:
 
 ## 5. Adding a format
 
-The extension point is `loadFiles`. In short: write `parseXxx(buf, name): Waveform`, add an `isXxx`
-signature check, add a branch in the entry loop, and (optionally) feed display hints into
-`buildSession`. A step-by-step recipe is in [Development](development.md#add-a-file-format).
+The extension point is the **`FormatAdapter`**. A new instrument family is a new file next to
+`tektronix.ts` that exports an adapter, plus one line in `ADAPTERS` (session.ts); `loadFiles`, the
+worker and the interface do not change. In short: write `parseXxx(buf, name): Waveform` and its
+signature check, implement `isWaveform` / `recognises` / `load` (using `channelIdFromName` and
+`reasonFor`), and add the adapter to the list. A step-by-step recipe is in
+[Development](development.md#add-a-file-format).
+
+For tests there are synthetic files in [`fixtures.ts`](../src/parsers/fixtures.ts) (a `.wfm`, an `.isf`,
+a setup and a zipped session, built in code), so the whole path from bytes to `Session` is tested without
+binary files in the repository.

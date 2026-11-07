@@ -2,46 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { strToU8, zipSync } from 'fflate'
 import { MinMaxPyramid } from '../dsp/minmax'
 import { autoscalePatches, patchDisplays } from '../model/view'
+import { wfm } from './fixtures'
 import { isTekWfm, parseTekWfm } from './tekWfm'
 import { loadFiles } from './session'
-
-interface WfmOptions {
-  samples?: number[]
-  /** Sample format (0 = int16) */
-  format?: number
-  xScale?: number
-  /** Overrides the end of the samples in the curve buffer (bytes) */
-  postStart?: number
-  /** Cut the file to this length */
-  length?: number
-}
-
-/** A WFM#003 file (little endian, 16-bit samples) with two pre- and post-charge points around the samples */
-function wfm({ samples = [0, 100, -100, 32767], format = 0, xScale = 4e-8, postStart, length }: WfmOptions = {}): ArrayBuffer {
-  const header = 0x346
-  const dataStart = 4
-  const buf = new ArrayBuffer(header + dataStart + samples.length * 2 + 4)
-  const dv = new DataView(buf)
-  const ascii = (offset: number, s: string) => new Uint8Array(buf).set(strToU8(s), offset)
-  dv.setUint16(0, 0x0f0f, true)
-  ascii(2, ':WFM#003')
-  dv.setUint8(0x00f, 2)
-  dv.setInt32(0x010, header, true)
-  // Explicit dimension 1: the vertical scale, unit and sample format
-  dv.setFloat64(0x0a8, 1e-3, true)
-  dv.setFloat64(0x0b0, 0.5, true)
-  ascii(0x0bc, 'V')
-  dv.setInt32(0x0f0, format, true)
-  // Implicit dimension 1: the time base
-  dv.setFloat64(0x1e8, xScale, true)
-  dv.setFloat64(0x1f0, -2e-6, true)
-  ascii(0x1fc, 's')
-  // Curve buffer: offsets of the samples and of the post-charge points behind them
-  dv.setUint32(0x336, dataStart, true)
-  dv.setUint32(0x33a, postStart ?? dataStart + samples.length * 2, true)
-  samples.forEach((v, i) => dv.setInt16(header + dataStart + i * 2, v, true))
-  return length === undefined ? buf : buf.slice(0, length)
-}
 
 describe('Tektronix WFM', () => {
   it('reads the samples, their scale and the time base', () => {

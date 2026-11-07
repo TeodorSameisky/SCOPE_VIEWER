@@ -100,43 +100,73 @@ describe('compute engine', () => {
     expect(latest().results.get('MATH1')!.wave!.data[10]).toBeCloseTo(4 * ch1.data[10], 6)
   })
 
-  it('computes spectra of inputs and math channels', async () => {
-    const { engine, latest } = setup()
+  it('computes spectra of inputs and math channels, and answers once they are there', async () => {
+    const { engine, latest, requests } = setup()
     const expected = Array.from(computeSpectrum(ch2.data, 0, 2000, 1e-6, 'flatTop')!.rms)
-    expect(Array.from((await engine.spectrum(ch2.data, 1e-6, 0, 2000, 'flatTop'))!.spec!.rms)).toEqual(expected)
+    let arrived = 0
+    engine.subscribeResults(() => arrived++)
+    // Not there yet: undefined, and the listeners are told when it is
+    expect(engine.spectrum(ch2.data, 1e-6, 0, 2000, 'flatTop', 'spectrum:FFT1')).toBeUndefined()
+    await settle()
+    expect(arrived).toBe(1)
+    expect(Array.from(engine.spectrum(ch2.data, 1e-6, 0, 2000, 'flatTop', 'spectrum:FFT1')!.spec!.rms)).toEqual(expected)
     engine.setMath([{ id: 'MATH1', expr: 'CH2 + 0' }])
     await settle()
     const math = latest().results.get('MATH1')!.wave!.data
-    expect(Array.from((await engine.spectrum(math, 1e-6, 0, 2000, 'flatTop'))!.spec!.rms)).toEqual(expected)
-    // Too few samples, and samples it does not know
-    expect(await engine.spectrum(ch2.data, 1e-6, 0, 8, 'hann')).toEqual({ spec: undefined })
-    expect(await engine.spectrum(new Float32Array(100), 1e-6, 0, 100, 'hann')).toBeNull()
+    expect(engine.spectrum(math, 1e-6, 0, 2000, 'flatTop', 'spectrum:FFT2')).toBeUndefined()
+    await settle()
+    expect(Array.from(engine.spectrum(math, 1e-6, 0, 2000, 'flatTop', 'spectrum:FFT2')!.spec!.rms)).toEqual(expected)
+    // Too few samples: computed, but there is no spectrum
+    engine.spectrum(ch2.data, 1e-6, 0, 8, 'hann', 'spectrum:FFT1')
+    await settle()
+    expect(engine.spectrum(ch2.data, 1e-6, 0, 8, 'hann', 'spectrum:FFT1')).toEqual({ spec: undefined })
+    // Samples it does not know: nothing is asked of the worker
+    const before = requests().length
+    expect(engine.spectrum(new Float32Array(100), 1e-6, 0, 100, 'hann', 'spectrum:FFT3')).toBeUndefined()
+    await settle()
+    expect(requests()).toHaveLength(before)
+  })
+
+  it('computes a spectrum once for everyone asking for the same range and window', async () => {
+    const { engine, requests } = setup()
+    engine.spectrum(ch1.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT1')
+    engine.spectrum(ch1.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT2')
+    await settle()
+    expect(requests().filter((m) => m.type === 'spectrum')).toHaveLength(1)
+    // another window is another spectrum
+    engine.spectrum(ch1.data, 1e-6, 0, 2000, 'flatTop', 'spectrum:FFT2')
+    await settle()
+    expect(requests().filter((m) => m.type === 'spectrum')).toHaveLength(2)
   })
 
   it('gives the worker one request at a time, the math channels first', async () => {
     const { engine, latest, requests } = setup()
-    const a = engine.spectrum(ch1.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT1')
-    const b = engine.spectrum(ch2.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT2')
+    engine.spectrum(ch1.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT1')
+    engine.spectrum(ch2.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT2')
     engine.setMath([{ id: 'MATH1', expr: 'CH1 + CH2' }])
     expect(requests().map((m) => m.type)).toEqual(['spectrum'])
-    expect(await a).not.toBeNull()
-    expect(await b).not.toBeNull()
     await settle()
     // The math channels went before the spectrum that waited
     expect(requests().map((m) => m.type)).toEqual(['spectrum', 'math', 'spectrum'])
     expect(latest().results.get('MATH1')!.wave!.data[3]).toBeCloseTo(ch1.data[3] + 3, 6)
+    expect(engine.spectrum(ch1.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT1')).toBeDefined()
+    expect(engine.spectrum(ch2.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT2')).toBeDefined()
   })
 
   it('computes only the latest range a slot asked for while the worker was busy', async () => {
     const { engine, requests } = setup()
+    let arrived = 0
+    engine.subscribeResults(() => arrived++)
     // The first is sent at once; each later one of the same slot takes the place of the one waiting
-    const fft1 = [0, 1, 2, 3].map((k) => engine.spectrum(ch1.data, 1e-6, 0, 1000 + 100 * k, 'hann', 'spectrum:FFT1'))
-    const fft2 = engine.spectrum(ch2.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT2')
-    const replies = await Promise.all([...fft1, fft2])
-    expect(replies.map((r) => r !== null)).toEqual([true, false, false, true, true])
-    expect(replies[3]!.spec!.samples).toBe(1300)
+    for (const k of [0, 1, 2, 3]) engine.spectrum(ch1.data, 1e-6, 0, 1000 + 100 * k, 'hann', 'spectrum:FFT1')
+    engine.spectrum(ch2.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT2')
+    await settle()
     // The waiting one of FFT1 kept its turn before FFT2
     expect(requests().map((m) => m.type === 'spectrum' && m.i1)).toEqual([1000, 1300, 2000])
+    expect(engine.spectrum(ch1.data, 1e-6, 0, 1300, 'hann', 'spectrum:FFT1')!.spec!.samples).toBe(1300)
+    // Three results arrived, and the two that were replaced were announced too, so that whoever
+    // shared them asks again (asked for again, they would be computed)
+    expect(arrived).toBe(5)
   })
 
   it('measures short ranges at once and long ones in the worker, once for everyone asking', async () => {
@@ -145,14 +175,14 @@ describe('compute engine', () => {
     expect(workers).toHaveLength(0)
 
     let arrived = 0
-    engine.subscribeMeasured(() => arrived++)
+    engine.subscribeResults(() => arrived++)
     const n = long.data.length
     expect(engine.measured(long, 0, n, 'table:CH3')).toBeUndefined()
     // Edge snapping asks for the same range meanwhile: no second job
     expect(engine.measured(long, 0, n, 'edges:CH3')).toBeUndefined()
     await settle()
     expect(arrived).toBe(1)
-    expect(engine.measuredVersion()).toBe(1)
+    expect(engine.resultsVersion()).toBe(1)
     const m = engine.measured(long, 0, n, 'edges:CH3')!
     expect(m).toEqual(measure(long.data, 0, n, 0, 1e-6))
     expect(m.frequency).toBeCloseTo(500, 6)
@@ -165,7 +195,7 @@ describe('compute engine', () => {
     const { engine, requests } = setup([ch1, ch2, long])
     const n = long.data.length
     let arrived = 0
-    engine.subscribeMeasured(() => arrived++)
+    engine.subscribeResults(() => arrived++)
     // Busy with the first; the second waits and is shared by the edges, then the table moves on
     engine.measured(long, 0, n, 'table:CH3')
     engine.measured(long, 1, n, 'table:CH3')
@@ -201,17 +231,20 @@ describe('compute engine', () => {
     const { engine, workers, latest } = setup()
     engine.setMath([{ id: 'MATH1', expr: 'CH1 - CH2' }])
     await settle()
-    const running = engine.spectrum(ch1.data, 1e-6, 0, 2000, 'hann')
-    const waiting = engine.spectrum(ch2.data, 1e-6, 0, 2000, 'hann')
+    // One running, one waiting
+    engine.spectrum(ch1.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT1')
+    engine.spectrum(ch2.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT2')
     engine.stop()
     expect(workers[0].stopped).toBe(true)
-    expect(await running).toBeNull()
-    expect(await waiting).toBeNull()
     engine.setMath([{ id: 'MATH1', expr: 'CH1 - CH2' }])
     await settle()
     expect(workers).toHaveLength(2)
     // The new worker is sent the inputs again
     expect(workers[1].posted[0]).toMatchObject({ type: 'sources', waves: [{ id: 'CH1' }, { id: 'CH2' }] })
     expect(latest().results.get('MATH1')!.wave!.data[3]).toBeCloseTo(ch1.data[3] - 3, 6)
+    // What was running or waiting when it stopped left nothing behind: asked for again, it is computed
+    expect(engine.spectrum(ch1.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT1')).toBeUndefined()
+    await settle()
+    expect(engine.spectrum(ch1.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT1')?.spec).toBeDefined()
   })
 })

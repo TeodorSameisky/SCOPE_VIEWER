@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ComputeEngine } from '../compute/engine'
 import { levelsOf, nearestEdge, type EdgeLevels } from '../dsp/edges'
 import type { PlotImageSource } from '../export/sessionExport'
@@ -9,7 +9,6 @@ import { calloutsSvg, flagsBottom, layoutCallouts } from '../render/callouts'
 import {
   AXIS_GUTTER,
   DIVS_Y,
-  divToValue,
   drawHover,
   drawTimeAxis,
   drawView,
@@ -25,11 +24,13 @@ import {
   type ViewDrawOptions,
 } from '../render/draw'
 import { PLOT_FONT, SANS, font } from '../render/fonts'
+import { nearestTrace as nearestTraceAt, noteAnchor, releaseOutcome, tagPosition as tagPositionOf, type Drag } from '../render/plotInteraction'
 import { loadTex, useTexVersion } from '../render/tex'
 import type { Theme } from '../render/theme'
 import { si } from '../util/format'
 import { channelName, displayUnit } from '../util/names'
 import { useAnalysis, useAnalysisStore } from './analysisContext'
+import { useEngineResults } from './useEngineResults'
 import { CalloutLayer } from './CalloutLayer'
 import type { Navigation } from './useNavigation'
 import { useTheme } from './ui/themeContext'
@@ -37,7 +38,6 @@ import { panShare, wheelPan, wheelPixels, wheelZoomFactor } from './ui/wheel'
 import {
   POSITION_STEP,
   normalizeSizes,
-  snapToGrid,
   stepPosition,
   stepScale,
   timeTicks,
@@ -53,7 +53,6 @@ import {
 const AXIS_H = 24
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 const GRAB_PX = 8
-const MIN_BOX_PX = 5
 /** Markers and region edges snap to an edge of the selected trace this close to the pointer */
 const SNAP_PX = 8
 /** Wheel delta (px) of one step of V/div or position: about one notch of a mouse wheel */
@@ -85,7 +84,7 @@ export interface PlotPoint {
  */
 interface Props {
   /** Measures the samples on screen for edge snapping (long ranges in its worker) */
-  engine: Pick<ComputeEngine, 'measured' | 'subscribeMeasured' | 'measuredVersion'>
+  engine: Pick<ComputeEngine, 'measured' | 'subscribeResults' | 'resultsVersion'>
   /** Everything that has a waveform: inputs and computed math channels */
   channels: LiveChannel[]
   /** Which views the plot shows (a view whose channels are all hidden is left out); all without */
@@ -149,26 +148,6 @@ export interface PlotAreaHandle extends PlotImageSource {
   size: () => { w: number; h: number }
 }
 
-/** What a press in the plot does until the pointer is released (Esc or a cancelled pointer drops it) */
-type Drag =
-  | { kind: 'pan'; x0: number; win: TimeWindow }
-  | { kind: 'cursor'; which: 'a' | 'b'; orig: CursorState }
-  /** time-only zoom band */
-  | { kind: 'band'; x0: number; x1: number }
-  /** time + vertical zoom rectangle inside one view, or (`box`) a new box callout */
-  | { kind: 'rect'; box: boolean; view: number; x0: number; y0: number; x1: number; y1: number }
-  /** new span callout from end `a`; `b` follows the pointer */
-  | { kind: 'span'; a: { ch: string; t: number }; b?: { ch: string; t: number } }
-  /** new region callout */
-  | { kind: 'region'; x0: number; x1: number }
-  /** click-type tools (zoom click, note, marker): only track whether it moved */
-  | { kind: 'click'; x0: number; y0: number }
-  /**
-   * A channel tag moved up or down (its position), or over another view (`target`) to move the
-   * channel there on release. `pos0`: the channel's position (div) when the drag started.
-   */
-  | { kind: 'tag'; id: string; view: number; y0: number; x: number; y: number; pos0: number; moved: boolean; target?: number }
-
 export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(props, ref) {
   const store = useAnalysisStore()
   const { views, viewSizes, cursors, callouts } = useAnalysis()
@@ -225,33 +204,15 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
   const clampX = (x: number) => Math.min(plotW, Math.max(0, x))
 
   /** The visible trace of the view at y that passes closest to (x, y), within maxPx */
-  const nearestTrace = (x: number, y: number, maxPx = 20): string | undefined => {
-    const vi = viewOf(y)
-    const yIn = y - topOf(vi)
-    const t = xToT(x)
-    let best: string | undefined
-    let bestD = maxPx
-    for (const id of p.views[vi] ?? []) {
-      const c = p.channels.find((ch) => ch.wave.id === id)
-      if (!c || !c.display.visible) continue
-      const v = valueAt(c.wave, t)
-      if (!Number.isFinite(v)) continue
-      const dist = Math.abs(hOf(vi) / 2 - valueToDiv(v, c.display) * divOf(vi) - yIn)
-      if (dist < bestD) {
-        bestD = dist
-        best = id
-      }
-    }
-    return best
-  }
+  const nearestTrace = (x: number, y: number, maxPx = 20) => nearestTraceAt(p.channels, p.views, boxes, xToT(x), y, maxPx)
 
   /**
    * Edge finder of a trace: the time of its edge nearest to t (within SNAP_PX), or undefined. The
    * reference levels come from the measurements of the samples on screen, asked for on first use
    * (the measurement table measures the same range). Many samples are measured in the worker:
-   * until their levels arrive (`measuredVersion` counts arrivals) nothing snaps.
+   * until their levels arrive (`resultsVersion` counts arrivals) nothing snaps.
    */
-  const measuredVersion = useSyncExternalStore(p.engine.subscribeMeasured, p.engine.measuredVersion)
+  const resultsVersion = useEngineResults(p.engine)
   const edgesOf = useMemo(() => {
     const finders = new Map<string, (t: number) => number | undefined>()
     return (id: string | undefined): ((t: number) => number | undefined) => {
@@ -279,9 +240,9 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
       }
       return find
     }
-    // measuredVersion: levels that were still being measured may have arrived
+    // resultsVersion: levels that were still being measured may have arrived
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.channels, p.win, plotW, p.engine, measuredVersion])
+  }, [p.channels, p.win, plotW, p.engine, resultsVersion])
   /** Markers and the edges of regions snap to edges of the selected trace */
   const edgeNear = useMemo(() => edgesOf(p.selected), [edgesOf, p.selected])
   /** Markers and region edges snap to edges; Alt places them freely */
@@ -315,9 +276,9 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
   // Laid out again only when something it depends on changes (not on every pointer move)
   const calloutGeo = useMemo(
     () => layoutCallouts(p.callouts, { channels: p.channels, views: p.views, win: p.win, plotW, boxes, measure: measureSpan }),
-    // texVersion: a formula has been rendered meanwhile; measuredVersion: measurements arrived
+    // texVersion: a formula has been rendered meanwhile; resultsVersion: measurements arrived
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [p.callouts, p.channels, p.views, p.win, plotW, boxes, measureSpan, texVersion, measuredVersion],
+    [p.callouts, p.channels, p.views, p.win, plotW, boxes, measureSpan, texVersion, resultsVersion],
   )
 
   useLayoutEffect(() => {
@@ -546,7 +507,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
         const layout = { channels: p.channels, views: p.views, win: p.win, plotW, boxes }
         const geo = layoutCallouts(p.callouts, layout)
         flags = flagsBottom(geo)
-        const img = await svgToImage(calloutsSvg(p.callouts, layout, theme, geo))
+        const img = await svgToImage(await calloutsSvg(p.callouts, layout, theme, geo))
         if (img) ctx.drawImage(img, 0, 0, plotW * scale, viewsH * scale)
       }
       if (p.cursors.on) drawCursorReadout(ctx, scale, p, tToX, theme, readoutTop(flags))
@@ -689,43 +650,8 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
     }
   }
 
-  /**
-   * A new box around the rectangle dragged in a view. It belongs to a trace that runs through it:
-   * the selected one if it does, else the one nearest the centre; without one, the selected trace
-   * of the view or the nearest. Its time edges snap to edges of that trace (Alt: free).
-   */
-  const newBox = (d: Extract<Drag, { kind: 'rect' }>, free: boolean): NewCallout => {
-    const divAt = (yy: number) => DIVS_Y / 2 - (yy - topOf(d.view)) / divOf(d.view)
-    const top = divAt(Math.min(d.y0, d.y1))
-    const bottom = divAt(Math.max(d.y0, d.y1))
-    const [ta, tb] = [xToT(Math.min(d.x0, d.x1)), xToT(Math.max(d.x0, d.x1))]
-    const { traces } = viewChannels(d.view)
-    const mm: [number, number] = [0, 0]
-    const through = traces.filter(({ wave: w, display, pyramid }) => {
-      pyramid.range(Math.floor((ta - w.t0) / w.dt), Math.ceil((tb - w.t0) / w.dt) + 1, mm)
-      return mm[1] >= divToValue(bottom, display) && mm[0] <= divToValue(top, display)
-    })
-    // Distance of a trace from the centre of the box (px)
-    const midT = (ta + tb) / 2
-    const midY = (d.y0 + d.y1) / 2 - topOf(d.view)
-    const distance = (c: LiveChannel) => Math.abs(hOf(d.view) / 2 - valueToDiv(valueAt(c.wave, midT), c.display) * divOf(d.view) - midY)
-    const closest = (list: LiveChannel[]) =>
-      list.filter((c) => Number.isFinite(distance(c))).reduce<LiveChannel | undefined>((best, c) => (!best || distance(c) < distance(best) ? c : best), undefined)
-    const selectedIn = (list: LiveChannel[]) => list.find((c) => c.wave.id === p.selected)
-    const ch = selectedIn(through) ?? closest(through) ?? selectedIn(traces) ?? closest(traces)
-    const at = (x: number) => {
-      const t = xToT(x)
-      return free || !ch ? t : (edgesOf(ch.wave.id)(t) ?? t)
-    }
-    const t = at(Math.min(d.x0, d.x1))
-    const t2 = at(Math.max(d.x0, d.x1))
-    if (!ch) return { type: 'box', t, t2, view: d.view, div: top, div2: bottom }
-    const round = (v: number) => parseFloat(v.toPrecision(6))
-    return { type: 'box', t, t2, channel: ch.wave.id, v: round(divToValue(top, ch.display)), v2: round(divToValue(bottom, ch.display)) }
-  }
-
   /** A tag's position in view `vi` (div from the centre, to 0.01 div), snapped to whole divisions unless `free` */
-  const tagPosition = (div: number, vi: number, free: boolean) => Math.round((free ? div : snapToGrid(div, divOf(vi))) * 100) / 100
+  const tagPosition = (div: number, vi: number, free: boolean) => tagPositionOf(div, divOf(vi), free)
 
   /** Drag of a channel tag: up and down in its view moves the trace, over another view marks it as the target */
   const moveTag = (drag: Extract<Drag, { kind: 'tag' }>, x: number, y: number, free: boolean) => {
@@ -759,83 +685,50 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
     return () => window.removeEventListener('keydown', key)
   })
 
+  /** What releasing the drag does is decided by `releaseOutcome` (plotInteraction.ts); this applies it */
   const onPointerUp = (e: React.PointerEvent) => {
     const { x, y } = local(e)
     const d = drag
     setDrag(null)
     if (!d) return
-    if (d.kind === 'tag') {
-      // Dropped onto another view: the channel moves there, with its tag where it was dropped
-      if (d.target === undefined || !byId.has(d.id)) return
-      p.onMoveToView(d.id, d.target)
-      p.onAdjust(d.id, { position: tagPosition(DIVS_Y / 2 - (y - topOf(d.target)) / divOf(d.target), d.target, e.altKey) })
-      return
-    }
-    const wide = (a: number, b: number) => Math.abs(a - b) >= MIN_BOX_PX
-
-    // The kind of rectangle was decided when it was started: a later tool change does not turn a box into a zoom
-    if (d.kind === 'rect' && d.box) {
-      if (wide(d.x0, d.x1) && wide(d.y0, d.y1)) p.onAddCallout(newBox(d, e.altKey))
-      return
-    }
-    if (d.kind === 'span') {
-      if (d.b && wide(tToX(d.a.t), tToX(d.b.t))) p.onAddCallout({ type: 'span', t: d.a.t, t2: d.b.t, channel: d.a.ch, channel2: d.b.ch })
-      return
-    }
-    if (d.kind === 'band' && wide(d.x0, d.x1)) {
-      zoomToTimes(xToT(Math.min(d.x0, d.x1)), xToT(Math.max(d.x0, d.x1)))
-    } else if (d.kind === 'rect' && wide(d.x0, d.x1)) {
-      const t0 = xToT(Math.min(d.x0, d.x1))
-      const t1 = xToT(Math.max(d.x0, d.x1))
-      if (!wide(d.y0, d.y1)) return zoomToTimes(t0, t1)
-      // Map the rectangle's vertical range onto the full height of its view
-      const divAt = (yy: number) => DIVS_Y / 2 - (yy - topOf(d.view)) / divOf(d.view)
-      const divTop = divAt(Math.min(d.y0, d.y1))
-      const divBot = divAt(Math.max(d.y0, d.y1))
-      const patches = (p.views[d.view] ?? []).flatMap((id) => {
-        const c = p.channels.find((ch) => ch.wave.id === id)
-        if (!c) return []
-        const vTop = divToValue(divTop, c.display)
-        const vBot = divToValue(divBot, c.display)
-        const scale = parseFloat(((vTop - vBot) / DIVS_Y).toPrecision(4))
-        const offset = parseFloat(((vTop + vBot) / 2).toPrecision(6))
-        return [{ id, patch: { scale, offset, position: 0 } }]
-      })
-      zoomToTimes(t0, t1, patches)
-    } else if (d.kind === 'rect' && !wide(d.y0, d.y1)) {
-      // plain click with the zoom tool: zoom in 2x, Alt+click zooms out
-      p.onZoomTo(zoomAround(p.win, xToT(clampX(x)), e.altKey ? 2 : 0.5, p.minSpan, maxSpan))
-    } else if (d.kind === 'click' && !dragMoved.current) {
-      if (p.tool === 'marker') {
-        p.onAddCallout({ type: 'marker', t: snapT(xToT(clampX(x)), e.altKey) })
-      } else if (p.tool === 'note') {
-        addNote(clampX(x), Math.min(viewsH - 1, Math.max(0, y)))
-      }
-    } else if (d.kind === 'region' && wide(d.x0, d.x1)) {
-      p.onAddCallout({ type: 'region', t: xToT(Math.min(d.x0, d.x1)), t2: xToT(Math.max(d.x0, d.x1)) })
-    } else if (d.kind === 'pan' && !dragMoved.current) {
-      const id = nearestTrace(x, y)
-      if (id) p.setSelected(id)
+    const release = releaseOutcome(d, {
+      pointer: { x, y, alt: e.altKey },
+      moved: dragMoved.current,
+      tool: p.tool,
+      win: p.win,
+      minSpan: p.minSpan,
+      maxSpan,
+      plotW,
+      viewsH,
+      boxes,
+      views: p.views,
+      channels: p.channels,
+      viewTraces: (vi) => viewChannels(vi).traces,
+      selected: p.selected,
+      xToT,
+      tToX,
+      snap: snapT,
+      snapEdge: (id, t) => edgesOf(id)(t),
+    })
+    switch (release.kind) {
+      case 'dropTag':
+        p.onMoveToView(release.id, release.view)
+        p.onAdjust(release.id, { position: release.position })
+        break
+      case 'addCallout':
+        p.onAddCallout(release.callout)
+        break
+      case 'zoom':
+        p.onZoomTo(release.window, release.patches)
+        break
+      case 'select':
+        p.setSelected(release.id)
+        break
     }
   }
 
-  const zoomToTimes = (a: number, b: number, patches?: { id: string; patch: DisplayPatch }[]) => {
-    const s = Math.max(b - a, p.minSpan)
-    const mid = (a + b) / 2
-    p.onZoomTo({ start: mid - s / 2, end: mid + s / 2 }, patches)
-  }
-
-  const addNote = (x: number, y: number) => p.onAddCallout(noteAt(x, y))
-
-  /** Note attaches to the nearest trace (within 40 px), otherwise to the clicked position */
-  const noteAt = (x: number, y: number): NewCallout => {
-    const t = xToT(x)
-    const ch = nearestTrace(x, y, 40)
-    const view = viewOf(y)
-    const dy = y < 70 ? 24 : -46
-    if (ch) return { type: 'note', t, channel: ch, dy }
-    return { type: 'note', t, view, div: DIVS_Y / 2 - (y - topOf(view)) / divOf(view), dy }
-  }
+  /** Where the note tool would put a note at (x, y): on the nearest trace, otherwise at that spot of the view */
+  const noteAt = (x: number, y: number) => noteAnchor({ channels: p.channels, views: p.views, boxes, t: xToT(x), y })
 
   const onContextMenu = (e: React.MouseEvent) => {
     if (!p.onContextMenu || (e.target as HTMLElement).closest('.callout-editor')) return

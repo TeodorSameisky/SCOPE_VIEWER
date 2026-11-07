@@ -366,7 +366,8 @@ GitHub Actions (`.github/workflows/ci.yml`) runs lint, tests and the build on ev
 Code layout:
 
 ```
-src/parsers/    file formats (tekWfm, tekIsf, tekSetup, session = .tss/.wfm/.isf/.zip loader, worker)
+src/parsers/    file formats (tekWfm, tekIsf, tekSetup; tektronix = the adapter for them; session = archive
+                unpacking and the choice of adapter; worker)
 src/dsp/        min/max pyramid, measurements and their documentation, edge detection
 src/math/       expression language and signal processing for math channels, FFT and windows
 src/compute/    the worker that evaluates math channels and computes spectra and measurements, and its client on the page
@@ -384,13 +385,15 @@ Only `src/components` imports from `src/components`: parsing, analysis, renderin
 depend on the UI components (exports reach the plot and the spectrum view through the small interfaces
 `PlotImageSource` and `SpectrumSource` in `src/export/sessionExport.ts`).
 
-Each command of the workspace is defined once as an *action* (`src/components/scopeCommands.ts`) and offered
-by the toolbar, the menus, the command palette and the keyboard alike; the shortcuts and the help text are listed in
+Each command of the workspace is defined once as an *action* (`src/components/ui/action.ts`, the catalogue in
+`src/components/scopeCommands.ts`) and offered by the toolbar, the menus, the command palette and the keyboard
+alike – the palette entry and the shortcut are derived from the action; the shortcuts and the help text are listed in
 `src/components/keymap.ts`. The colours of the plots (`src/render/theme.ts`) and the CSS tokens in `src/styles.css`
 are checked against each other by a test.
 
-To add a new format (e.g. Rigol), write a parser that returns `Waveform` objects and add it to
-`loadFiles` in `src/parsers/session.ts`.
+To add a new format (e.g. Rigol), write a parser that returns `Waveform` objects, wrap it in a `FormatAdapter`
+(`src/parsers/formats.ts`; `tektronix.ts` is the example) and add the adapter to `ADAPTERS` in
+`src/parsers/session.ts`.
 
 ## Deployment (Coolify)
 

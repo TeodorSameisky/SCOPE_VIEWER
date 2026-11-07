@@ -589,45 +589,71 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     TOOL_ORDER.map((t): [Tool, Action] => {
       const def = TOOLS[t]
       // Choosing the active tool again goes back to Pan
-      return [t, { label: def.label, icon: def.icon, hint: def.key, checked: tool === t, run: () => setTool(tool === t ? 'pan' : t) }]
+      return [
+        t,
+        {
+          label: def.label,
+          icon: def.icon,
+          hint: def.key,
+          checked: tool === t,
+          palette: { id: `tool:${t}`, group: 'Tool', label: `${def.label} tool`, keywords: t === 'span' ? 'delta t Δt' : undefined },
+          run: () => setTool(tool === t ? 'pan' : t),
+        },
+      ]
     }),
   ) as Record<Tool, Action>
-  const exportAction = (kind: ExportKind, label: string, icon: Action['icon'], disabled = false): Action => ({ label, icon, disabled, run: () => openExport(kind) })
+  const exportAction = (kind: ExportKind, label: string, icon: Action['icon'], disabled = false): Action => ({
+    label,
+    icon,
+    disabled,
+    palette: { id: `export:${kind}`, group: 'Export', label: `Export ${label}` },
+    run: () => openExport(kind),
+  })
+  // Each action brings its palette entry (`palette`) and its shortcut (`hint`, a single key is bound): the
+  // command palette and the keyboard are derived from this list. Within a group the palette lists them in
+  // the order they are written here.
   const actions: ScopeActions = {
     tools,
     // Their buttons do not close an open callout editor first: Undo takes back what was done in it (a new callout goes)
-    undo: { label: 'Undo', icon: Undo2, hint: KEYS.undo, disabled: !undoRedo.canUndo, keepFocus: true, run: undoRedo.undo },
-    redo: { label: 'Redo', icon: Redo2, hint: KEYS.redo, disabled: !undoRedo.canRedo, keepFocus: true, run: undoRedo.redo },
-    back: { label: 'Back to the previous view', icon: ArrowLeft, hint: KEYS.back, disabled: !nav.canGoBack, run: nav.zoomBack },
-    savedView: { label: 'Saved view', icon: Home, title: 'The view the scope showed when the session was saved', run: () => nav.zoomTo(nav.savedWin, [], true) },
-    fullRecord: { label: 'Full record', icon: Maximize2, hint: KEYS.fullRecord, disabled: nav.showsRecord, run: () => nav.zoomTo(record) },
+    undo: { label: 'Undo', icon: Undo2, hint: KEYS.undo, disabled: !undoRedo.canUndo, keepFocus: true, palette: { id: 'edit:undo', group: 'Edit' }, run: undoRedo.undo },
+    redo: { label: 'Redo', icon: Redo2, hint: KEYS.redo, disabled: !undoRedo.canRedo, keepFocus: true, palette: { id: 'edit:redo', group: 'Edit' }, run: undoRedo.redo },
+    fullRecord: { label: 'Full record', icon: Maximize2, hint: KEYS.fullRecord, disabled: nav.showsRecord, palette: { id: 'view:full', group: 'View' }, run: () => nav.zoomTo(record) },
     autoscale: {
       label: 'Autoscale all channels',
       icon: UnfoldVertical,
       hint: KEYS.autoscale,
       title: 'Fit what is on screen of every visible channel into its view; channels that share a view get a band each',
       disabled: !visibleChannels.length,
+      palette: { id: 'view:autoscale', group: 'View', keywords: 'fit vertical scale autoset' },
       run: () => autoscale(visibleChannels.map((c) => c.wave.id)),
     },
-    zoomIn: { label: 'Zoom in', icon: ZoomIn, hint: KEYS.zoomIn, run: () => nav.zoomAt(mid, 0.5) },
-    zoomOut: { label: 'Zoom out', icon: ZoomOut, hint: KEYS.zoomOut, run: () => nav.zoomAt(mid, 2) },
-    cursors: { label: 'Cursors', icon: Ruler, hint: KEYS.cursors, checked: cursors.on, run: () => setCursors({ ...cursors, on: !cursors.on }) },
-    cursorsHere: { label: 'Bring the cursors into the view', icon: Ruler, run: () => setCursors(cursorsInView(cursors, win)) },
-    readout: { label: 'Values at the pointer', icon: Crosshair, hint: KEYS.readout, checked: layout.readout, run: toggleReadout },
-    overview: { label: 'Overview strip', icon: GalleryHorizontal, hint: KEYS.overview, checked: layout.overview, run: toggleOverview },
-    measurements: { label: 'Measurement table', icon: Table2, hint: KEYS.measurements, checked: layout.measurements, run: toggleMeasurements },
-    focus: { label: 'Focus: hide all panels', icon: Focus, hint: KEYS.focus, checked: focusMode, run: toggleFocus },
-    prevCallout: { label: 'Previous callout', icon: ArrowLeft, hint: KEYS.prevCallout, disabled: !callouts.length, run: () => stepCallout(-1) },
-    nextCallout: { label: 'Next callout', icon: ArrowRight, hint: KEYS.nextCallout, disabled: !callouts.length, run: () => stepCallout(1) },
+    back: { label: 'Back to the previous view', icon: ArrowLeft, hint: KEYS.back, disabled: !nav.canGoBack, palette: { id: 'view:back', group: 'View' }, run: nav.zoomBack },
+    savedView: {
+      label: 'Saved view',
+      icon: Home,
+      title: 'The view the scope showed when the session was saved',
+      palette: { id: 'view:saved', group: 'View', keywords: 'as on the scope home' },
+      run: () => nav.zoomTo(nav.savedWin, [], true),
+    },
+    zoomIn: { label: 'Zoom in', icon: ZoomIn, hint: KEYS.zoomIn, palette: { id: 'view:in', group: 'View' }, run: () => nav.zoomAt(mid, 0.5) },
+    zoomOut: { label: 'Zoom out', icon: ZoomOut, hint: KEYS.zoomOut, palette: { id: 'view:out', group: 'View' }, run: () => nav.zoomAt(mid, 2) },
+    cursors: { label: 'Cursors', icon: Ruler, hint: KEYS.cursors, checked: cursors.on, palette: { id: 'view:cursors', group: 'View' }, run: () => setCursors({ ...cursors, on: !cursors.on }) },
+    cursorsHere: { label: 'Bring the cursors into the view', icon: Ruler, palette: { id: 'view:cursors-here', group: 'View' }, run: () => setCursors(cursorsInView(cursors, win)) },
+    readout: { label: 'Values at the pointer', icon: Crosshair, hint: KEYS.readout, checked: layout.readout, palette: { id: 'view:readout', group: 'View' }, run: toggleReadout },
+    overview: { label: 'Overview strip', icon: GalleryHorizontal, hint: KEYS.overview, checked: layout.overview, palette: { id: 'view:overview', group: 'View' }, run: toggleOverview },
+    measurements: { label: 'Measurement table', icon: Table2, hint: KEYS.measurements, checked: layout.measurements, palette: { id: 'view:measurements', group: 'View' }, run: toggleMeasurements },
+    focus: { label: 'Focus: hide all panels', icon: Focus, hint: KEYS.focus, checked: focusMode, palette: { id: 'view:focus', group: 'View', label: 'Focus mode: hide all panels' }, run: toggleFocus },
+    prevCallout: { label: 'Previous callout', icon: ArrowLeft, hint: KEYS.prevCallout, disabled: !callouts.length, palette: { id: 'callout:prev', group: 'Callout' }, run: () => stepCallout(-1) },
+    nextCallout: { label: 'Next callout', icon: ArrowRight, hint: KEYS.nextCallout, disabled: !callouts.length, palette: { id: 'callout:next', group: 'Callout' }, run: () => stepCallout(1) },
     palette: { label: 'Commands', icon: Search, hint: KEYS.palette, run: () => setPaletteOpen(true) },
-    open: { label: 'Open session file…', icon: FolderOpen, run: onOpen },
-    openAnalysis: { label: 'Open analysis file…', icon: Upload, run: () => analysisInput.current?.click() },
-    saveAnalysis: { label: 'Save analysis file', icon: FileJson, run: saveAnalysis },
-    saveBundle: { label: 'Save session with analysis', icon: Archive, run: saveBundle },
-    reset: { label: 'Reset to file defaults…', icon: RotateCcw, run: resetToDefaults },
+    open: { label: 'Open session file…', icon: FolderOpen, palette: { id: 'file:open', group: 'File' }, run: onOpen },
+    openAnalysis: { label: 'Open analysis file…', icon: Upload, palette: { id: 'file:open-analysis', group: 'File' }, run: () => analysisInput.current?.click() },
+    saveAnalysis: { label: 'Save analysis file', icon: FileJson, palette: { id: 'file:save-analysis', group: 'File' }, run: saveAnalysis },
+    saveBundle: { label: 'Save session with analysis', icon: Archive, palette: { id: 'file:save-bundle', group: 'File', keywords: 'bundle scopeview' }, run: saveBundle },
+    reset: { label: 'Reset to file defaults…', icon: RotateCcw, palette: { id: 'file:reset', group: 'File' }, run: resetToDefaults },
     storage: { label: 'Saved in this browser…', icon: HardDrive, run: () => setPanel('info') },
-    install: { label: 'Install Scope Viewer…', icon: MonitorDown, disabled: !canInstall, run: () => void installApp() },
-    close: { label: 'Close session', icon: X, run: onClose },
+    install: { label: 'Install Scope Viewer…', icon: MonitorDown, disabled: !canInstall, palette: { id: 'file:install', group: 'File', keywords: 'app offline' }, run: () => void installApp() },
+    close: { label: 'Close session', icon: X, palette: { id: 'file:close', group: 'File' }, run: onClose },
     exports: {
       image: exportAction('image', 'Image (PNG)…', Image),
       report: exportAction('report', 'Report (HTML, PDF)…', FileText),

@@ -225,6 +225,75 @@ export function layoutTags(traces: { display: ChannelDisplay; wave: Pick<Wavefor
   return tags
 }
 
+/**
+ * The labels on the right edge of a view for a channel: round values at least LABEL_GAP px apart (see
+ * labelStep), each with its height (px from the top of the view). Values too close to the top or bottom
+ * edge are left out.
+ */
+export function scaleLabels(d: ChannelDisplay, unit: string, height: number): { y: number; text: string }[] {
+  const divH = height / DIVS_Y
+  const step = labelStep(d.scale, divH)
+  const vLo = divToValue(-DIVS_Y / 2, d)
+  const vHi = divToValue(DIVS_Y / 2, d)
+  const labels: { y: number; text: string }[] = []
+  for (let k = Math.ceil(vLo / step - 1e-9); k * step <= vHi + step * 1e-9; k++) {
+    const v = k * step
+    const y = height / 2 - valueToDiv(v, d) * divH
+    if (y < 5 || y > height - 5) continue
+    labels.push({ y, text: siTick(v, unit, step) })
+  }
+  return labels
+}
+
+/** Height (px from the top of the view) beyond which the trigger arrow is kept at the edge */
+const TRIGGER_EDGE = 6
+
+/**
+ * The trigger level of a view: where its arrow goes, and what it says. `level` is the height of the level
+ * itself (px from the top of the view); `off` says whether it lies above (-1) or below (1) the view, where
+ * the arrow `y` stays at the edge pointing towards it. Undefined without a level or without its source
+ * among the traces.
+ */
+export function triggerMark(
+  trigger: { sourceId?: string; level?: number; slope?: string },
+  traces: { display: ChannelDisplay }[],
+  height: number,
+): { display: ChannelDisplay; level: number; off: -1 | 0 | 1; y: number; text: string } | undefined {
+  const src = traces.find((t) => t.display.id === trigger.sourceId)
+  if (!src || trigger.level === undefined) return undefined
+  const level = height / 2 - valueToDiv(trigger.level, src.display) * (height / DIVS_Y)
+  const off = level < 0 ? -1 : level > height ? 1 : 0
+  return {
+    display: src.display,
+    level,
+    off,
+    y: off < 0 ? TRIGGER_EDGE : off > 0 ? height - TRIGGER_EDGE : level,
+    text: `${channelTag(src.display.id)} ${slopeSymbol(trigger.slope)}`.trim(),
+  }
+}
+
+/**
+ * Where the cursors that are in the window are drawn: the x of each line (on a pixel centre), and, when the
+ * cursor source's trace has a value there, the height and colour of the dot on it.
+ */
+export function cursorMarks(
+  cursors: { a: number; b: number; sourceId?: string },
+  traces: { display: ChannelDisplay; wave: Waveform }[],
+  window: { tStart: number; tEnd: number; plotW: number },
+  height: number,
+): { name: 'A' | 'B'; x: number; dot?: { y: number; color: string } }[] {
+  const span = window.tEnd - window.tStart
+  const src = traces.find((t) => t.display.id === cursors.sourceId)
+  const marks: { name: 'A' | 'B'; x: number; dot?: { y: number; color: string } }[] = []
+  for (const [name, t] of [['A', cursors.a], ['B', cursors.b]] as const) {
+    const x = Math.round(((t - window.tStart) / span) * window.plotW) + 0.5
+    if (x < 0 || x > window.plotW) continue
+    const v = src ? valueAt(src.wave, t) : NaN
+    marks.push({ name, x, dot: src && Number.isFinite(v) ? { y: height / 2 - valueToDiv(v, src.display) * (height / DIVS_Y), color: src.display.color } : undefined })
+  }
+  return marks
+}
+
 /** The tag at (x, y) of a view (tags drawn later win), or undefined */
 export function tagAt(tags: ChannelTag[], x: number, y: number): ChannelTag | undefined {
   if (x < 0) return undefined
@@ -286,20 +355,12 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
   // Right axis labels for the selected/first channel of this view, over its whole height as on the
   // scope: round values far enough apart (see labelStep)
   if (o.axisChannel) {
-    const d = o.axisChannel.display
-    const unit = o.axisChannel.wave.yUnit
     ctx.font = PLOT_FONT
-    ctx.fillStyle = theme.ink(d.color)
+    ctx.fillStyle = theme.ink(o.axisChannel.display.color)
     ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
-    const step = labelStep(d.scale, divH)
-    const vLo = divToValue(-DIVS_Y / 2, d)
-    const vHi = divToValue(DIVS_Y / 2, d)
-    for (let k = Math.ceil(vLo / step - 1e-9); k * step <= vHi + step * 1e-9; k++) {
-      const v = k * step
-      const y = H / 2 - valueToDiv(v, d) * divH
-      if (y < 5 || y > H - 5) continue
-      ctx.fillText(siTick(v, unit, step), plotW + 6, y)
+    for (const { y, text } of scaleLabels(o.axisChannel.display, o.axisChannel.wave.yUnit, H)) {
+      ctx.fillText(text, plotW + 6, y)
       ctx.fillRect(plotW, Math.round(y), 4, 1)
     }
   }
@@ -409,12 +470,10 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
         ctx.fill()
       }
     }
-    const src = o.traces.find((t) => t.display.id === o.trigger!.sourceId)
-    if (src && o.trigger.level !== undefined) {
-      const ink = theme.ink(src.display.color)
-      const level = H / 2 - valueToDiv(o.trigger.level, src.display) * divH
-      const off = level < 0 ? -1 : level > H ? 1 : 0
-      const y = off < 0 ? 6 : off > 0 ? H - 6 : level
+    const mark = triggerMark(o.trigger, o.traces, H)
+    if (mark) {
+      const { y, off, text } = mark
+      const ink = theme.ink(mark.display.color)
       if (off === 0) {
         ctx.strokeStyle = ink
         ctx.globalAlpha = TRIGGER_LINE_ALPHA
@@ -439,7 +498,6 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
       }
       ctx.closePath()
       ctx.fill()
-      const text = `${channelTag(src.display.id)} ${slopeSymbol(o.trigger.slope)}`.trim()
       ctx.font = PLOT_FONT
       ctx.textAlign = 'right'
       ctx.textBaseline = 'middle'
@@ -453,10 +511,7 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
 
   // Cursors
   if (o.cursors) {
-    const src = o.traces.find((t) => t.display.id === o.cursors!.sourceId)
-    for (const [name, t] of [['A', o.cursors.a], ['B', o.cursors.b]] as const) {
-      const x = Math.round(tx(t)) + 0.5
-      if (x < 0 || x > plotW) continue
+    for (const { name, x, dot } of cursorMarks(o.cursors, o.traces, { tStart: o.tStart, tEnd: o.tEnd, plotW }, H)) {
       ctx.strokeStyle = theme.cursor
       ctx.lineWidth = 1
       ctx.setLineDash(name === 'A' ? [] : [6, 3])
@@ -472,15 +527,11 @@ export function drawView(ctx: CanvasRenderingContext2D, o: ViewDrawOptions): voi
         ctx.textAlign = 'center'
         ctx.fillText(name, x, 8.5)
       }
-      if (src) {
-        const v = valueAt(src.wave, t)
-        if (Number.isFinite(v)) {
-          const y = H / 2 - valueToDiv(v, src.display) * divH
-          ctx.fillStyle = theme.ink(src.display.color)
-          ctx.beginPath()
-          ctx.arc(x, y, 3.5, 0, Math.PI * 2)
-          ctx.fill()
-        }
+      if (dot) {
+        ctx.fillStyle = theme.ink(dot.color)
+        ctx.beginPath()
+        ctx.arc(x, dot.y, 3.5, 0, Math.PI * 2)
+        ctx.fill()
       }
     }
   }

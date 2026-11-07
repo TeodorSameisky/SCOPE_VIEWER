@@ -12,7 +12,11 @@
  *
  * `subscribe` / `getVersion` follow React's useSyncExternalStore: the version changes whenever
  * the stacks do.
+ *
+ * Documents are compared by content (`sameContent`), which skips the parts two snapshots share:
+ * an edit that changes one callout costs about that, not the size of the analysis.
  */
+import { sameContent } from '../util/sameContent'
 
 interface ViewMove<V> {
   from: V
@@ -39,7 +43,6 @@ export class UndoHistory<T, V = never> {
   private future: Step<T, V>[] = []
   /** State at the last commit (or undo/redo) */
   private base: T
-  private baseJson: string
   private latest: T
   private open = false
   /** View moved for the step the next change opens */
@@ -54,14 +57,13 @@ export class UndoHistory<T, V = never> {
     this.limit = limit
     this.base = doc
     this.latest = doc
-    this.baseJson = JSON.stringify(doc)
   }
 
   /** The document changed; returns true when this started a new step */
   change(doc: T): boolean {
     this.latest = doc
     if (this.open) return false
-    if (JSON.stringify(doc) === this.baseJson) return false
+    if (sameContent(doc, this.base)) return false
     this.past.push({ doc: this.base, view: this.moved })
     this.moved = undefined
     if (this.past.length > this.limit) this.past.shift()
@@ -89,7 +91,7 @@ export class UndoHistory<T, V = never> {
     this.open = false
     this.setBase(this.latest)
     // A step that ended where it started (e.g. a drag back to the start) is no step
-    if (this.past.length && JSON.stringify(this.past[this.past.length - 1].doc) === this.baseJson) this.past.pop()
+    if (this.past.length && sameContent(this.past[this.past.length - 1].doc, this.base)) this.past.pop()
     this.notify()
     return true
   }
@@ -148,6 +150,5 @@ export class UndoHistory<T, V = never> {
   private setBase(doc: T) {
     this.base = doc
     this.latest = doc
-    this.baseJson = JSON.stringify(doc)
   }
 }

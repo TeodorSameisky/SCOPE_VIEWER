@@ -68,23 +68,23 @@ The container size comes from a `ResizeObserver`. All drawing is scaled by `devi
 
 ## 3. Drawing a view – `drawView`
 
-[`render/draw.ts`](../src/render/draw.ts) draws one stacked view in this order:
+[`render/draw.ts`](../src/render/draw.ts) draws one stacked view in this order. What is *decided* (where a label, the trigger arrow or a cursor dot goes) is computed by pure functions that return plain data, and `drawView` only paints it; so the layout rules are unit-tested without a canvas (`scaleLabels`, `triggerMark`, `cursorMarks`, `layoutTags`):
 
 1. **Background**, then the **graticule**: 10 divisions high; rows at *round values of the axis channel*
    (`gridRows`), so scale labels sit on the rows and the grid moves with that channel's position; columns
    at the time ticks (`timeTicks`, 1-2-5 steps). Dots on every line mark fifths of a division.
 2. **Traces** (clipped to the plot area) – `drawTrace`, see below.
 3. **Right-hand scale labels** for the *selected* channel of the view (else the first visible), at round
-   values at least 15 px apart (`labelStep`; on the 1-2-5 sequence they land on grid rows).
+   values at least 15 px apart (`labelStep`; on the 1-2-5 sequence they land on grid rows). `scaleLabels` returns each label's height and text.
 4. **View number chip** when several views are shown (lit where the selected channel is).
 5. **Channel tags** on the left edge (`layoutTags`) – the handles of the scope. They are placed at each
    channel's position level; tags that would collide are pushed apart with a short leader line to their
    level; a position outside the view pins the tag to the edge with an arrow.
 6. **Trigger**: a marker at time 0, and the level as a dashed line plus an arrow on the right edge in the
    colour of the trigger source, labelled with source and slope (`C4 ↗`). Outside the view the arrow stays at
-   the top or bottom edge, pointing towards the level.
+   the top or bottom edge, pointing towards the level. `triggerMark` decides where the arrow goes and what it says.
 7. **Cursors** A (solid) and B (dashed) with their letter labels (on the first view only) and a dot where
-   the cursor source's trace crosses them.
+   the cursor source's trace crosses them (`cursorMarks` gives the lines and dots that are in the window).
 
 ### `drawTrace` – two regimes
 
@@ -109,6 +109,7 @@ All pure and unit-tested ([`draw.test.ts`](../src/render/draw.test.ts)):
 | `valueToDiv`, `divToValue`, `valueAt` | value ↔ division ↔ interpolated sample at a time |
 | `gridRows`, `labelStep`, `labelEvery` | graticule rows, scale-label spacing, how many time labels fit |
 | `layoutTags`, `tagAt` | channel tag layout and hit-test |
+| `scaleLabels`, `triggerMark`, `cursorMarks` | what `drawView` paints for the scale labels, the trigger and the cursors, as data |
 | `textWidth` | text measuring with a shared scratch canvas (an estimate where there is no canvas, i.e. tests) |
 
 ## 4. Callouts
@@ -121,7 +122,7 @@ flowchart LR
   A["Callout[] + channels + window + view boxes"] --> B["layoutCallouts()<br/>→ Map&lt;id, CalloutGeo&gt;<br/>screen geometry in px"]
   B --> C["calloutShapes()<br/>React elements for each shape"]
   C --> D["CalloutLayer<br/>on screen: with pointer handlers<br/>(drag, resize, edit)"]
-  C --> E["calloutsSvg()<br/>React → detached DOM → SVG string"]
+  C --> E["calloutsSvg()<br/>React elements → SVG string<br/>(renderToStaticMarkup, no DOM)"]
   E --> F["rasterised into exports"]
 ```
 
@@ -132,9 +133,12 @@ flowchart LR
   regions are stacked in rows (`stackRows`), and the cursor readout is moved below the marker flags
   (`flagsBottom`).
 - **One set of shapes, two outputs.** `calloutShapes()` returns React elements. On screen they get
-  pointer handlers (`PartProps`); for export `calloutsSvg()` renders the same elements into a detached
-  `div` with `createRoot` + `flushSync`, serialises the SVG and `PlotArea` rasterises it onto the export
-  canvas. Exported callouts therefore look exactly like on-screen ones.
+  pointer handlers (`PartProps`); for export `calloutsSvg()` writes the same elements out as an SVG document with React's
+  `renderToStaticMarkup` – no DOM, no detached root, so it also runs in unit tests (`callouts.test.ts` checks
+  that the document is well formed, escapes the texts and follows the theme) – and `PlotArea` rasterises it
+  onto the export canvas. Exported callouts therefore look exactly like on-screen ones. The server renderer is
+  `import()`ed on first use, so it is a chunk of its own that only an image export loads; `calloutsSvg` is
+  therefore async.
 - **Draggable parts** are named (`CalloutPart`): `box`, `anchor`, `marker`, `start`, `end`, `region`,
   `rect`, the eight compass edges/corners of a box, and `dim` (a span's dimension line).
 - Values in callout labels (region/box measurements, a note's trace value) come from `calloutValueText`,

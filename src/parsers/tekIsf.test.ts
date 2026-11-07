@@ -3,32 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { unzipSync } from 'fflate'
 import { measure } from '../dsp/measure'
 import { defaultWorkspace } from '../model/workspace'
+import { int16be, isf } from './fixtures'
 import { isTekIsf, parseIsfPreamble, parseTekIsf } from './tekIsf'
 import { loadFiles } from './session'
-
-/** Build an .isf file: preamble text + IEEE-488.2 block (or ASCII values) */
-function isf(preamble: string, samples: Uint8Array | string, block = true): ArrayBuffer {
-  const enc = new TextEncoder()
-  const head = enc.encode(preamble)
-  let body: Uint8Array
-  if (typeof samples === 'string') body = enc.encode(samples)
-  else if (block) {
-    const len = String(samples.length)
-    body = new Uint8Array([...enc.encode(`#${len.length}${len}`), ...samples])
-  } else body = new Uint8Array([...enc.encode('#0'), ...samples])
-  const out = new Uint8Array(head.length + body.length + 1)
-  out.set(head)
-  out.set(body, head.length)
-  out[out.length - 1] = 0x0a
-  return out.buffer
-}
-
-const int16be = (values: number[]) => {
-  const b = new Uint8Array(values.length * 2)
-  const dv = new DataView(b.buffer)
-  values.forEach((v, i) => dv.setInt16(i * 2, v, false))
-  return b
-}
 
 describe('ISF preamble', () => {
   it('reads keywords with and without the WFMPRE path, quoted values with ";" and short forms', () => {

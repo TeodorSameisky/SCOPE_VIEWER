@@ -113,7 +113,7 @@ flowchart TD
   Q2 --> P
   P -->|"math first"| W["one request in flight"]
   P -->|"else next job in turn"| W
-  W -->|"reply"| R["resolve promise / emit state / notify measured listeners"]
+  W -->|"reply"| R["emit math state / remember the result<br/>and notify result listeners"]
   R --> P
 ```
 
@@ -132,17 +132,23 @@ flowchart TD
 6. **Failure recovery.** If the worker throws (e.g. out of memory), everything waiting fails with a
    message, math channels show "The computation stopped: …", and the next job starts a fresh worker.
 7. **`stop()`** is called when the workspace unmounts. It terminates the worker, forgets refs, and
-   resolves every pending job with `null`.
+   tells every pending job it was not computed (its cache entry is dropped, so the next ask starts it again).
 
-### Measurements: page or worker?
+### Measurements and spectra: asking is synchronous
 
-`engine.measured(wave, i0, i1, slot)` returns `Measurements | undefined`:
+`engine.measured(wave, i0, i1, slot)` returns `Measurements | undefined` and `engine.spectrum(data, dt, i0, i1,
+window, slot)` returns `{ spec? } | undefined`. Both are **plain lookups**, not promises – a render can ask for them
+directly:
 
-- **Up to `PAGE_MEASURE_MAX` = 50,000 samples** – measured *immediately on the page* (well under a
-  millisecond) and returned.
-- **Longer** – sent to the worker; `undefined` is returned until the result arrives. Callers
-  subscribe with `useSyncExternalStore(engine.subscribeMeasured, engine.measuredVersion)`: the version
-  number increments whenever a result arrives, which makes components ask again.
+- **A result that is known** is returned. A measurement of **up to `PAGE_MEASURE_MAX` = 50,000 samples** is known
+  at once: it is measured *on the page* (well under a millisecond) when first asked for.
+- **Anything else** – a longer range, any spectrum – is sent to the worker on the first ask, and `undefined` is
+  returned until the result arrives. Components follow the arrival with `useEngineResults(engine)`
+  ([`useEngineResults.ts`](../src/components/useEngineResults.ts)), a `useSyncExternalStore` over
+  `engine.subscribeResults` / `engine.resultsVersion`: the number changes whenever a measurement or spectrum
+  arrives (or a waiting one was dropped and has to be asked for again), and a component that lists it among its
+  dependencies asks again. The same pattern serves the table, the spectrum plot, the callout values and the
+  edge snapping, so there is one way to wait for the worker.
 
 Results are remembered in a `SampleCache` keyed by the **sample array** (a `WeakMap`) and a key
 `t0:dt:i0:i1`. Consequences: changing a channel's colour, label or unit creates new channel *objects* but
@@ -155,7 +161,10 @@ slot asked for**, so one busy consumer cannot evict another's result.
 ### Consumers show stale values while waiting
 
 `MeasurementTable` and `SpectrumView` keep the previous value (the table dims it, `pending`) until the new
-one arrives, so panning does not flicker. They also read the window through `useDeferredValue`, so the
+one arrives, so panning does not flicker. That is `useLastResults()` ([`LastResults`](../src/util/lastResults.ts)): given
+the key of what is shown (a channel, a spectrum) and the result the engine has now, it returns that result, or
+while there is none yet the last one seen for the key with `pending` set. A `fits` check keeps a spectrum of
+another channel or window from being shown as this one. They also read the window through `useDeferredValue`, so the
 plot itself stays at full frame rate while measurements follow a moment later.
 
 ## 4. A math evaluation, step by step

@@ -53,7 +53,7 @@ flowchart TB
     Model["model/<br/>types · workspace · view · callouts<br/>edits · store · undo · storage · tab sync"]
     Dsp["dsp/<br/>min/max pyramid<br/>measurements · edges"]
     Math["math/<br/>expressions · filters · FFT"]
-    Parsers["parsers/<br/>Tektronix formats"]
+    Parsers["parsers/<br/>format adapters (Tektronix)"]
     Util["util/<br/>formatting · names · hashing"]
   end
 
@@ -85,10 +85,10 @@ flowchart TB
 
 | Folder | Responsibility | Typical file |
 | --- | --- | --- |
-| `parsers/` | Bytes → `Session`. Knows Tektronix file layouts and SCPI setup files. | `session.ts`, `tekWfm.ts` |
+| `parsers/` | Bytes → `Session`. One `FormatAdapter` per family of scopes (today: Tektronix file layouts and SCPI setup files). | `session.ts`, `tektronix.ts`, `tekWfm.ts` |
 | `dsp/` | Numeric analysis of sample arrays: the min/max pyramid, automatic measurements, edge finding. | `measure.ts`, `minmax.ts` |
 | `math/` | The math-channel language, filters, and the FFT with windows and peak search. | `expr.ts`, `fft.ts` |
-| `model/` | What the app *means*: data types, the workspace document and the store that holds it, the pure edits that change it, view/zoom helpers, callouts, undo history, browser storage, tab sync. | `workspace.ts`, `edits.ts`, `view.ts` |
+| `model/` | What the app *means*: data types, the workspace document (with its version and migrations) and the store that holds it, the pure edits that change it, view/zoom helpers, callouts, undo history and the rules that cut it into steps, browser storage, tab sync. | `workspace.ts`, `edits.ts`, `view.ts` |
 | `compute/` | Moves math, spectra and long measurements off the page into a worker. | `engine.ts`, `core.ts` |
 | `render/` | Pure drawing: canvas functions, geometry, themes, callout layout, TeX. | `draw.ts`, `callouts.tsx` |
 | `export/` | Turns the current state into files. | `sessionExport.ts` |
@@ -184,7 +184,7 @@ edits a math expression:
 ```mermaid
 flowchart LR
   A["User action"] --> B["store.update(a => edits.xxx(a, …))<br/>a pure edit makes the next Analysis"]
-  B --> C["undo history<br/>(subscriber): JSON snapshot → undo step"]
+  B --> C["undo history (subscriber):<br/>snapshot → undo step, cut by the StepGrouper"]
   B --> D["autosave (subscriber)<br/>workspaceOf(store, window, selected)"]
   D --> E["waits 400 ms"]
   E --> F["saveWorkspace<br/>→ localStorage"]
@@ -218,7 +218,11 @@ See [State and persistence](state-and-persistence.md).
 | **Canvas for traces, SVG for callouts** | Traces need raw speed; callouts need hit-testing, text layout and crisp vector output in exports | [`render/`](../src/render) |
 | **Screen and exports use the same drawing functions** | An exported image is exactly what is on screen, only larger and optionally in the light theme | `PlotArea.renderImage` |
 | **The analysis lives in an `AnalysisStore`, changed only by pure `edits`** | A change is testable without a browser (`edits.test.ts`); undo, autosave, tab sync and the plot follow the store themselves instead of being wired through one component; several changes in a row cannot act on stale state | [`model/analysisStore.ts`](../src/model/analysisStore.ts), [`model/edits.ts`](../src/model/edits.ts) |
-| **Each command is one `Action`**, offered by the toolbar, menus, palette and keyboard | The four can never disagree on label, icon, shortcut or enabled state | [`components/ui/action.ts`](../src/components/ui/action.ts) |
+| **Each command is one `Action`**, offered by the toolbar, menus, palette and keyboard | The four can never disagree on label, icon, shortcut or enabled state; the palette entry and the key are derived from the action, not registered a second time | [`components/ui/action.ts`](../src/components/ui/action.ts) |
+| **A file format is a `FormatAdapter`**, tried in a list | A new family of scopes is a new file and one line; the loader, the worker and the interface do not change | [`parsers/formats.ts`](../src/parsers/formats.ts), [`parsers/session.ts`](../src/parsers/session.ts) |
+| **What a gesture means, and when an undo step ends, are pure code** (`releaseOutcome`, `StepGrouper`) | The rules that used to be checked only by hand in the browser are unit tests; the components pass events in and carry results out | [`render/plotInteraction.ts`](../src/render/plotInteraction.ts), [`model/stepGrouping.ts`](../src/model/stepGrouping.ts) |
+| **The saved format has a version, a list of its fields and migration steps** | Changing it cannot silently lose a user's saved work: a forgotten field fails a test, an incompatible change is a step that converts old data | [`model/workspace.ts`](../src/model/workspace.ts), [`model/migrations.ts`](../src/model/migrations.ts) |
+| **Results from the worker are read synchronously** (`measured`, `spectrum` → value or `undefined`, then `useEngineResults`) | One way to wait for the worker for the table, the spectrum, callouts and snapping; no promises threaded through renders | [`compute/engine.ts`](../src/compute/engine.ts), [`components/useEngineResults.ts`](../src/components/useEngineResults.ts) |
 | **Theme colours exist twice** (CSS tokens and a TypeScript `Theme`), and a test compares them | Canvases and exports need concrete colours in code; the page needs CSS variables | [`render/themeSync.test.ts`](../src/render/themeSync.test.ts) |
 | **The service worker asks before updating** (`registerType: 'prompt'`) | The app never changes under the user's hands; because work is autosaved, reloading loses nothing | [`vite.config.ts`](../vite.config.ts), [`PwaStatus.tsx`](../src/components/PwaStatus.tsx) |
 | **MathJax is loaded on demand** and its big glyph tables are kept out of the offline precache | ~1.4 MB core and ~10 MB of rare glyphs would otherwise slow the first load | [`render/mathjax.ts`](../src/render/mathjax.ts), `vite.config.ts` |
@@ -227,13 +231,14 @@ See [State and persistence](state-and-persistence.md).
 
 A few files hold most of the integration logic; knowing them makes the rest easy to navigate:
 
-- [`components/Scope.tsx`](../src/components/Scope.tsx) (~930 lines) – the **composition root of the
+- [`components/Scope.tsx`](../src/components/Scope.tsx) (~950 lines) – the **composition root of the
   workspace**. It creates the `AnalysisStore` and connects it to undo, autosave and tab sync (via hooks), owns
   the interface state (tool, selection, layout) and navigation, defines all `Action`s, and passes props down. The
   *rules* of a change to the analysis are not here but in `model/edits.ts`; `Scope` calls them and does the
   interface's part (select the new callout, offer Undo, …).
-- [`components/PlotArea.tsx`](../src/components/PlotArea.tsx) (~1190 lines) – the interactive plot:
-  pointer handling for every tool, drawing orchestration, callout layer, image rendering for exports. It reads
+- [`components/PlotArea.tsx`](../src/components/PlotArea.tsx) (~1080 lines) – the interactive plot:
+  pointer events for every tool (what a gesture means is decided in `render/plotInteraction.ts`), drawing
+  orchestration, callout layer, image rendering for exports. It reads
   the analysis from the store and changes it there (`AnalysisContext`); its 22 props are the interface state, the
   time window, and the things that need the workspace (menus, creating a callout).
 - [`model/workspace.ts`](../src/model/workspace.ts) – defaults from a file, sanitising untrusted

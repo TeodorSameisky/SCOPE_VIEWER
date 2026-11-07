@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, BookOpen, ClipboardList, Copy, Info, ListChecks, Plus, TableProperties, X } from 'lucide-react'
 import type { ComputeEngine } from '../compute/engine'
 import type { MeasurementKey, Measurements } from '../dsp/measure'
@@ -6,6 +6,7 @@ import { MEASURE_GROUP_LABEL, MEASUREMENT_DEFS, formatMeasurement, measurementDe
 import { channelName } from '../util/names'
 import { measuredChannels, measurementTable } from '../export/measureRows'
 import { MeasureInfo } from './MeasureInfo'
+import { useEngineResults, useLastResults } from './useEngineResults'
 import { MEASURE_RANGES, RANGE_LABEL, sampleRange, type CursorState, type LiveChannel, type MeasureRange, type TimeWindow } from '../model/view'
 import { rangeChoices } from './scopeCommands'
 import { useContextMenu, type MenuEntry } from './ui/menuContext'
@@ -16,7 +17,7 @@ import { useTheme } from './ui/themeContext'
 
 interface Props {
   /** Measures the channels (long ranges in its worker) */
-  engine: Pick<ComputeEngine, 'measured' | 'subscribeMeasured' | 'measuredVersion'>
+  engine: Pick<ComputeEngine, 'measured' | 'subscribeResults' | 'resultsVersion'>
   channels: LiveChannel[]
   win: TimeWindow
   cursors: CursorState
@@ -64,23 +65,21 @@ export function MeasurementTable(p: Props) {
   // results per sample array and range, so changing a colour, label or unit (which creates new
   // channel objects) does not measure again. While a channel is measured, its previous values
   // stay, dimmed (`pending`), so the table does not flicker while panning.
-  const measuredVersion = useSyncExternalStore(p.engine.subscribeMeasured, p.engine.measuredVersion)
-  const previous = useRef(new Map<string, Measurements>())
+  const resultsVersion = useEngineResults(p.engine)
+  const keep = useLastResults<Measurements>()
   const results = useMemo(() => {
     const out = new Map<string, { m: Measurements; pending: boolean }>()
     for (const c of p.channels) {
       if (!c.display.visible || excluded.has(c.wave.id)) continue
       const w = c.wave
       const [i0, i1] = sampleRange(w, p.range, win, cursors)
-      const m = p.engine.measured(w, Math.max(0, Math.floor(i0)), Math.min(w.data.length, Math.ceil(i1)), `table:${w.id}`)
-      if (m) previous.current.set(w.id, m)
-      const shown = m ?? previous.current.get(w.id)
-      if (shown) out.set(w.id, { m: shown, pending: !m })
+      const { value, pending } = keep(w.id, p.engine.measured(w, Math.max(0, Math.floor(i0)), Math.min(w.data.length, Math.ceil(i1)), `table:${w.id}`))
+      if (value) out.set(w.id, { m: value, pending })
     }
     return out
-    // measuredVersion: measurements that were being computed may have arrived
+    // resultsVersion: measurements that were being computed may have arrived
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.channels, excluded, p.range, win, cursors, p.engine, measuredVersion])
+  }, [p.channels, excluded, p.range, win, cursors, p.engine, resultsVersion, keep])
 
   const defs = p.keys.map(measurementDef)
   const unused = MEASUREMENT_DEFS.filter((d) => !p.keys.includes(d.key))

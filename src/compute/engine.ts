@@ -28,10 +28,15 @@ interface Samples {
   pyramid: MinMaxPyramid
 }
 
+/** A computed spectrum: `spec` is missing when the range had too few samples for one */
+export interface SpectrumResult {
+  spec?: Spectrum
+}
+
 /** A spectrum or measurement waiting on the page until the worker is free */
 interface Waiting {
   job: ComputeJob
-  slot?: string
+  slot: string
   /** The reply; null when it was not computed: the worker stopped or failed, or (`replaced`) a newer job of its slot took its place */
   done: (r: ComputeReply | null, replaced?: boolean) => void
 }
@@ -75,10 +80,12 @@ export class ComputeEngine {
   /** Samples of the current math results by ref, and the refs by samples */
   private samples = new Map<string, Samples>()
   private refs = new WeakMap<Float32Array, string>()
-  /** Measurements by sample array and range; `m` is missing while the worker computes them */
-  private readonly measurements = new SampleCache<{ m?: Measurements }>(8)
-  private readonly measuredListeners = new Set<() => void>()
-  private measuredCount = 0
+  /** Measurements by sample array and range; `value` is missing while the worker computes them */
+  private readonly measurements = new SampleCache<{ value?: Measurements }>(8)
+  /** Spectra by sample array, range and window; `value` is missing while the worker computes them */
+  private readonly spectra = new SampleCache<{ value?: SpectrumResult }>(8)
+  private readonly resultListeners = new Set<() => void>()
+  private resultCount = 0
 
   constructor(channels: Waveform[], pyramids: Map<string, MinMaxPyramid>, worker: () => WorkerLike = createWorker) {
     this.channels = channels
@@ -102,52 +109,56 @@ export class ComputeEngine {
   }
 
   /**
-   * Spectrum of samples [i0, i1) of a waveform's `data` (an input or a current math channel). Null
-   * when it was not computed: the samples are not (or no longer) known, the worker failed, or a
-   * newer spectrum of the same `slot` took its place before it was sent.
+   * Spectrum of samples [i0, i1) of a waveform's `data` (an input or a current math channel), as far
+   * as it is known: undefined until the worker has computed it, then `{ spec }`, where `spec` is
+   * missing when the range has too few samples. Whoever asks gets the result when it is there: see
+   * `subscribeResults`. Spectra are remembered per sample array, range and window, so changing a
+   * colour, label or unit computes nothing again. `slot` names who asks (one spectrum): while it
+   * waits for the worker only its latest range is kept, the one that came before is dropped.
    */
-  spectrum(data: Float32Array, dt: number, i0: number, i1: number, window: WindowKind, slot?: string): Promise<{ spec?: Spectrum } | null> {
-    const ref = this.refFor(data)
-    if (ref === undefined) return Promise.resolve(null)
-    return new Promise((resolve) => this.enqueue({ type: 'spectrum', ref, dt, i0, i1, window }, slot, (r) => resolve(r?.type === 'spectrum' && !r.stale ? { spec: r.spec } : null)))
+  spectrum(data: Float32Array, dt: number, i0: number, i1: number, window: WindowKind, slot: string): SpectrumResult | undefined {
+    return this.remote(
+      this.spectra,
+      data,
+      `${dt}:${i0}:${i1}:${window}`,
+      slot,
+      (ref) => ({ type: 'spectrum', ref, dt, i0, i1, window }),
+      (r) => (r.type === 'spectrum' && !r.stale ? { spec: r.spec } : undefined),
+    )
   }
 
   /**
    * Measurements of samples [i0, i1) (whole indexes) of a waveform (an input or a current math
    * channel), as far as they are known. Short ranges are measured at once; a longer one is
-   * measured in the worker and is undefined until then: `subscribeMeasured` tells when results
+   * measured in the worker and is undefined until then: `subscribeResults` tells when results
    * arrive. They are remembered per sample array and range, so whoever asks for the same range
    * (the measurement table, edge snapping) shares them. `slot` names who asks, as for `spectrum`;
    * the range a slot asked for last stays remembered however many others ask (callouts).
    */
   measured(w: Pick<Waveform, 'data' | 't0' | 'dt'>, i0: number, i1: number, slot: string): Measurements | undefined {
     const key = `${w.t0}:${w.dt}:${i0}:${i1}`
-    if (i1 - i0 <= PAGE_MEASURE_MAX) return this.measurements.get(w.data, key, () => ({ m: measure(w.data, i0, i1, w.t0, w.dt) }), slot).m
-    const ref = this.refFor(w.data)
-    if (ref === undefined) return undefined
-    return this.measurements.get(w.data, key, () => {
-      const entry: { m?: Measurements } = {}
-      this.enqueue({ type: 'measure', ref, t0: w.t0, dt: w.dt, i0, i1 }, slot, (r, replaced) => {
-        if (r?.type === 'measure' && r.m) {
-          entry.m = r.m
-          return this.notifyMeasured()
-        }
-        // Not computed: asked for again when needed. Whoever shared the replaced one is told
-        // (later: this runs while the slot asks for its new range), the others ask on the next change
-        this.measurements.delete(w.data, key)
-        if (replaced) queueMicrotask(() => this.notifyMeasured())
-      })
-      return entry
-    }, slot).m
+    if (i1 - i0 <= PAGE_MEASURE_MAX) return this.measurements.get(w.data, key, () => ({ value: measure(w.data, i0, i1, w.t0, w.dt) }), slot).value
+    return this.remote(
+      this.measurements,
+      w.data,
+      key,
+      slot,
+      (ref) => ({ type: 'measure', ref, t0: w.t0, dt: w.dt, i0, i1 }),
+      (r) => (r.type === 'measure' ? r.m : undefined),
+    )
   }
 
-  /** For useSyncExternalStore (with `measuredVersion`): `listener` is called when measurements arrive */
-  subscribeMeasured = (listener: () => void): (() => void) => {
-    this.measuredListeners.add(listener)
-    return () => void this.measuredListeners.delete(listener)
+  /**
+   * For useSyncExternalStore (with `resultsVersion`): `listener` is called when measurements or spectra
+   * arrive from the worker, or when one that was waiting was dropped and has to be asked for again
+   */
+  subscribeResults = (listener: () => void): (() => void) => {
+    this.resultListeners.add(listener)
+    return () => void this.resultListeners.delete(listener)
   }
 
-  measuredVersion = (): number => this.measuredCount
+  /** Changes whenever `subscribeResults` listeners are called */
+  resultsVersion = (): number => this.resultCount
 
   /** End the worker (jobs still running or waiting are dropped); the next job starts a new one */
   stop(): void {
@@ -173,15 +184,53 @@ export class ComputeEngine {
     for (const l of this.listeners) l(state)
   }
 
-  private notifyMeasured(): void {
-    this.measuredCount++
-    for (const l of this.measuredListeners) l()
+  private notifyResults(): void {
+    this.resultCount++
+    for (const l of this.resultListeners) l()
+  }
+
+  /**
+   * A result the worker computes, remembered in `cache` per sample array, `key` and `slot`: undefined
+   * until it arrives (listeners are told), then the value `take` makes of the reply. A job that was not
+   * computed (the worker stopped or failed, the samples are gone, or a newer job of its slot took its
+   * place) leaves nothing behind, so the next ask starts it again; whoever shared a replaced job is
+   * told, as it asks again only when something changes (told later: this runs while the slot asks for
+   * its new job).
+   */
+  private remote<T>(
+    cache: SampleCache<{ value?: T }>,
+    data: Float32Array,
+    key: string,
+    slot: string,
+    job: (ref: string) => ComputeJob,
+    take: (reply: ComputeReply) => T | undefined,
+  ): T | undefined {
+    const ref = this.refFor(data)
+    if (ref === undefined) return undefined
+    return cache.get(
+      data,
+      key,
+      () => {
+        const entry: { value?: T } = {}
+        this.enqueue(job(ref), slot, (r, replaced) => {
+          const value = r ? take(r) : undefined
+          if (value !== undefined) {
+            entry.value = value
+            return this.notifyResults()
+          }
+          cache.delete(data, key)
+          if (replaced) queueMicrotask(() => this.notifyResults())
+        })
+        return entry
+      },
+      slot,
+    ).value
   }
 
   /** Queue a spectrum or measurement; a waiting job of the same slot is replaced (it keeps its turn) */
-  private enqueue(job: ComputeJob, slot: string | undefined, done: Waiting['done']): void {
+  private enqueue(job: ComputeJob, slot: string, done: Waiting['done']): void {
     const waiting: Waiting = { job, slot, done }
-    const i = slot === undefined ? -1 : this.jobs.findIndex((j) => j.slot === slot)
+    const i = this.jobs.findIndex((j) => j.slot === slot)
     if (i < 0) this.jobs.push(waiting)
     else {
       const replaced = this.jobs[i]

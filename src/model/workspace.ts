@@ -4,6 +4,7 @@ import { MEASUREMENT_DEFS } from '../dsp/measureDefs'
 import { sanitizeCallouts, type Callout } from './callouts'
 import { LEGACY_PREFIXES, loadLegacy } from './legacy'
 import { MATH_COLORS, type MathDef } from './math'
+import { upgrade, versionOf, type MigrationStep } from './migrations'
 import { DEFAULT_SPECTRUM_OPTIONS, parseStoredSpectra, type SpectrumDef, type SpectrumOptions } from './spectrum'
 import type { ChannelDisplay, Session } from './types'
 
@@ -31,7 +32,32 @@ export interface Workspace {
   notes: string
 }
 
+/** Version of the saved format; raise it with a step in WORKSPACE_MIGRATIONS when a change cannot be read from older data (see migrations.ts) */
 export const WORKSPACE_VERSION = 1
+
+/** Steps from the version of their number to the next; empty while there is only one version */
+export const WORKSPACE_MIGRATIONS: Record<number, MigrationStep> = {}
+
+/**
+ * Every field of a workspace. A field added to the interface does not compile until it is listed
+ * here, and then the round-trip test in workspace.test.ts fails until `sanitizeWorkspace` keeps it:
+ * a field can no longer be forgotten there and be silently lost when saving and reloading.
+ */
+export const WORKSPACE_FIELDS = {
+  version: true,
+  channels: true,
+  views: true,
+  viewSizes: true,
+  math: true,
+  spectra: true,
+  spectrumOptions: true,
+  callouts: true,
+  cursors: true,
+  window: true,
+  measurements: true,
+  selected: true,
+  notes: true,
+} satisfies Record<keyof Workspace, true>
 
 /**
  * The analysis: the workspace without the view on it (the time window, the selected channel).
@@ -146,14 +172,15 @@ const isColor = (v: unknown): v is string => typeof v === 'string' && /^#[0-9a-f
 const MATH_ID = /^MATH\d+$/
 
 /**
- * Check a workspace that comes from storage or a file against the open session.
- * Unknown or broken parts fall back to the file defaults, so a bad file can never
- * break the viewer.
+ * Check a workspace that comes from storage or a file against the open session, after bringing
+ * it up to the current version. Unknown or broken parts fall back to the file defaults, so a bad
+ * file can never break the viewer.
  */
 export function sanitizeWorkspace(raw: unknown, session: Session): Workspace {
   const def = defaultWorkspace(session)
-  if (!raw || typeof raw !== 'object') return def
-  const r = raw as Partial<Record<keyof Workspace, unknown>>
+  const upgraded = upgrade(raw, versionOf(raw), WORKSPACE_VERSION, WORKSPACE_MIGRATIONS)
+  if (!upgraded) return def
+  const r = upgraded as Partial<Record<keyof Workspace, unknown>>
 
   const math: MathDef[] = (Array.isArray(r.math) ? r.math : [])
     .filter((m): m is MathDef => !!m && typeof m.id === 'string' && MATH_ID.test(m.id) && typeof m.expr === 'string')
@@ -444,7 +471,7 @@ export function parseAnalysisJson(text: string): ParsedAnalysis {
   }
   const d = data as Omit<Partial<AnalysisFile>, 'kind'> & { kind?: string; callouts?: unknown }
   if (d && d.kind === 'analysis' && d.workspace && typeof d.workspace === 'object') {
-    if (typeof d.version === 'number' && d.version > WORKSPACE_VERSION) throw new Error('This analysis file was made by a newer version of Scope Viewer')
+    if (Math.max(versionOf(d), versionOf(d.workspace)) > WORKSPACE_VERSION) throw new Error('This analysis file was made by a newer version of Scope Viewer')
     return { kind: 'analysis', workspace: d.workspace, sessionFile: d.sessionFile, fingerprint: d.fingerprint }
   }
   if (Array.isArray(data) || (d && (d.kind === 'callouts' || Array.isArray(d.callouts)))) {

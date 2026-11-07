@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { MinMaxPyramid } from '../dsp/minmax'
 import type { Callout } from '../model/callouts'
 import type { LiveChannel } from '../model/view'
-import { layoutCallouts, stackRows, type CalloutLayout } from './callouts'
+import { calloutsSvg, layoutCallouts, stackRows, type CalloutLayout } from './callouts'
+import { DARK_THEME, LIGHT_THEME } from './theme'
 
 /** A flat trace at `level` over 0…10 s */
 const channel = (id: string, level: number, visible = true): LiveChannel => {
@@ -88,5 +89,65 @@ describe('stackRows', () => {
   it('keeps a gap between labels in a row', () => {
     expect(stackRows([{ x: 0, w: 40 }, { x: 42, w: 10 }])).toEqual([0, 1])
     expect(stackRows([{ x: 0, w: 40 }, { x: 44, w: 10 }])).toEqual([0, 0])
+  })
+})
+
+describe('callouts as an SVG document for export', () => {
+  const p = layout([channel('CH1', 0), channel('CH2', 0)])
+  const note: Callout = { id: 'n', n: 1, type: 'note', t: 3, channel: 'CH1', dx: 10, dy: -30, text: 'a <b> & "c"', color: '#ffd84d' }
+  const marker: Callout = { id: 'm', n: 2, type: 'marker', t: 6, text: 'edge', color: '#ff5a6a' }
+  const region: Callout = { id: 'r', n: 3, type: 'region', t: 2, t2: 8, text: 'window', color: '#3fb6ff' }
+
+  /** Every opened tag is closed in order, as XML needs (the document is loaded as an image, which refuses anything else) */
+  function wellFormed(xml: string): boolean {
+    const stack: string[] = []
+    for (const m of xml.matchAll(/<(\/?)([A-Za-z][\w:-]*)[^>]*?(\/?)>/g)) {
+      const [, closing, name, selfClosing] = m
+      if (selfClosing) continue
+      if (!closing) stack.push(name)
+      else if (stack.pop() !== name) return false
+    }
+    return stack.length === 0
+  }
+
+  it('is a document of the size of the plot, written without a DOM', async () => {
+    const svg = await calloutsSvg([note, marker, region], p, DARK_THEME)
+    expect(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="400" viewBox="0 0 100 400">')).toBe(true)
+    expect(svg.endsWith('</svg>')).toBe(true)
+    expect(wellFormed(svg)).toBe(true)
+  })
+
+  it('has the texts of the callouts, escaped', async () => {
+    const svg = await calloutsSvg([note, marker, region], p, DARK_THEME)
+    expect(svg).toContain('edge')
+    expect(svg).toContain('window')
+    expect(svg).toContain('a &lt;b&gt; &amp; &quot;c&quot;')
+    expect(svg).not.toContain('<b>')
+  })
+
+  it('shows a formula as its source until it is rendered', async () => {
+    const svg = await calloutsSvg([{ ...note, text: 'decay $e^{-t}$' }], p, DARK_THEME)
+    expect(svg).toContain('e^{-t}')
+    expect(wellFormed(svg)).toBe(true)
+  })
+
+  it('draws the colours as they look in the theme: pale ones darker in the light theme', async () => {
+    const dark = await calloutsSvg([note], p, DARK_THEME)
+    const light = await calloutsSvg([note], p, LIGHT_THEME)
+    expect(dark).toContain('#ffd84d')
+    expect(LIGHT_THEME.ink('#ffd84d')).not.toBe('#ffd84d')
+    expect(light).toContain(LIGHT_THEME.ink('#ffd84d'))
+    expect(light).not.toContain('#ffd84d')
+  })
+
+  it('has no shapes for the handles that are only there on screen', async () => {
+    expect(await calloutsSvg([note, marker, region], p, DARK_THEME)).not.toContain('transparent')
+  })
+
+  it('leaves out callouts of hidden channels, and is an empty document without callouts', async () => {
+    const hidden = layout([channel('CH1', 0, false), channel('CH2', 0)])
+    expect(await calloutsSvg([note], hidden, DARK_THEME)).not.toContain('&lt;b&gt;')
+    const empty = await calloutsSvg([], p, DARK_THEME)
+    expect(empty).toBe('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="400" viewBox="0 0 100 400"></svg>')
   })
 })

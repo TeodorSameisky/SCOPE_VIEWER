@@ -151,8 +151,9 @@ boxes (`dx`, `dy`) are stored in screen units.
 ## 5. Validation: never trust stored data
 
 Everything that comes from outside the running code – `localStorage`, an analysis file, a bundle –
-passes through **`sanitizeWorkspace(raw, session)`** before use. It rebuilds a valid workspace field by
-field, falling back to the file defaults for anything missing or wrong:
+passes through **`sanitizeWorkspace(raw, session)`** before use. It first brings data of an older format
+version up to date (the migration steps, see [State and persistence](state-and-persistence.md#9-migration-of-old-data)),
+then rebuilds a valid workspace field by field, falling back to the file defaults for anything missing or wrong:
 
 - every channel of the session gets display settings; stored values override defaults one field at a
   time, after checks (finite numbers, `scale > 0`, colour must look like `#rrggbb`, label ≤ 100 chars);
@@ -164,6 +165,9 @@ field, falling back to the file defaults for anything missing or wrong:
 - spectra are kept only if their source channel exists; callouts go through `sanitizeCallouts`;
 - the time window is clamped to the zoom limits and rejected if it lies absurdly far from the record;
 - notes are cut at 20,000 characters.
+
+Every field of `Workspace` is listed in `WORKSPACE_FIELDS`, and a test saves a workspace with all of them set and
+loads it again, so a field that this function does not keep fails the build.
 
 The result: a corrupted save, an analysis file made for another file, or data from an older version
 can lose some details but cannot crash the viewer. As a last resort, `ErrorBoundary` offers to discard

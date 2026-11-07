@@ -1,9 +1,8 @@
 import { useEffect, useRef } from 'react'
 import type { ChannelDisplay } from '../model/types'
 import { POSITION_STEP, stepPosition, stepScale, type DisplayPatch } from '../model/view'
-import { KEYS, TOOLS, TOOL_ORDER } from './keymap'
 import type { ScopeActions } from './scopeCommands'
-import type { Action } from './ui/action'
+import { actionsOf, shortcutMap, type Action } from './ui/action'
 
 interface Shortcuts {
   /** Off while a modal dialog (export) is open */
@@ -27,26 +26,14 @@ interface Shortcuts {
 /** Where keys are typed or handled by their own component: no workspace shortcuts there */
 const OWN_KEYS = 'input, textarea, select, [contenteditable="true"], [role="dialog"], [role="alertdialog"], [role="menu"]'
 
-/** The single-key shortcuts of the actions (see KEYS), by `KeyboardEvent.key` in lower case */
+/**
+ * The single-key shortcuts of the actions, by `KeyboardEvent.key` in lower case: the action whose `hint`
+ * is that key (see keymap.ts), so a shortcut is written once and shown and bound from there.
+ */
 function keyActions(a: ScopeActions): Record<string, Action> {
-  const map: Record<string, Action> = {}
-  for (const t of TOOL_ORDER) map[TOOLS[t].key.toLowerCase()] = a.tools[t]
-  const single: [string, Action][] = [
-    [KEYS.fullRecord, a.fullRecord],
-    [KEYS.autoscale, a.autoscale],
-    [KEYS.cursors, a.cursors],
-    [KEYS.readout, a.readout],
-    [KEYS.overview, a.overview],
-    [KEYS.measurements, a.measurements],
-    [KEYS.focus, a.focus],
-    [KEYS.prevCallout, a.prevCallout],
-    [KEYS.nextCallout, a.nextCallout],
-    [KEYS.zoomIn, a.zoomIn],
-    // + without Shift on most keyboards
-    ['=', a.zoomIn],
-    [KEYS.zoomOut, a.zoomOut],
-  ]
-  for (const [k, action] of single) map[k.toLowerCase()] = action
+  const map = shortcutMap(actionsOf(a))
+  // + without Shift on most keyboards
+  map['='] = a.zoomIn
   return map
 }
 

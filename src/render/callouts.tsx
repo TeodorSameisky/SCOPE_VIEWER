@@ -1,6 +1,4 @@
 import type { CSSProperties, DOMAttributes, ReactNode } from 'react'
-import { flushSync } from 'react-dom'
-import { createRoot } from 'react-dom/client'
 import { calloutTitle, type BoxShape, type Callout } from '../model/callouts'
 import { calloutValueText, type SpanMeasure } from '../model/calloutValues'
 import type { Waveform } from '../model/types'
@@ -521,19 +519,17 @@ export function calloutShapes(
   })
 }
 
-/** The callouts as a standalone SVG document in the given theme, for image export */
-export function calloutsSvg(callouts: Callout[], p: CalloutLayout, theme: Theme, geo = layoutCallouts(callouts, p)): string {
+/**
+ * The callouts as a standalone SVG document in the given theme, for image export. The shapes are the
+ * React elements the plot shows, written out as markup without a DOM (so this also runs where there is
+ * none, in tests). The renderer is loaded on first use: only an image export needs it, the page itself never does.
+ */
+export async function calloutsSvg(callouts: Callout[], p: CalloutLayout, theme: Theme, geo = layoutCallouts(callouts, p)): Promise<string> {
+  const { renderToStaticMarkup } = await import('react-dom/server')
   const totalH = viewsHeight(p.boxes)
-  const host = document.createElement('div')
-  const root = createRoot(host)
-  flushSync(() =>
-    root.render(
-      <svg xmlns="http://www.w3.org/2000/svg" width={p.plotW} height={totalH} viewBox={`0 0 ${p.plotW} ${totalH}`}>
-        {calloutShapes(callouts, p, theme, undefined, undefined, geo)}
-      </svg>,
-    ),
+  return renderToStaticMarkup(
+    <svg xmlns="http://www.w3.org/2000/svg" width={p.plotW} height={totalH} viewBox={`0 0 ${p.plotW} ${totalH}`}>
+      {calloutShapes(callouts, p, theme, undefined, undefined, geo)}
+    </svg>,
   )
-  const xml = new XMLSerializer().serializeToString(host.firstElementChild!)
-  root.unmount()
-  return xml
 }

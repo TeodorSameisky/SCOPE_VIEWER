@@ -8,8 +8,8 @@ measurements, storage – happens in the browser. Nothing is uploaded.
 This folder explains **how the code works**. The user-facing manual (features, shortcuts, file
 formats) is the [root README](../README.md); read it first if you have never used the app.
 
-> **Snapshot:** version 0.1.0 · React 19 + TypeScript 6 + Vite 8 · about 20,000 lines of TypeScript
-> including tests · 40 test files, 329 tests.
+> **Snapshot:** version 0.1.0 · React 19 + TypeScript 6 + Vite 8 · about 23,000 lines of TypeScript
+> including tests · 48 test files, 475 tests.
 
 ---
 
@@ -43,7 +43,7 @@ After that, pick what you need:
 | --- | --- |
 | [Architecture](architecture.md) | Goals, layers and their dependency rules, runtime topology (page, workers, storage), the life of a file and of an edit, key design decisions |
 | [Data model](data-model.md) | `Session`, `Workspace`, `Analysis`, `LiveChannel`; coordinates and units; identifiers; limits |
-| [File loading](file-loading.md) | The parse worker, `loadFiles`, the Tektronix `.wfm`/`.isf`/`.set` parsers, bundles and analysis files |
+| [File loading](file-loading.md) | The parse worker, `loadFiles` and the format adapters, the Tektronix `.wfm`/`.isf`/`.set` parsers, bundles and analysis files |
 | [Workers and compute](workers-and-compute.md) | The compute worker protocol, `ComputeEngine` scheduling, the min/max pyramid, result caching |
 | [Analysis](analysis.md) | How measurements, edge detection, the math-channel language and the FFT work |
 | [State and persistence](state-and-persistence.md) | Where state lives, undo/redo, navigation history, autosave, multi-tab sync, kept files |

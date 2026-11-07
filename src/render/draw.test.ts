@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MinMaxPyramid } from '../dsp/minmax'
 import type { ChannelDisplay } from '../model/types'
-import { divToValue, drawTimeAxis, drawView, gridRows, labelEvery, labelStep, layoutTags, offsetText, tagAt, viewAt, viewBoxes, viewsHeight, type TraceInput } from './draw'
+import { cursorMarks, divToValue, drawTimeAxis, drawView, gridRows, labelEvery, labelStep, layoutTags, offsetText, scaleLabels, tagAt, triggerMark, viewAt, viewBoxes, viewsHeight, type TraceInput } from './draw'
 import { THEMES } from './theme'
 
 const display = (id: string, position: number, offset = 0, scale = 1, label = ''): ChannelDisplay => ({ id, label, color: '#fff', visible: true, scale, position, offset })
@@ -304,5 +304,97 @@ describe('grid and scale', () => {
     const labels = recordTexts((ctx) => drawTimeAxis(ctx, 331, 24, 1, -7.95e-3, 2.05e-3, ticks, THEMES.dark))
     expect(labels.map((l) => l.text)).toEqual(['-6 ms', '-4 ms', '-2 ms', '0 s', '2 ms'])
     for (let i = 1; i < labels.length; i++) expect(labels[i].x - labels[i - 1].x).toBeGreaterThan(40)
+  })
+})
+
+describe('scale labels', () => {
+  it('are the round values of the channel within the view, at the height of their grid row', () => {
+    // 20 px per division, 1 V/div: a label for every volt from -4 to 4 (±5 sit on the edge and are left out)
+    const labels = scaleLabels(display('CH1', 0), 'V', H)
+    expect(labels).toHaveLength(9)
+    // from -4 V at the bottom to 4 V at the top
+    expect(labels.map((l) => l.y)).toEqual([180, 160, 140, 120, 100, 80, 60, 40, 20])
+    expect(labels[0].text).toBe('-4 V')
+    expect(labels.find((l) => l.y === 100)?.text).toBe('0 V')
+  })
+
+  it('move with the position and the offset of the channel', () => {
+    // 2 divisions up: the zero level is at y = 60
+    expect(scaleLabels(display('CH1', 2), 'V', H).find((l) => l.text === '0 V')?.y).toBe(60)
+    // offset 3 V at the centre: the value at the centre line is 3 V
+    expect(scaleLabels(display('CH1', 0, 3), 'V', H).find((l) => l.y === 100)?.text).toBe('3 V')
+  })
+
+  it('keep their distance in a short view, by taking every 2nd, 5th … row', () => {
+    const labels = scaleLabels(display('CH1', 0), 'V', 60)
+    for (let i = 1; i < labels.length; i++) expect(labels[i].y - labels[i - 1].y).toBeGreaterThanOrEqual(15)
+  })
+
+  it('leave out values closer than 5 px to the edges', () => {
+    for (const l of scaleLabels(display('CH1', 0.2), 'V', H)) {
+      expect(l.y).toBeGreaterThanOrEqual(5)
+      expect(l.y).toBeLessThanOrEqual(H - 5)
+    }
+  })
+})
+
+describe('trigger level', () => {
+  const traceOf = (d: ChannelDisplay) => [{ display: d }]
+
+  it('has its arrow at the level, with the source and the slope', () => {
+    const m = triggerMark({ sourceId: 'CH4', level: 1.5, slope: 'RISE' }, traceOf(display('CH4', 0)), H)!
+    // 1.5 V at 20 px per division: 30 px above the centre
+    expect(m).toMatchObject({ level: 70, y: 70, off: 0, text: 'C4 ↗' })
+    expect(triggerMark({ sourceId: 'CH4', level: 0, slope: 'FALL' }, traceOf(display('CH4', 0)), H)!.text).toBe('C4 ↘')
+  })
+
+  it('is taken from the trace the trigger source has (its position, scale and offset)', () => {
+    const m = triggerMark({ sourceId: 'CH1', level: 2, slope: 'EITHER' }, traceOf(display('CH1', -1, 1, 0.5)), H)!
+    // (2 - 1) / 0.5 + (-1) = 1 division above the centre
+    expect(m.y).toBe(80)
+    expect(m.text).toBe('C1 ↕')
+  })
+
+  it('stays at the edge, pointing towards a level outside the view', () => {
+    const above = triggerMark({ sourceId: 'CH1', level: 100 }, traceOf(display('CH1', 0)), H)!
+    expect(above).toMatchObject({ off: -1, y: 6 })
+    expect(above.level).toBeLessThan(0)
+    const below = triggerMark({ sourceId: 'CH1', level: -100 }, traceOf(display('CH1', 0)), H)!
+    expect(below).toMatchObject({ off: 1, y: H - 6 })
+    expect(below.level).toBeGreaterThan(H)
+  })
+
+  it('has no arrow without a level or without its source among the traces', () => {
+    expect(triggerMark({ sourceId: 'CH1' }, traceOf(display('CH1', 0)), H)).toBeUndefined()
+    expect(triggerMark({ sourceId: 'CH9', level: 1 }, traceOf(display('CH1', 0)), H)).toBeUndefined()
+  })
+
+  it('has no slope in its text when the setup has none', () => {
+    expect(triggerMark({ sourceId: 'CH1', level: 0 }, traceOf(display('CH1', 0)), H)!.text).toBe('C1')
+  })
+})
+
+describe('cursor marks', () => {
+  const wave = { id: 'CH1', data: Float32Array.from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), t0: 0, dt: 1, yUnit: 'V', xUnit: 's' }
+  const traceList = [{ display: display('CH1', 0), wave }]
+  const win = { tStart: 0, tEnd: 10, plotW: 100 }
+
+  it('put each line on a pixel centre, with a dot where the source trace is', () => {
+    const marks = cursorMarks({ a: 2, b: 5, sourceId: 'CH1' }, traceList, win, H)
+    expect(marks.map((m) => [m.name, m.x])).toEqual([['A', 20.5], ['B', 50.5]])
+    // value 2 V at 20 px per division, 40 px above the centre
+    expect(marks[0].dot).toEqual({ y: 100 - 40, color: '#fff' })
+  })
+
+  it('leave out the cursors outside the window', () => {
+    expect(cursorMarks({ a: -3, b: 5, sourceId: 'CH1' }, traceList, win, H).map((m) => m.name)).toEqual(['B'])
+    expect(cursorMarks({ a: 20, b: 30, sourceId: 'CH1' }, traceList, win, H)).toEqual([])
+  })
+
+  it('have no dot without a source, or where the source has no value', () => {
+    expect(cursorMarks({ a: 2, b: 5, sourceId: 'CH9' }, traceList, win, H).every((m) => m.dot === undefined)).toBe(true)
+    // before the record: no value
+    const early = { ...wave, t0: 5 }
+    expect(cursorMarks({ a: 2, b: 7, sourceId: 'CH1' }, [{ display: display('CH1', 0), wave: early }], win, H).map((m) => m.dot !== undefined)).toEqual([false, true])
   })
 })

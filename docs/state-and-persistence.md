@@ -72,7 +72,7 @@ no help from the components:
 
 - **React components** read it with `useAnalysis()` (`useSyncExternalStore`) and change it with `store.update`;
   `PlotArea` does this itself, through `AnalysisContext`, instead of receiving the fields and setters as props,
-- **undo** subscribes and compares/stores JSON snapshots (see §3),
+- **undo** subscribes and keeps snapshots of the immutable analysis, cut into steps by the `StepGrouper` (see §3),
 - **autosave** subscribes and serialises it (see §5),
 - **tab sync** is decided by the store (`changedAt`, `adopt`, see §6).
 
@@ -107,8 +107,9 @@ over the initial value so **new fields get their defaults** when an old save is 
 
 ## 3. Undo and redo
 
-Code: [`UndoHistory`](../src/model/undoHistory.ts) (data structure) + [`useUndoHistory`](../src/components/useUndoHistory.ts)
-(when to cut steps).
+Code: [`UndoHistory`](../src/model/undoHistory.ts) (data structure), [`StepGrouper`](../src/model/stepGrouping.ts)
+(the rules that cut steps, pure and tested) and [`useUndoHistory`](../src/components/useUndoHistory.ts) (passes the
+page's events to them).
 
 ### The data structure
 
@@ -118,14 +119,18 @@ Code: [`UndoHistory`](../src/model/undoHistory.ts) (data structure) + [`useUndoH
 - `past` – steps done, each holding the document **before** the step; `future` – steps undone.
 - `change(doc)` is called on every change. The first change after a `commit()` **opens a step** (the
   state before it goes on the stack); further changes join that step.
-- `commit()` closes the step. A step that ends exactly where it started (compared as JSON – e.g. a drag
-  back to the starting point) is removed, so it leaves no empty step.
+- `commit()` closes the step. A step that ends exactly where it started (e.g. a drag back to the starting
+  point) is removed, so it leaves no empty step. Documents are compared by content with
+  [`sameContent`](../src/util/sameContent.ts), which gives the answer JSON would but skips the parts two
+  snapshots share – edits keep what they do not change – so a comparison costs about as much as the change.
 - Limit: 200 steps. `reset(doc)` clears everything – used when another tab's work is taken over.
 
 ### Deciding what is one step
 
 `useUndoHistory` **subscribes to the analysis store**, so a change is recorded the moment it is made (not after the
-next render), and decides *when to commit*:
+next render). *When to commit* is decided by a `StepGrouper`, a small class with no DOM and no React: the hook
+passes it the page's events (`pointerDown`, `pointerUp`, `keyDown`, `changed`, `setHold`) and it calls `commit`.
+The rules:
 
 | Event | Effect |
 | --- | --- |
@@ -133,10 +138,11 @@ next render), and decides *when to commit*:
 | `pointerup` | start the idle timer (the pointer is no longer held) |
 | key press outside a text field | commit (ignores repeats and keys during a drag) |
 | 700 ms idle with the pointer up | commit |
-| `hold = true` | never commit — used while a **new callout** is being created, so adding it *and* typing its text is one step |
+| `hold = true` | never commit — used while a **new callout** is being created, so adding it *and* typing its text is one step; ending the hold commits |
 
 Result: a drag, a wheel gesture or a burst of typing is **one undo step**; in text fields the browser's
-own undo applies as usual.
+own undo applies as usual. Because the rules are a class of their own, `stepGrouping.test.ts` runs them with
+fake timers – the drag, the held key, the callout being typed – which used to be checked only by hand.
 
 ### Undo that moves the view
 
@@ -278,6 +284,26 @@ the new key first; if absent, `loadLegacy(fingerprint)` reads the old keys and
 on the next save (`LEGACY_PREFIXES`). `legacy.ts` can be deleted once no browser is expected to hold
 such data.
 
-The workspace format has a `version` (`WORKSPACE_VERSION = 1`). Files with a *newer* version are
-rejected with a clear message; additive changes do not need a bump because `sanitizeWorkspace` fills
-anything missing from the file defaults.
+### The version of the format
+
+The workspace format has a `version` (`WORKSPACE_VERSION = 1`). Three things keep it safe to change:
+
+- **Additive changes need nothing.** `sanitizeWorkspace` fills anything missing from the file defaults and
+  ignores what it does not know, so a new field does not break data saved before it.
+- **Incompatible changes get a migration step.** When a field is renamed, split or meant differently, raise
+  `WORKSPACE_VERSION` and add the function that turns data of the previous version into the new one to
+  `WORKSPACE_MIGRATIONS` (key: the version it starts from). `sanitizeWorkspace` first brings the data up to
+  date with `upgrade` ([`migrations.ts`](../src/model/migrations.ts)), step by step, without changing what it is
+  given; data without a version counts as the first. If a step fails, or one is missing, the data is treated as
+  broken and the file defaults are used – the same as for any other bad data. Everything that reads a workspace
+  goes through `sanitizeWorkspace` – autosave, analysis files, bundles – so they all get migrated the same way.
+  There are no steps yet, because there is only one version; a test requires one for every version that exists.
+- **Files from a newer version are refused.** `parseAnalysisJson` rejects an analysis file whose `version`, or
+  whose workspace's, is newer than the app knows, with a clear message, rather than reading half of it.
+
+**No field can be forgotten.** `WORKSPACE_FIELDS` ([`workspace.ts`](../src/model/workspace.ts)) lists every field
+of `Workspace`, and does not compile without one for each. The round-trip test saves a workspace with every field
+set, loads it and compares – so a field `sanitizeWorkspace` does not keep fails a test. (A schema library
+would give the shape checks, but not the part that matters here: the values depend on the open session – channel
+ids, the record's length – so they are checked by hand either way. The list and the test cover the gap a
+library would have closed, without a dependency.)

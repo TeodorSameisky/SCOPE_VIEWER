@@ -87,6 +87,7 @@ interface Action {
   disabled?: boolean
   checked?: boolean      // a setting that is on
   keepFocus?: boolean    // do not steal focus from a text field
+  palette?: PaletteInfo  // its entry in the command palette: { id, group, label?, keywords? }
   run: () => void
 }
 ```
@@ -96,19 +97,26 @@ flowchart LR
   A["Action<br/>(defined in Scope.tsx,<br/>typed by ScopeActions)"]
   A --> T["ActionButton<br/>toolbar"]
   A --> M["menuItem(a)<br/>context & drop-down menus"]
-  A --> P["command(id, group, a)<br/>command palette"]
-  A --> K["useShortcuts<br/>keyboard"]
+  A -- "palette info" --> P["paletteEntries(actions, group)<br/>command palette"]
+  A -- "one-character hint" --> K["shortcutMap(actions)<br/>useShortcuts: keyboard"]
 ```
 
 - `ScopeActions` (in [`scopeCommands.ts`](../src/components/scopeCommands.ts)) is the **catalogue**: tools,
   undo/redo, back, saved view, full record, autoscale, zoom, cursors, readout, overview, measurements, focus,
   callout stepping, palette, file operations, exports.
-- `menuItem(a)` and `command(id, group, a)` adapt an action for a menu or the palette. `command` returns
-  `false` for a disabled action, so it simply **drops out of the palette**.
+- `menuItem(a)` adapts an action for a menu. The palette and the keyboard are **derived** from the whole
+  catalogue: `actionsOf(actions)` lists every action (also those inside the `tools` and `exports` records),
+  `paletteEntries(list, group)` turns the ones with `palette` info into palette commands – the id, group and any
+  different wording or search keywords are written on the action itself – and `shortcutMap(list)` maps each
+  one-character `hint` to its action. `command(id, group, a)` (used by both) returns `false` for a disabled
+  action, so it **drops out of the palette**. A new action therefore appears in the palette and on the keyboard
+  by being defined; nothing has to be registered in a second place, so the two cannot go out of step (the tests in
+  `action.test.ts` check the derivation).
 - **Shortcuts** are written once in [`keymap.ts`](../src/components/keymap.ts) (`KEYS`, `TOOLS`, `HELP_ROWS`),
   shown on buttons and in menus, and bound by `useShortcuts`, which maps `KeyboardEvent.key` (lower-cased)
-  to an action. Shortcuts are disabled inside inputs, dialogs and menus (`OWN_KEYS`) and while the export
-  dialog is open.
+  to an action (`shortcutMap`). Longer shortcuts (`Ctrl+Z`, `Backspace`, the arrows) are only shown and are
+  handled by hand in `useShortcuts`. Shortcuts are disabled inside inputs, dialogs and menus (`OWN_KEYS`) and
+  while the export dialog is open.
 
 ### The `ScopeApi`
 
@@ -124,7 +132,7 @@ every render and passes it to the menu builders in `scopeCommands.ts`:
 | `calloutMenu` | a callout in the plot or in the Callouts panel |
 | `overviewMenu`, `timebaseMenu` | overview strip, the Horizontal box |
 | `rangeChoices` | the screen/cursors/record choice shared by the measurement table and spectrum |
-| `paletteCommands(api)` | the command palette: groups *View, Panel, Reference, Edit, Callout, Measurements, Channel, File, Appearance* |
+| `paletteCommands(api)` | the command palette: the actions with palette info (groups *Tool, View, Edit, Callout, File, Export*, in this order) and, between them, the commands that are not actions – panels, reference pages, the callouts and channels of this session, measurements, appearance |
 
 Because menus are built from the *current* API on each use, they are always up to date and need no
 subscriptions. A menu entry list may contain `false`/`null`/`''`, which are skipped
@@ -151,7 +159,19 @@ type Drag =
 
 `onPointerDown` decides which drag starts; `onPointerMove` updates it; `onPointerUp` commits it; Esc or a
 cancelled pointer calls `cancelDrag`, which **puts everything back** (a moved tag, a dragged cursor, a
-pan). Decision order in `onPointerDown`:
+pan).
+
+The *rules* of what a gesture means are not in the component but in [`render/plotInteraction.ts`](../src/render/plotInteraction.ts),
+as pure functions of the pointer position and the plot geometry: `Drag` (the union above), `nearestTrace`, `divAtY`,
+`tagPosition`, `noteAnchor`, `boxCallout` (which trace a new box belongs to, snapped to edges), `rectZoomPatches`
+(the V/div and offset that make a zoom rectangle fill its view) and **`releaseOutcome(drag, context)`**. The last one
+answers *what releasing the pointer does* with a plain value – `none`, `dropTag`, `addCallout`, `zoom` (with the
+vertical patches of a zoom rectangle) or `select` – and `onPointerUp` in `PlotArea` only builds the context from its
+refs and props and carries the outcome out (`onZoomTo`, `onAddCallout`, …). That is where the tool-by-tool rules
+live: a drag under `MIN_BOX_PX` (5 px) is a click; a rectangle stays what it was started as, even if the tool is
+changed during the drag; a click with Zoom zooms in, with Alt out; a click with Pan selects the trace under the
+pointer. `plotInteraction.test.ts` covers each. Decision order in `onPointerDown` (still in the component, as it
+needs the DOM event and the refs):
 
 1. Right button / Ctrl+click on Mac → context menu (not a drag). Middle button → pan, with any tool.
 2. A **channel tag** under the pointer → select the channel and start a `tag` drag (every tool).
@@ -183,7 +203,7 @@ Wheel behaviour (`onWheel`, registered non-passive so it can `preventDefault`):
 **Edge snapping.** For markers, regions, boxes and spans, `PlotArea` builds an *edge finder* per channel
 (`edgesOf`): it asks the compute engine for the measurements of the visible range (the same ones the
 table uses, via slot `edges:<id>`) to get the 10/50/90 % levels, then `nearestEdge` within 8 px. While a
-long range is still being measured, nothing snaps; when the result arrives (`measuredVersion`) the finder
+long range is still being measured, nothing snaps; when the result arrives (`useEngineResults`) the finder
 is rebuilt. Alt turns snapping off.
 
 **Selecting a trace** (`nearestTrace`): the visible trace in the view at the pointer whose value at that time

@@ -40,11 +40,11 @@ import { MEASURE_RANGES, RANGE_LABEL, RANGE_SHORT, type CursorState, type Displa
 import { valueAt } from '../render/draw'
 import { si } from '../util/format'
 import { channelName, perDiv } from '../util/names'
-import { KEYS, TOOL_ORDER } from './keymap'
+import { KEYS } from './keymap'
 import type { PlotPoint } from './PlotArea'
 import type { ReferenceSection } from './ReferencePanel'
 import type { PanelId } from './Rail'
-import { command, menuItem, type Action } from './ui/action'
+import { actionsOf, menuItem, paletteEntries, type Action } from './ui/action'
 import type { Command } from './ui/commandSearch'
 import type { MenuEntry } from './ui/menuContext'
 import { THEME_LABEL, THEME_PREFERENCES, type ThemePreference } from './ui/themeContext'
@@ -407,21 +407,12 @@ export function paletteCommands(api: ScopeApi): Command[] {
   const a = api.actions
   const togglePanel = (id: PanelId) => () => api.setPanel(api.panel === id ? null : id)
   const firstId = api.session.channels[0].wave.id
+  // The actions bring their own palette entry (`Action.palette`); the commands that are not actions
+  // (panels, the callouts and channels of this session, measurements) are listed here
+  const actions = actionsOf(a)
   const entries: (Command | false)[] = [
-    ...TOOL_ORDER.map((t) => command(`tool:${t}`, 'Tool', a.tools[t], { label: `${a.tools[t].label} tool`, keywords: t === 'span' ? 'delta t Δt' : undefined })),
-
-    command('view:full', 'View', a.fullRecord),
-    command('view:autoscale', 'View', a.autoscale, { keywords: 'fit vertical scale autoset' }),
-    command('view:back', 'View', a.back),
-    command('view:saved', 'View', a.savedView, { keywords: 'as on the scope home' }),
-    command('view:in', 'View', a.zoomIn),
-    command('view:out', 'View', a.zoomOut),
-    command('view:cursors', 'View', a.cursors),
-    command('view:cursors-here', 'View', a.cursorsHere),
-    command('view:readout', 'View', a.readout),
-    command('view:overview', 'View', a.overview),
-    command('view:measurements', 'View', a.measurements),
-    command('view:focus', 'View', a.focus, { label: 'Focus mode: hide all panels' }),
+    ...paletteEntries(actions, 'Tool'),
+    ...paletteEntries(actions, 'View'),
 
     { id: 'panel:cursors', group: 'Panel', label: 'Cursor readouts', icon: Ruler, checked: api.panel === 'cursors', run: togglePanel('cursors') },
     { id: 'panel:callouts', group: 'Panel', label: 'Callouts', icon: StickyNote, checked: api.panel === 'callouts', run: togglePanel('callouts') },
@@ -430,8 +421,7 @@ export function paletteCommands(api: ScopeApi): Command[] {
     { id: 'help:math', group: 'Reference', label: 'Math functions', icon: BookOpen, run: () => api.openReference('math') },
     { id: 'help:spectrum', group: 'Reference', label: 'Spectrum, windows and dB', keywords: 'fft', icon: BookOpen, run: () => api.openReference('spectrum') },
 
-    command('edit:undo', 'Edit', a.undo),
-    command('edit:redo', 'Edit', a.redo),
+    ...paletteEntries(actions, 'Edit'),
     api.mathDefs.length < MAX_MATH && { id: 'edit:math', group: 'Edit', label: 'Add math channel', keywords: 'expression difference power', icon: Plus, run: api.addMath },
     api.spectra.length < MAX_SPECTRA && {
       id: 'edit:fft',
@@ -441,8 +431,7 @@ export function paletteCommands(api: ScopeApi): Command[] {
       icon: AudioLines,
       run: api.addSpectrum,
     },
-    command('callout:prev', 'Callout', a.prevCallout),
-    command('callout:next', 'Callout', a.nextCallout),
+    ...paletteEntries(actions, 'Callout'),
     ...[...api.callouts]
       .sort((x, y) => calloutSpan(x)[0] - calloutSpan(y)[0])
       .map((c): Command => ({ id: `callout:${c.id}`, group: 'Callout', label: `Go to ${calloutTitle(c)}`, keywords: `${calloutName(c)} ${c.text}`, color: c.color, run: () => api.jumpToCallout(c) })),
@@ -487,14 +476,8 @@ export function paletteCommands(api: ScopeApi): Command[] {
     }),
     api.displays.some((d) => !d.visible) && { id: 'ch:all', group: 'Channel', label: 'Show all channels', icon: Eye, run: api.showAll },
 
-    command('file:open', 'File', a.open),
-    command('file:open-analysis', 'File', a.openAnalysis),
-    command('file:save-analysis', 'File', a.saveAnalysis),
-    command('file:save-bundle', 'File', a.saveBundle, { keywords: 'bundle scopeview' }),
-    command('file:reset', 'File', a.reset),
-    command('file:install', 'File', a.install, { keywords: 'app offline' }),
-    command('file:close', 'File', a.close),
-    ...(Object.keys(a.exports) as ExportKind[]).map((k) => command(`export:${k}`, 'Export', a.exports[k], { label: `Export ${a.exports[k].label}` })),
+    ...paletteEntries(actions, 'File'),
+    ...paletteEntries(actions, 'Export'),
 
     ...THEME_PREFERENCES.map(
       (t): Command => ({

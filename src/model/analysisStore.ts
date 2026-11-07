@@ -1,3 +1,4 @@
+import { sameContent } from '../util/sameContent'
 import type { Analysis } from './workspace'
 
 /**
@@ -58,7 +59,7 @@ export class AnalysisStore {
   adopt(next: Analysis, changedAt: number): boolean {
     if (changedAt <= this.stamp) return false
     this.stamp = changedAt
-    if (next === this.doc || JSON.stringify(next) === JSON.stringify(this.doc)) return false
+    if (sameContent(next, this.doc)) return false
     this.doc = next
     this.notify()
     return true

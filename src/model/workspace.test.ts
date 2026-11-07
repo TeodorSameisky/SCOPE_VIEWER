@@ -11,6 +11,10 @@ import {
   sanitizeWorkspace,
   saveWorkspace,
   workspaceOf,
+  WORKSPACE_FIELDS,
+  WORKSPACE_MIGRATIONS,
+  WORKSPACE_VERSION,
+  type Workspace,
 } from './workspace'
 
 /** In-memory localStorage with an optional size limit (in characters) */
@@ -224,6 +228,71 @@ describe('analysis files', () => {
     expect(() => parseAnalysisJson('{"hello":1}')).toThrow(/Not a Scope Viewer/)
     expect(() => parseAnalysisJson('nope')).toThrow(/not valid JSON/)
     expect(() => parseAnalysisJson(JSON.stringify({ kind: 'analysis', version: 99, workspace: {} }))).toThrow(/newer version/)
+  })
+})
+
+describe('the saved format', () => {
+  /** A workspace with every field set to something other than its default, as a user's could be */
+  function full(): Workspace {
+    return {
+      version: WORKSPACE_VERSION,
+      channels: [
+        { id: 'CH1', label: 'Input', color: '#112233', visible: false, scale: 0.5, position: -1.5, offset: 0.25 },
+        { id: 'CH2', label: 'Output', color: '#445566', visible: true, scale: 2, position: 1, offset: -0.5 },
+        { id: 'MATH1', label: 'Sum', color: '#ff6ec7', visible: true, scale: 4, position: 0.5, offset: 0.1 },
+      ],
+      views: [['CH1', 'MATH1'], ['CH2']],
+      viewSizes: [0.25, 0.75],
+      math: [{ id: 'MATH1', expr: 'CH1 + CH2', unit: 'V' }],
+      spectra: [{ id: 'FFT1', source: 'CH2', window: 'blackmanHarris', visible: false }],
+      spectrumOptions: { range: 'cursors', scale: 'linear', axis: 'linear', peaks: 10 },
+      callouts: [
+        { id: 'n1', n: 1, type: 'note', t: -5e-4, channel: 'CH1', dx: 12, dy: -30, text: 'ringing', color: '#ff9d2e', showValue: true },
+        { id: 'n2', n: 2, type: 'note', t: -4e-4, view: 1, div: 1.5, dx: 3, dy: 4, text: 'free note', color: '#ffd84d' },
+        { id: 'm1', n: 3, type: 'marker', t: -3e-4, text: 'edge', color: '#ff5a6a' },
+        { id: 'r1', n: 4, type: 'region', t: -4e-4, t2: -2e-4, text: 'burst', color: '#3fb6ff', measure: { channel: 'CH2', keys: ['max', 'rms'] } },
+        { id: 'b1', n: 5, type: 'box', t: -4e-4, t2: -3e-4, channel: 'CH2', v: -1, v2: 2, text: 'glitch', color: '#ff9d2e', shape: 'ellipse', measure: { channel: 'CH2', keys: ['pkpk'] } },
+        { id: 'b2', n: 6, type: 'box', t: -4e-4, t2: -3e-4, view: 0, div: -1, div2: 2, text: '', color: '#ff9d2e' },
+        { id: 's1', n: 7, type: 'span', t: -4e-4, t2: -2e-4, channel: 'CH1', channel2: 'CH2', dy: 20, text: 'delay', color: '#c86bff', showValue: true },
+      ],
+      cursors: { on: true, a: -4e-4, b: -2e-4, source: 'CH2' },
+      window: { start: -5e-4, end: -2e-4 },
+      measurements: { keys: ['rms', 'max'], range: 'cursors', exclude: ['CH2'] },
+      selected: 'MATH1',
+      notes: 'Event at 3 ms',
+    }
+  }
+
+  it('is listed field by field, and the example below has each of them', () => {
+    expect(Object.keys(full()).sort()).toEqual(Object.keys(WORKSPACE_FIELDS).sort())
+  })
+
+  it('keeps everything through saving and loading, so a field cannot be forgotten in the validation', () => {
+    const s = session()
+    const ws = full()
+    expect(sanitizeWorkspace(JSON.parse(JSON.stringify(ws)), s)).toEqual(ws)
+    expect(saveWorkspace(s, ws).ok).toBe(true)
+    expect(loadWorkspace(s)).toMatchObject({ source: 'saved', workspace: ws })
+    const parsed = parseAnalysisJson(analysisToJson(s, ws))
+    expect(parsed.kind === 'analysis' && sanitizeWorkspace(parsed.workspace, s)).toEqual(ws)
+  })
+
+  it('has a migration step from every earlier version', () => {
+    for (let v = 1; v < WORKSPACE_VERSION; v++) expect(WORKSPACE_MIGRATIONS[v], `from version ${v}`).toBeTypeOf('function')
+    expect(Object.keys(WORKSPACE_MIGRATIONS).map(Number).every((v) => v >= 1 && v < WORKSPACE_VERSION)).toBe(true)
+  })
+
+  it('reads data written before the version was stored as the first version', () => {
+    const { version: _version, ...old } = full()
+    expect(sanitizeWorkspace(old, session())).toEqual(full())
+  })
+
+  it('refuses analysis files of a newer version, whether the file or its workspace says so', () => {
+    const newer = (file: object, workspace: object) => () => parseAnalysisJson(JSON.stringify({ kind: 'analysis', workspace, ...file }))
+    expect(newer({ version: WORKSPACE_VERSION + 1 }, {})).toThrow(/newer version/)
+    expect(newer({ version: WORKSPACE_VERSION }, { version: WORKSPACE_VERSION + 1 })).toThrow(/newer version/)
+    expect(newer({ version: WORKSPACE_VERSION }, { version: WORKSPACE_VERSION })).not.toThrow()
+    expect(newer({}, {})).not.toThrow()
   })
 })
 

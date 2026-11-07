@@ -32,30 +32,41 @@ tests that need them (see below). The expected names are `SessionSample/Tek000.t
 
 ## 2. Tests
 
-[Vitest](https://vitest.dev/), plain unit tests next to the code (`foo.ts` → `foo.test.ts`). There are 40
-test files and 329 tests, and they run in a few seconds.
+[Vitest](https://vitest.dev/), plain unit tests next to the code (`foo.ts` → `foo.test.ts`). There are 48
+test files and 475 tests, and they run in a few seconds.
 
-**What is tested:** the parts that are pure and where bugs are subtle – parsers, measurements and edge
-finding, the expression language, FFT and peak search, window/view geometry (`view.ts`, `draw.ts`), the
-workspace (sanitising, defaults), **every edit of the analysis (`edits.ts`) and the analysis store**, the undo
-history, the compute engine and core, callout layout, values and navigation helpers, colour handling,
-formatting, command search, menu normalisation, the measurement rows.
+**What is tested:** the parts that are pure and where bugs are subtle – parsers and the whole path from
+bytes to `Session` (`loadFiles`, on synthetic files), measurements and edge finding, the expression language,
+FFT and peak search, window/view geometry (`view.ts`, `draw.ts`), the workspace (sanitising, defaults, the
+saved format and its migrations), **every edit of the analysis (`edits.ts`) and the analysis store**, the undo
+history and **the rules that cut it into steps** (`stepGrouping.ts`), the compute engine and core, callout
+layout and the SVG they export as, **what a pointer gesture on the plot does** (`plotInteraction.ts`), the
+actions behind the palette and the keyboard, values and navigation helpers, colour handling, formatting,
+command search, menu normalisation, the measurement rows.
 
 **What is not tested:** React components (there is no DOM environment and no component test library).
 That is why logic is pulled out of components into plain modules – `edits.ts`, `analysisStore.ts`,
-`commandSearch.ts`, `wheel.ts`, `menuContext.ts`, `view.ts` – where it can be tested. When you add behaviour
-to a component, ask whether the decision part can be a pure function. What still lives only in components, and
-is therefore checked by hand in the browser, is the pointer handling of `PlotArea` and the undo grouping by
-gestures in `useUndoHistory`.
+`stepGrouping.ts`, `plotInteraction.ts`, `commandSearch.ts`, `wheel.ts`, `menuContext.ts`, `view.ts` – where it
+can be tested. When you add behaviour to a component, ask whether the decision part can be a pure function.
+What is left in components, and is therefore checked by hand in the browser, is the wiring: that `PlotArea`
+passes the pointer's position and the tool to `releaseOutcome` and carries out what comes back, that
+`useUndoHistory` feeds the store's changes to the grouper, the layout of the panels.
 
 **Patterns worth knowing:**
 
 - **A fake worker.** `engine.test.ts` defines `FakeWorker implements WorkerLike` that runs `ComputeCore`
   in place, copying messages with `structuredClone` and replying asynchronously, as a real worker would.
   The whole scheduling logic (slot replacement, ordering, stale replies, restart after failure) is tested this way.
-- **Sample-dependent tests.** `parsers/session.test.ts` and `parsers/tekIsf.test.ts` have blocks guarded
+- **Synthetic files.** [`parsers/fixtures.ts`](../src/parsers/fixtures.ts) builds small `.wfm`, `.isf`,
+  setup and `.tss` files in code, so the parser and `loadFiles` tests run everywhere – in CI as well – without
+  binary files in the repository.
+- **Sample-dependent tests.** `parsers/session.test.ts` and `parsers/tekIsf.test.ts` may have blocks guarded
   with `describe.skipIf(!hasSample)` that read real files from `SessionSample/`. They are skipped when
-  the files are absent – which is always the case in CI, because `SessionSample/` is not committed.
+  the files are absent – which is always the case in CI, because `SessionSample/` is not committed. They are
+  an extra check against real instruments, not the only one.
+- **A list of all fields.** `WORKSPACE_FIELDS` in `workspace.ts` names every field of the saved format, and the
+  round-trip test in `workspace.test.ts` saves a workspace with every field set and loads it again, so a new
+  field that `sanitizeWorkspace` forgets to keep fails a test instead of being lost silently.
 - **Cross-file consistency tests.** `render/themeSync.test.ts` reads `styles.css` and `index.html` to make
   sure the CSS tokens and the canvas theme agree. If you add a theme colour that also exists in CSS, extend it.
 - **Constants as documentation.** `fft.test.ts` checks the documented window properties (ENBW, scalloping
@@ -96,23 +107,30 @@ These are observed in the code, not imposed by tooling – follow them so new co
 
 ### Add a file format
 
-Example: Rigol `.wfm`/`.csv`. Follow `tekWfm.ts` / `tekIsf.ts`.
+Example: Rigol `.wfm`/`.csv`. A family of instruments is one **`FormatAdapter`**
+([`formats.ts`](../src/parsers/formats.ts)); follow `tektronix.ts`, `tekWfm.ts` and `tekIsf.ts`.
 
 1. **Parser** – create `src/parsers/rigolXxx.ts` exporting `isRigolXxx(buf: ArrayBuffer): boolean` (a cheap
    signature check, so detection does not rely on the extension) and `parseRigolXxx(buf, name): Waveform`.
    Convert samples to physical units in a `Float32Array`; set `t0` (time of the first sample relative to the
    trigger), `dt`, `yUnit`, `xUnit`. **Validate** and `throw new Error(\`${name}: …\`)` with a precise message
-   for anything unsupported – `loadFiles` turns it into a warning and carries on with other files.
-2. **Register it** in the entry loop of `loadFiles` ([`session.ts`](../src/parsers/session.ts)): a branch like
-   the `.wfm` / `.isf` ones that calls your parser, assigns the id with `channelIdFromName`, and records the kind.
-3. **Session details** – if the format has a setup/metadata file, extend `buildSession` or add a parallel
-   reader that fills `ChannelDisplay`, `horizontal`, `trigger`, `cursors`. If it has none, `buildSession` already
-   fits unscaled channels sensibly. Choose the `format` display name and colours.
-4. **Let the user open it:** add the extension to `ACCEPT` in [`App.tsx`](../src/App.tsx), to `file_handlers` in
+   for anything unsupported – the adapter turns it into a warning and carries on with the other files.
+2. **Adapter** – create `src/parsers/rigol.ts` exporting a `FormatAdapter`: `isWaveform(file)` (the waveform
+   files, by name or content), `recognises(file)` (those and what goes with them: a setup, a screenshot) and
+   `load(entries, ctx)`. `load` reads each entry (your parser; the id from `channelIdFromName`), collects what it
+   could not read as `problems` and puts them in `session.warnings`, and throws `reasonFor(problems)` only when
+   not a single waveform was read. Choose the `format` display name and the colours.
+3. **Register it** with one line in `ADAPTERS` in [`session.ts`](../src/parsers/session.ts). The first adapter
+   that finds a waveform of its own among the files loads them all; `loadFiles` itself does not change.
+4. **Session details** – if the format has a setup/metadata file, fill `ChannelDisplay`, `horizontal`, `trigger`
+   and `cursors` from it (`buildSession` in `tektronix.ts` shows how for the SCPI setups). Without one, channels
+   without a V/div can be fitted with `fitBand`, as Tektronix waveforms without a setup are.
+5. **Let the user open it:** add the extension to `ACCEPT` in [`App.tsx`](../src/App.tsx), to `file_handlers` in
    [`vite.config.ts`](../vite.config.ts) (for "Open with…"), to the format list on the start page, and to the
    table in the root README.
-5. **Test** with a small synthetic buffer built in the test file (see `tekIsf.test.ts` for how a preamble +
-   block is assembled). Add a sample-dependent test only as an extra.
+6. **Test** with small synthetic files built in code (`fixtures.ts` has the Tektronix ones; add yours beside
+   them or in the test). Test the parser on its own, and the adapter through `loadFiles(files, [rigol])`
+   (see `loadFiles.test.ts`: it passes its own adapter list). Add a sample-dependent test only as an extra.
 
 You do not need to touch the pyramid, the workspace or any UI: they consume `Session`.
 
@@ -156,28 +174,40 @@ Add a test to `expr.test.ts`.
 
 1. Add a member to the `ScopeActions` interface in [`scopeCommands.ts`](../src/components/scopeCommands.ts).
 2. Define it in the `actions` object in [`Scope.tsx`](../src/components/Scope.tsx): `label`, `icon`, `hint`,
-   `disabled`, `checked`, `run`.
-3. Offer it:
+   `disabled`, `checked`, `run` – and `palette: { id, group, label?, keywords? }` to list it in the command
+   palette. That is the whole definition: the palette entry and the keyboard shortcut are *derived* from the
+   action (`paletteEntries`, `shortcutMap` in [`ui/action.ts`](../src/components/ui/action.ts)), so they
+   cannot disagree with the toolbar button about label, icon, shortcut or whether it is available.
+3. Offer it where it is not derived:
    - toolbar: `<ActionButton action={actions.myAction} />` in `TopBar`/`Rail`;
    - menus: `menuItem(a.myAction)` in the relevant builder (`plotMenu`, `fileMenu`, …);
-   - palette: `command('group:id', 'Group', a.myAction, { keywords: '…' })` in `paletteCommands`.
-4. Shortcut: add the key to `KEYS` in [`keymap.ts`](../src/components/keymap.ts), map it in `keyActions` in
-   [`useShortcuts.ts`](../src/components/useShortcuts.ts), and add a row to `HELP_ROWS`. Add the key to the
-   list in `keymap.test.ts`, which checks that every single-key shortcut has exactly one meaning.
+   - palette: nothing to add if the action has `palette` and its group is listed in `paletteCommands`
+     ([`scopeCommands.ts`](../src/components/scopeCommands.ts)); that function also holds the commands that are
+     not actions (one per channel, one per callout, …) and decides the order of the groups.
+4. Shortcut: a one-character `hint` (`KEYS.myAction`) is bound automatically. Define the key in `KEYS` in
+   [`keymap.ts`](../src/components/keymap.ts) and add a row to `HELP_ROWS`; add the key to the list in
+   `keymap.test.ts`, which checks that every single-key shortcut has exactly one meaning. A longer shortcut
+   ("Ctrl+Z", "Backspace") is only shown; it is handled by hand in
+   [`useShortcuts.ts`](../src/components/useShortcuts.ts).
 
 ### Add a field to the analysis (something the user changes and expects to keep)
 
 1. Add it to the `Workspace` interface in [`workspace.ts`](../src/model/workspace.ts). `Analysis` includes it
-   automatically (it is `Workspace` minus `version`, `window`, `selected`).
+   automatically (it is `Workspace` minus `version`, `window`, `selected`). The compiler now asks for it in
+   `WORKSPACE_FIELDS`, the list of all fields next to the interface: add it there.
 2. Give it a value in `defaultWorkspace(session)`.
 3. **Validate it in `sanitizeWorkspace(raw, session)`**: accept only a well-formed value, otherwise use the
-   default. This is the step people forget, and it is what protects the viewer from old or broken data.
+   default. This is the step people forget, and it is what protects the viewer from old or broken data. If you
+   do forget it, the round-trip test fails (next step) instead of the field being lost silently.
 4. Write the changes the user can make to it as **edits** in [`model/edits.ts`](../src/model/edits.ts) (see the
    next recipe) and call them from the workspace with `update((a) => edits.setMyField(a, value))`.
 5. That is all for undo, autosave, analysis files, bundles and tab sync – they follow the store and work on the
    whole document.
-6. Add a case to `workspace.test.ts` (round trip and sanitising of garbage). Bump `WORKSPACE_VERSION` only for
-   an *incompatible* change; additive fields are filled from defaults.
+6. Give the example workspace in the *saved format* test of `workspace.test.ts` (`full()`) a value for the field
+   that differs from the default, so saving and loading is checked for it. Raise `WORKSPACE_VERSION` only for a
+   change that old data cannot be read through: then add the step that converts it to
+   `WORKSPACE_MIGRATIONS` (see [State and persistence](state-and-persistence.md#9-migration-of-old-data)). A
+   new field needs neither: data saved before it is filled from the defaults.
 
 If the new state is a *view* concern (where you look, what is open), do **not** put it in `Analysis`; keep it
 in component state or `usePersistentState`.
