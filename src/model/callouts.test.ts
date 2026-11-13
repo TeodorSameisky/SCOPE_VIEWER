@@ -45,6 +45,15 @@ describe('callout validation', () => {
     expect(sanitizeCallouts({ foo: 1 })).toEqual([])
   })
 
+  it('keeps ids unique, numbers whole and views whole', () => {
+    const callouts = sanitizeCallouts(JSON.parse('[{"id":"a","type":"marker","t":1,"n":1e999},{"id":"a","type":"note","t":1,"view":0.6,"div":1,"n":2.5},{"id":"","type":"marker","t":3,"view":-2}]'))
+    expect(new Set(callouts.map((c) => c.id)).size).toBe(3)
+    expect(callouts[0].id).toBe('a')
+    expect(callouts.every((c) => c.id.length > 0)).toBe(true)
+    expect(callouts.map((c) => c.n)).toEqual([1, 2, 3])
+    expect(callouts.map((c) => c.view)).toEqual([undefined, 1, 0])
+  })
+
   it('gives each type a default colour of its own, none like the cursors', () => {
     const defaults = CALLOUT_TYPES.map((t) => DEFAULT_CALLOUT_COLOR[t])
     expect(new Set(defaults).size).toBe(defaults.length)

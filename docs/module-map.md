@@ -114,6 +114,7 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 | `csv.ts` | CSV dialects and the three CSV builders |
 | `measureRows.ts` | Which channels the measurement table lists; `measureChannels`; table rows for image/report |
 | `bundle.ts` | `.scopeview` zip: `buildBundle`, `unpackBundle`, `isBundleName` |
+| `saveBundle.ts`, `bundleWorker.ts` | `saveBundle`: packs a bundle in a worker that ends when it is done |
 
 ## `src/components/` – React UI
 
@@ -121,6 +122,8 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 | --- | --- |
 | `Scope.tsx` | The workspace: creates the analysis store and calls its edits, navigation, undo, autosave and tab sync wiring, interface state, actions, layout of all parts |
 | `analysisContext.ts` | `AnalysisContext` and the hooks `useAnalysisStore`, `useAnalysis`, `useStoreAnalysis` |
+| `timebaseContext.ts` | `TimebaseContext`, `useTimebase`: the time window for the places that only show it |
+| `useStableCallbacks.ts` | Handlers that stay the same on every render, for memoized components |
 | `scopeCommands.ts` | `ScopeActions`/`ScopeApi`; all menus; palette commands |
 | `keymap.ts` | `KEYS`, `TOOLS`, `HELP_ROWS` |
 | `PlotArea.tsx` | Interactive plot: canvases, pointer tools, wheel, snapping, callout layer, `renderImage`; reads and changes the analysis through the store |
@@ -131,7 +134,7 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 | `SpectrumView.tsx` | FFT plot, peaks, per-spectrum controls |
 | `MeasurementTable.tsx` | Measurement table (columns, channels, range, resize) |
 | `MeasureInfo.tsx`, `MeasureFigure.tsx`, `WindowFigure.tsx` | Explanation cards and diagrams for measurements and FFT windows |
-| `ChannelBar.tsx` | Channel badges, drag between views, + Math, FFT |
+| `ChannelBar.tsx` | Channel badges, drag between views, + Math, FFT, horizontal and trigger summaries (memoized) |
 | `ChannelSettings.tsx`, `MathEditor.tsx` | Per-channel and per-math-channel editors (popovers) |
 | `TopBar.tsx`, `Rail.tsx` | Toolbars; side-panel switch, help, theme |
 | `CursorPanel.tsx`, `InfoPanel.tsx`, `StorageSection.tsx`, `ReferencePanel.tsx` | Side panels |
@@ -141,7 +144,7 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 | `PwaStatus.tsx` | Service worker registration and update/offline toasts |
 | `ErrorBoundary.tsx` | Render-error fallback |
 | `useAutosave.ts` | Debounced saving that follows the store (and the view), flush on hide, status |
-| `useNavigation.ts` | Time window, Back history, zoom helpers |
+| `useNavigation.ts` | Time window (`win`, and `getWin` for the wheel), Back history, zoom helpers |
 | `useUndoHistory.ts` | Subscribes `UndoHistory` to the store and passes the page's pointer and key events to the `StepGrouper` |
 | `useMathResults.ts` | Subscribes to the engine's math state |
 | `useEngineResults.ts` | `useEngineResults` (re-render when a measurement or spectrum arrives), `useLastResults` (keep the last result while the next is computed) |

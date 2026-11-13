@@ -129,7 +129,8 @@ describe('math channels', () => {
       [ch2],
     )
     expect(res.get('MATH2')!.wave!.data[0]).toBeCloseTo(6)
-    expect(res.get('MATH3')!.error).toBeTruthy()
-    expect(res.get('MATH4')!.error).toBeTruthy()
+    // Both channels of the circle say what is wrong
+    expect(res.get('MATH3')!.error).toMatch(/^Circular reference/)
+    expect(res.get('MATH4')!.error).toMatch(/^Circular reference/)
   })
 })

@@ -77,6 +77,12 @@ describe('workspace defaults and validation', () => {
     expect(ws.window.end - ws.window.start).toBeCloseTo(99e-5)
   })
 
+  it('selects the first channel when the trigger source is not a channel of the file', () => {
+    const s = session()
+    expect(defaultWorkspace({ ...s, trigger: { source: 'AUX' } }).selected).toBe('CH1')
+    expect(defaultWorkspace({ ...s, trigger: undefined }).selected).toBe('CH1')
+  })
+
   it('repairs broken or foreign data', () => {
     const ws = sanitizeWorkspace(
       {

@@ -314,7 +314,7 @@ export async function runExport(ctx: ExportContext, kind: ExportKind, prefs: Exp
     const list = o.channels === 'all' ? ctx.channels : visible(ctx)
     if (!list.length) throw new Error('No channels to export')
     const w = rangeWindow(ctx, o.range)
-    downloadBlob(buildWaveformCsv(list, w.start, w.end, format, o.step), `${fileStem}-${o.range}.csv`)
+    downloadBlob(await buildWaveformCsv(list, w.start, w.end, format, o.step), `${fileStem}-${o.range}.csv`)
     return
   }
 

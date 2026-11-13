@@ -17,6 +17,8 @@ interface Props {
   views: string[][]
   record: TimeWindow
   win: TimeWindow
+  /** The window right now, also between two renders (wheel events come faster than the page renders) */
+  getWin?: () => TimeWindow
   minSpan: number
   onNavigate: (w: TimeWindow, kind: NavKind) => void
   /** Right-click, with the time at the pointer */
@@ -38,7 +40,7 @@ type Drag =
  * as a box. Drag the box to pan, drag its edges to resize, drag elsewhere to mark
  * a new range to zoom into, click to centre the view.
  */
-export function Overview({ channels, views, record, win, minSpan, onNavigate, onContextMenu, callouts, selectedCallout, onJumpToCallout }: Props) {
+export function Overview({ channels, views, record, win, getWin, minSpan, onNavigate, onContextMenu, callouts, selectedCallout, onJumpToCallout }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const tracesRef = useRef<HTMLCanvasElement | null>(null)
@@ -302,19 +304,20 @@ export function Overview({ channels, views, record, win, minSpan, onNavigate, on
     if (!el) return
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
+      const now = getWin?.() ?? win
       const pan = wheelPan(e)
       if (pan !== undefined) {
-        const shift = (win.end - win.start) * panShare(pan)
-        if (shift) onNavigate({ start: win.start + shift, end: win.end + shift }, 'pan')
+        const shift = (now.end - now.start) * panShare(pan)
+        if (shift) onNavigate({ start: now.start + shift, end: now.end + shift }, 'pan')
         return
       }
       const x = e.clientX - el.getBoundingClientRect().left
       const t = record.start + (Math.min(plotW, Math.max(0, x)) / plotW) * recSpan
-      onNavigate(zoomAround(win, t, wheelZoomFactor(wheelPixels(e).y), minSpan, recSpan * 4), 'wheel')
+      onNavigate(zoomAround(now, t, wheelZoomFactor(wheelPixels(e).y), minSpan, recSpan * 4), 'wheel')
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [win, record.start, recSpan, plotW, minSpan, onNavigate])
+  }, [win, getWin, record.start, recSpan, plotW, minSpan, onNavigate])
 
   const dpr = window.devicePixelRatio || 1
   const cursor =

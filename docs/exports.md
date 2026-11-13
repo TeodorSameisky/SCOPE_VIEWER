@@ -11,7 +11,7 @@ All outputs of the **Export** menu and the **File → Save** commands. Code: [`s
 | Measurements | `buildMeasurementsCsv` | `<name>-measurements.csv` |
 | Spectra | `buildSpectrumCsv` | `<name>-spectra.csv` |
 | Analysis | `analysisToJson` (in `model/workspace.ts`) | `<name>.scopeview.json` |
-| Bundle | `buildBundle` | `<name>.scopeview` |
+| Bundle | `saveBundle` → `buildBundle` (in a worker) | `<name>.scopeview` |
 
 ## 1. How exports see the app
 
@@ -120,3 +120,11 @@ Described in [File loading](file-loading.md#4-bundles-and-analysis-files) and
 `Workspace` as JSON with the session's fingerprint; the bundle is a zip of the original files plus that
 JSON. *Save session with analysis* needs the **original file bytes**, which `App` keeps as `sources` for
 exactly this purpose.
+
+The bundle is packed off the page: `saveBundle` ([`saveBundle.ts`](../src/export/saveBundle.ts)) starts a
+worker ([`bundleWorker.ts`](../src/export/bundleWorker.ts)) for this one bundle, moves the file bytes to it
+(transferred, not copied), gets the zip back as a `Blob` and ends the worker. The files are stored
+uncompressed, but their checksums still take a second or more for a session of some hundred MB.
+
+Waveform CSV is built on the page, in parts: `buildWaveformCsv` is `async` and pauses after every 20,000
+rows, so the page stays responsive while millions of rows are written.

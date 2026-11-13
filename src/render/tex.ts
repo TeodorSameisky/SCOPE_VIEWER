@@ -90,8 +90,12 @@ function render(tex: string, display: boolean): Promise<void> {
   const k = key(tex, display)
   const e = cache.get(k)
   if (e) return 'pending' in e ? e.pending : Promise.resolve()
-  engine ??= import('./mathjax')
-  const pending = engine
+  // A failed load (offline, a chunk of an older version gone) is tried again for the next formula
+  const loading = (engine ??= import('./mathjax'))
+  loading.catch(() => {
+    if (engine === loading) engine = null
+  })
+  const pending = loading
     .then((m) => m.texToSvg(tex, display))
     .then(
       (svg) => void cache.set(k, { svg }),

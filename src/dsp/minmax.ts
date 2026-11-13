@@ -57,18 +57,24 @@ export class MinMaxPyramid {
     this.levels = levels ?? buildLevels(data)
   }
 
+  /** Min and max found so far by `scan` (a plot asks for thousands of ranges per frame: nothing is allocated for one) */
+  private lo = Infinity
+  private hi = -Infinity
+
   /** Min and max of samples [i0, i1). Writes into `out` = [min, max]. */
   range(i0: number, i1: number, out: [number, number]): void {
-    const d = this.data
     i0 = Math.max(0, i0)
-    i1 = Math.min(d.length, i1)
-    let lo = Infinity
-    let hi = -Infinity
-    if (i1 <= i0) {
-      out[0] = NaN
-      out[1] = NaN
-      return
-    }
+    i1 = Math.min(this.data.length, i1)
+    this.lo = Infinity
+    this.hi = -Infinity
+    if (i1 > i0) this.scan(i0, i1)
+    // No valid sample in the range
+    out[0] = this.lo === Infinity ? NaN : this.lo
+    out[1] = this.hi === -Infinity ? NaN : this.hi
+  }
+
+  /** Takes the samples [i0, i1) (not empty, within the data) into `lo` and `hi` */
+  private scan(i0: number, i1: number): void {
     // Pick the coarsest level whose blocks still fit inside the range a few times.
     let li = -1
     for (let k = this.levels.length - 1; k >= 0; k--) {
@@ -77,36 +83,31 @@ export class MinMaxPyramid {
         break
       }
     }
+    let lo = this.lo
+    let hi = this.hi
     if (li < 0) {
       // Invalid samples are skipped as in the levels
+      const d = this.data
       for (let i = i0; i < i1; i++) {
         const v = d[i]
         if (v < lo && v !== -Infinity) lo = v
         if (v > hi && v !== Infinity) hi = v
       }
-    } else {
-      const { block, min, max } = this.levels[li]
-      const b0 = Math.ceil(i0 / block)
-      const b1 = Math.floor(i1 / block)
-      for (let b = b0; b < b1; b++) {
-        if (min[b] < lo) lo = min[b]
-        if (max[b] > hi) hi = max[b]
-      }
-      // Partial blocks at the edges: recurse into finer data
-      const tmp: [number, number] = [0, 0]
-      if (i0 < b0 * block) {
-        this.range(i0, b0 * block, tmp)
-        if (tmp[0] < lo) lo = tmp[0]
-        if (tmp[1] > hi) hi = tmp[1]
-      }
-      if (b1 * block < i1) {
-        this.range(b1 * block, i1, tmp)
-        if (tmp[0] < lo) lo = tmp[0]
-        if (tmp[1] > hi) hi = tmp[1]
-      }
+      this.lo = lo
+      this.hi = hi
+      return
     }
-    // No valid sample in the range
-    out[0] = lo === Infinity ? NaN : lo
-    out[1] = hi === -Infinity ? NaN : hi
+    const { block, min, max } = this.levels[li]
+    const b0 = Math.ceil(i0 / block)
+    const b1 = Math.floor(i1 / block)
+    for (let b = b0; b < b1; b++) {
+      if (min[b] < lo) lo = min[b]
+      if (max[b] > hi) hi = max[b]
+    }
+    this.lo = lo
+    this.hi = hi
+    // Partial blocks at the edges: into finer data
+    if (i0 < b0 * block) this.scan(i0, b0 * block)
+    if (b1 * block < i1) this.scan(b1 * block, i1)
   }
 }

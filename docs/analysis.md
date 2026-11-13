@@ -115,7 +115,8 @@ implementations), so documentation cannot drift from behaviour.
   a flat line on the time base of the first channel the expression mentions (else the first input channel);
   the variable `t` uses that time base too.
 - **Dependencies.** Math channels may refer to each other. `run(id)` evaluates referenced math channels
-  first (depth-first); a cycle is reported as "Circular reference involving MATH2".
+  first (depth-first); a cycle is reported as "Circular reference involving MATH2" on every channel of the
+  circle (and on those that use one of them); any other failed dependency as "MATH2 has an error".
 - **Time bases.** A result keeps the time base of its (left) operand. In a binary operation with a
   different time base, the right operand is **resampled onto the left** (`resample`, linear interpolation).
 - **Units are derived**: `V × A = W`, `W ÷ V = A`, `V ÷ A = Ω`, `x²`, `a·b`, `a/b`, `deriv` → `a/s`, `integ`

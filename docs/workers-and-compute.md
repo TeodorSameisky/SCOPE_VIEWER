@@ -3,7 +3,8 @@
 How the app stays responsive with records of millions of samples. Code: [`src/compute/`](../src/compute),
 [`src/dsp/minmax.ts`](../src/dsp/minmax.ts), [`src/util/sampleCache.ts`](../src/util/sampleCache.ts).
 
-There are two workers. They are unrelated; they just follow the same philosophy.
+There are two workers of note. They are unrelated; they just follow the same philosophy. (A third, short-lived
+one packs session bundles when one is saved: see [Exports](exports.md#6-analysis-and-bundle).)
 
 | | Parse worker | Compute worker |
 | --- | --- | --- |
@@ -128,16 +129,21 @@ flowchart TD
    state without creating one.
 5. **Sources on demand.** `sourcesOf(defs)` parses the expressions to find which input channels they
    mention and sends only those (a constant or `t` takes the first channel's time base, so that one is
-   sent). A spectrum or measurement of an input channel sends it the first time.
-6. **Failure recovery.** If the worker throws (e.g. out of memory), everything waiting fails with a
-   message, math channels show "The computation stopped: …", and the next job starts a fresh worker.
+   sent). A spectrum or measurement of an input channel sends it the first time one has to be computed
+   (asking for a result that is remembered sends nothing, and starts no worker).
+6. **Failure recovery.** If the worker fails (e.g. out of memory) it is stopped with a message
+   (`stop(failure)`), and what was running or waiting gets an answer instead of being left waiting: math
+   channels show "The computation stopped: …", a spectrum is remembered as `{ error }` and shown as that
+   message, and a measurement is taken **on the page** after all (it needs no memory to speak of). The same
+   holds for a single request the worker answers with an error. These answers are remembered like any
+   other, so nothing is asked for again in a loop; the next new job starts a fresh worker.
 7. **`stop()`** is called when the workspace unmounts. It terminates the worker, forgets refs, and
    tells every pending job it was not computed (its cache entry is dropped, so the next ask starts it again).
 
 ### Measurements and spectra: asking is synchronous
 
 `engine.measured(wave, i0, i1, slot)` returns `Measurements | undefined` and `engine.spectrum(data, dt, i0, i1,
-window, slot)` returns `{ spec? } | undefined`. Both are **plain lookups**, not promises – a render can ask for them
+window, slot)` returns `{ spec?, error? } | undefined`. Both are **plain lookups**, not promises – a render can ask for them
 directly:
 
 - **A result that is known** is returned. A measurement of **up to `PAGE_MEASURE_MAX` = 50,000 samples** is known

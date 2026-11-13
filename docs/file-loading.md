@@ -173,8 +173,17 @@ A "learn" file of SCPI commands, several per line separated by `;`:
 :CH1:SCALE 0.5;:CH1:POSITION -3;:DISPLAY:WAVEVIEW1:CH1:STATE 1;…
 ```
 
-`parseTekSetup` returns a flat `Record<string, string>` keyed by the **upper-cased header path** (later
-lines override earlier ones, as on the instrument). Helpers decode values: `setupString` removes quotes
+The older families shorten commands that share a path, as SCPI allows: a command without a leading `:`
+continues the path of the one before it on the line.
+
+```
+:CH1:BANDWIDTH 1.0E+9;COUPLING DC;SCALE 2.0;PROBE:GAIN 0.1;UNITS "V"
+        → :CH1:BANDWIDTH, :CH1:COUPLING, :CH1:SCALE, :CH1:PROBE:GAIN, :CH1:PROBE:UNITS
+```
+
+`parseTekSetup` returns a flat `Record<string, string>` keyed by the **upper-cased full header path** (later
+lines override earlier ones, as on the instrument). Commands are split at `;` outside quoted strings
+(`"0;ch1;ch2"` stays one value); common commands (`*RST`) are skipped. Helpers decode values: `setupString` removes quotes
 and URL escapes (`STO%20STAT`), `setupNumber` parses numbers. The raw map is kept in `session.setup`
 and shown, searchable, in the Session panel.
 
@@ -185,7 +194,7 @@ Two Scope Viewer file types sit on top of the instrument formats. Both are produ
 | File | Contents | Produced by |
 | --- | --- | --- |
 | `name.scopeview.json` – *analysis* | JSON `AnalysisFile`: `app`, `appVersion`, `kind: "analysis"`, `version`, `savedAt`, `sessionFile`, `fingerprint`, and the complete `workspace` | `analysisToJson` |
-| `name.scopeview` – *bundle* | A zip: `scopeview.json` (the analysis) and `files/<original name>` for every session file (stored without recompression) | `buildBundle` |
+| `name.scopeview` – *bundle* | A zip: `scopeview.json` (the analysis) and `files/<original name>` for every session file (stored without recompression) | `buildBundle` (called in a worker by `saveBundle`) |
 
 Reading:
 
@@ -194,6 +203,9 @@ Reading:
 - An analysis file opened together with a session file, or dropped on an open session, goes through
   `parseAnalysisJson`. Wrong JSON → "not valid JSON". A newer `version` than the app knows → "made by
   a newer version". If the file's `fingerprint` differs from the session's, the user is asked to confirm.
+  An analysis that cannot be read (in a bundle or opened with the session file) does **not** keep the
+  session from opening: it opens with its saved state or the file defaults, and a notice says why the
+  analysis was not applied.
 - Older *callout-only* files are still accepted (`kind: "callouts"`); they merge into the open session.
 - The workspace inside an analysis is **not trusted** – it goes through `sanitizeWorkspace` like saved data.
 

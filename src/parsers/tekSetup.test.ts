@@ -29,6 +29,22 @@ describe('channel input settings', () => {
     expect(inputOf(setup, 'CH4')).toEqual({ coupling: 'GND', termination: 50, bandwidth: 20e6, attenuation: 10, invert: false })
   })
 
+  it('reads commands shortened to continue the path of the one before', () => {
+    const s = parseTekSetup(':CH1:BANDWIDTH 1.0E+9;COUPLING DC;SCALE 2.0;POSITION 1.5;PROBE:GAIN 0.1;UNITS "V";:CH2:SCALE 5;:MAINWINDOW:SOURCEORDER "0;ch1;ch2";*RST')
+    expect(s).toEqual({
+      ':CH1:BANDWIDTH': '1.0E+9',
+      ':CH1:COUPLING': 'DC',
+      ':CH1:SCALE': '2.0',
+      ':CH1:POSITION': '1.5',
+      ':CH1:PROBE:GAIN': '0.1',
+      ':CH1:PROBE:UNITS': '"V"',
+      ':CH2:SCALE': '5',
+      ':MAINWINDOW:SOURCEORDER': '"0;ch1;ch2"',
+    })
+    // The path does not carry over to the next line
+    expect(parseTekSetup([':CH1:SCALE 1', 'POSITION 2'].join('\n'))).toEqual({ ':CH1:SCALE': '1' })
+  })
+
   it('has nothing for a channel without input settings', () => {
     expect(inputOf(':CH1:SCALE 1.0;:CH1:LABEL "x"')).toBeUndefined()
   })

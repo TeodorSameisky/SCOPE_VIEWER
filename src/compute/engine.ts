@@ -28,9 +28,13 @@ interface Samples {
   pyramid: MinMaxPyramid
 }
 
-/** A computed spectrum: `spec` is missing when the range had too few samples for one */
+/**
+ * A computed spectrum: `spec` is missing when the range had too few samples for one, or (`error`)
+ * when the worker could not compute it
+ */
 export interface SpectrumResult {
   spec?: Spectrum
+  error?: string
 }
 
 /** A spectrum or measurement waiting on the page until the worker is free */
@@ -67,6 +71,8 @@ export class ComputeEngine {
   private worker: WorkerLike | null = null
   private sentSources = new Set<string>()
   private seq = 0
+  /** Number of the latest request for the math channels */
+  private mathSeq = 0
   private readonly pending = new Map<number, (r: ComputeReply | null) => void>()
   /** A request is in the worker */
   private busy = false
@@ -123,7 +129,8 @@ export class ComputeEngine {
       `${dt}:${i0}:${i1}:${window}`,
       slot,
       (ref) => ({ type: 'spectrum', ref, dt, i0, i1, window }),
-      (r) => (r.type === 'spectrum' && !r.stale ? { spec: r.spec } : undefined),
+      // A spectrum the worker failed on is an answer too (shown as its error), not asked for again and again
+      (r) => (r.type === 'spectrum' && !r.stale ? { spec: r.spec } : r.type === 'error' ? { error: r.message } : undefined),
     )
   }
 
@@ -144,7 +151,9 @@ export class ComputeEngine {
       key,
       slot,
       (ref) => ({ type: 'measure', ref, t0: w.t0, dt: w.dt, i0, i1 }),
-      (r) => (r.type === 'measure' ? r.m : undefined),
+      // When the worker fails, the range is measured here after all: that needs no memory to speak of,
+      // and the table would otherwise wait for its values for good
+      (r) => (r.type === 'measure' ? r.m : r.type === 'error' ? measure(w.data, i0, i1, w.t0, w.dt) : undefined),
     )
   }
 
@@ -160,8 +169,13 @@ export class ComputeEngine {
   /** Changes whenever `subscribeResults` listeners are called */
   resultsVersion = (): number => this.resultCount
 
-  /** End the worker (jobs still running or waiting are dropped); the next job starts a new one */
-  stop(): void {
+  /**
+   * End the worker (jobs still running or waiting are dropped); the next job starts a new one.
+   * `failure`: the worker failed with this message, which the spectra and measurements that were
+   * running or waiting get as their answer (see `spectrum` and `measured`).
+   */
+  stop(failure?: string): void {
+    const failed = (): ComputeReply | null => (failure === undefined ? null : { type: 'error', seq: -1, message: failure })
     this.worker?.terminate()
     this.worker = null
     this.busy = false
@@ -171,12 +185,13 @@ export class ComputeEngine {
     this.refs = new WeakMap()
     this.running = null
     this.queued = null
-    const pending = [...this.pending.values()]
+    const pending = [...this.pending]
     this.pending.clear()
     const jobs = this.jobs
     this.jobs = []
-    for (const done of pending) done(null)
-    for (const j of jobs) j.done(null)
+    // The math channels are told by whoever stopped the worker
+    for (const [seq, done] of pending) done(seq === this.mathSeq ? null : failed())
+    for (const j of jobs) j.done(failed())
   }
 
   private emit(state: MathState): void {
@@ -212,6 +227,9 @@ export class ComputeEngine {
       key,
       () => {
         const entry: { value?: T } = {}
+        // Only now, for a result that is not remembered: the worker gets the input channel it lacks
+        const source = this.sourceIds.get(data)
+        if (source !== undefined) this.sendSources(new Set([source]))
         this.enqueue(job(ref), slot, (r, replaced) => {
           const value = r ? take(r) : undefined
           if (value !== undefined) {
@@ -248,7 +266,8 @@ export class ComputeEngine {
       this.queued = null
       this.running = defs
       this.sendSources(sourcesOf(defs, this.channels))
-      this.request({ type: 'math', seq: ++this.seq, defs, order: this.channels.map((w) => w.id) }, (r) => {
+      this.mathSeq = ++this.seq
+      this.request({ type: 'math', seq: this.mathSeq, defs, order: this.channels.map((w) => w.id) }, (r) => {
         // Stopped meanwhile: the next setMath starts again
         if (!r) return
         if (r.type === 'math') this.emit(this.apply(defs, r))
@@ -294,12 +313,10 @@ export class ComputeEngine {
     return { defs, results, pyramids }
   }
 
-  /** The worker's name of an array of samples, sending an input channel it does not have yet; undefined when it does not know them */
+  /** The worker's name of an array of samples (an input channel, or one it computed); undefined when it does not know them */
   private refFor(data: Float32Array): string | undefined {
     const source = this.sourceIds.get(data)
-    if (source === undefined) return this.refs.get(data)
-    this.sendSources(new Set([source]))
-    return `src:${source}`
+    return source === undefined ? this.refs.get(data) : `src:${source}`
   }
 
   /** Send the input channels `ids` the worker does not have yet */
@@ -331,8 +348,9 @@ export class ComputeEngine {
       // The worker failed (e.g. out of memory): what was waiting fails with it, the next job starts a new one
       worker.onerror = (e) => {
         const defs = this.queued ?? this.running
-        this.stop()
-        if (defs) this.emit(failed(defs, `The computation stopped${e.message ? `: ${e.message}` : ''}`))
+        const message = `The computation stopped${e.message ? `: ${e.message}` : ''}`
+        this.stop(message)
+        if (defs) this.emit(failed(defs, message))
       }
       this.worker = worker
     }

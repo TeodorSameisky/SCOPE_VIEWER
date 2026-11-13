@@ -55,7 +55,7 @@ stripping types), `verbatimModuleSyntax` (use `import type`), `allowImportingTsE
   callout contains a formula. `chunkSizeWarningLimit` is raised to 1500 kB for it.
 - **MathJax glyph tables** for rare characters (~10 MB in ~40 files) are routed to `assets/mathjax-fonts/`
   by `chunkFileNames`, so the service worker can leave exactly that folder out of the offline precache.
-- Both web workers are bundled by Vite from `new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })`.
+- The web workers (parsing, compute, bundle packing) are bundled by Vite from `new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })`.
 
 ### Third-party licences
 

@@ -53,7 +53,7 @@ import {
   type Workspace,
 } from '../model/workspace'
 import { announce, onNews } from '../model/tabSync'
-import { buildBundle } from '../export/bundle'
+import { saveBundle as packBundle } from '../export/saveBundle'
 import { measuredChannels } from '../export/measureRows'
 import { runExport, waveformRows, type ExportContext, type ExportKind } from '../export/sessionExport'
 import { AXIS_GUTTER, DIVS_Y } from '../render/draw'
@@ -101,6 +101,8 @@ import { useAutosave } from './useAutosave'
 import { useMathResults } from './useMathResults'
 import { useNavigation } from './useNavigation'
 import { useShortcuts } from './useShortcuts'
+import { useStableCallbacks } from './useStableCallbacks'
+import { TimebaseContext } from './timebaseContext'
 import { useUndoHistory } from './useUndoHistory'
 
 const PANEL_TITLE: Record<PanelId, string> = { cursors: 'Cursors', callouts: 'Callouts', info: 'Session', reference: 'Reference' }
@@ -311,6 +313,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   /** Delete a math channel with everything that refers to it: its spectra and the callouts on its trace */
   const removeMath = (id: string) => {
     const attached = calloutsOn(callouts, id)
+    editHistory.commit()
     offerUndo(`${channelName(id)} deleted${attached.length ? ` with ${attached.length} callout${attached.length > 1 ? 's' : ''}` : ''}`)
     update((a) => edits.removeMath(a, id, firstId))
     // Nothing may stay selected or open that went with the channel
@@ -333,10 +336,11 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     const c = callouts.find((x) => x.id === id)
     // Its own step, also for a new callout whose step is still open (Delete in its editor), so the Undo offered brings it back
     if (!silent) editHistory.commit()
+    // Offered before the change, as `offerUndo` counts the steps from here
+    if (c && !silent) offerUndo(`${calloutTitle(c)} deleted`)
     update((a) => edits.deleteCallout(a, id))
     if (editing?.id === id) setEditing(null)
     if (selectedCallout === id) setSelectedCallout(undefined)
-    if (c && !silent) offerUndo(`${calloutTitle(c)} deleted`)
   }
   const editCallout = (id: string | null) => {
     if (id) {
@@ -419,7 +423,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     const ok = await copyText(text)
     notify(ok ? { message: `${what} copied` } : { message: 'This browser does not allow copying here', kind: 'error' })
   }
-  // A deletion offers Undo in a notice, which goes once something else changes
+  // A deletion offers Undo in a notice, which goes once something else changes. `offerUndo` is called
+  // just before the deletion is made: it notes how many steps there were, and the deletion is the next one
   const undoNotice = useRef<{ id: number; steps: number } | null>(null)
   const offerUndo = (message: string) => {
     undoNotice.current = { id: notify({ message, action: { label: 'Undo', hint: KEYS.undo, run: () => undoRedo.undo() }, timeout: 8000 }), steps: editHistory.started }
@@ -503,7 +508,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   const saveBundle = async () => {
     try {
       const files = await Promise.all(sources.map(async (s) => ({ name: s.name, data: await s.blob.arrayBuffer() })))
-      downloadBlob(buildBundle(files, analysisToJson(session, workspace)), `${stem(session.fileName)}${BUNDLE_EXT}`)
+      downloadBlob(await packBundle(files, analysisToJson(session, workspace)), `${stem(session.fileName)}${BUNDLE_EXT}`)
     } catch (e) {
       notify({ kind: 'error', message: `Could not save the bundle: ${e instanceof Error ? e.message : String(e)}` })
     }
@@ -741,8 +746,25 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     },
   })
 
+  // The handlers of the channel bar: the same functions on every render, so the bar (memoized) is
+  // rendered again only when its channels change, not on every step of a pan or zoom
+  const bar = useStableCallbacks({
+    addMath,
+    changeMath,
+    removeMath,
+    openMathReference: () => openReference('math'),
+    toggleSpectrum,
+    adjustChannel,
+    moveToView: onMoveToView,
+    autoscale: onAutoscale,
+    channelMenu: (e: React.MouseEvent, id: string) => openMenu(e, channelMenu(api, id)),
+    timebaseMenu: (e: React.MouseEvent) => openMenu(e, timebaseMenu(api, tPerDiv)),
+  })
+  const timebase = useMemo(() => ({ win, timePerDiv: tPerDiv }), [win, tPerDiv])
+
   return (
     <AnalysisContext.Provider value={store}>
+      <TimebaseContext.Provider value={timebase}>
       <div className="scope">
         <TopBar fileName={session.fileName} saveStatus={saveStatus} actions={actions} />
         <input
@@ -765,6 +787,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
                 views={views}
                 record={record}
                 win={win}
+                getWin={nav.getWin}
                 minSpan={minSpan}
                 onNavigate={nav.navigate}
                 onContextMenu={(e, t) => openMenu(e, overviewMenu(api, t))}
@@ -869,10 +892,12 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
                   onContextMenu={(e, c) => openMenu(e, calloutMenu(api, c))}
                   onClear={() => {
                     const n = callouts.length
+                    if (!n) return
+                    editHistory.commit()
+                    offerUndo(`${n} callout${n > 1 ? 's' : ''} deleted`)
                     update(edits.clearCallouts)
                     setEditing(null)
                     setSelectedCallout(undefined)
-                    offerUndo(`${n} callout${n > 1 ? 's' : ''} deleted`)
                   }}
                 />
               )}
@@ -907,26 +932,24 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
           ref={channelBarRef}
           channels={inputChannels}
           math={mathItems}
-          onAddMath={addMath}
-          onChangeMath={changeMath}
-          onRemoveMath={removeMath}
-          onOpenMathReference={() => openReference('math')}
+          onAddMath={bar.addMath}
+          onChangeMath={bar.changeMath}
+          onRemoveMath={bar.removeMath}
+          onOpenMathReference={bar.openMathReference}
           spectrumSources={spectrumSources}
           canAddSpectrum={spectra.length < MAX_SPECTRA}
-          onToggleSpectrum={toggleSpectrum}
+          onToggleSpectrum={bar.toggleSpectrum}
           views={views}
           selected={selected}
           setSelected={setSelected}
-          onAdjust={adjustChannel}
-          onMoveToView={onMoveToView}
-          onAutoscale={onAutoscale}
-          win={win}
-          timePerDiv={tPerDiv}
+          onAdjust={bar.adjustChannel}
+          onMoveToView={bar.moveToView}
+          onAutoscale={bar.autoscale}
           sampleRate={1 / nav.minDt}
           recordLength={session.channels[0].wave.data.length}
           trigger={session.trigger}
-          onChannelMenu={(e, id) => openMenu(e, channelMenu(api, id))}
-          onTimebaseMenu={(e) => openMenu(e, timebaseMenu(api, tPerDiv))}
+          onChannelMenu={bar.channelMenu}
+          onTimebaseMenu={bar.timebaseMenu}
           onHighlightView={setHighlightView}
         />
 
@@ -949,6 +972,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
           />
         )}
       </div>
+      </TimebaseContext.Provider>
     </AnalysisContext.Provider>
   )
 })

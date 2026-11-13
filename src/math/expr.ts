@@ -474,6 +474,9 @@ export interface MathResult {
  */
 export type MathCache = Map<string, { expr: string; inputs: Waveform[]; wave: Waveform; derivedUnit: string }>
 
+/** Start of the error of math channels that refer to each other in a circle */
+const CIRCULAR = 'Circular reference'
+
 /** The same samples, time base and unit (the unit goes into the units derived from it) */
 const sameInputs = (a: Waveform[], b: Waveform[]) =>
   a.length === b.length && a.every((w, i) => w.data === b[i].data && w.t0 === b[i].t0 && w.dt === b[i].dt && w.yUnit === b[i].yUnit)
@@ -493,7 +496,7 @@ export function evaluateMath(defs: MathInput[], sources: Waveform[], cache?: Mat
     const done = results.get(id)
     if (done) return done
     const def = byId.get(id)!
-    if (visiting.has(id)) return { error: `Circular reference involving ${id}` }
+    if (visiting.has(id)) return { error: `${CIRCULAR} involving ${id}` }
     visiting.add(id)
     let result: MathResult
     try {
@@ -502,7 +505,8 @@ export function evaluateMath(defs: MathInput[], sources: Waveform[], cache?: Mat
         if (byId.has(ref) && !env.has(ref)) {
           const dep = run(ref)
           if (dep.wave) env.set(ref, dep.wave)
-          else throw new ExprError(`${ref} has an error`, 0)
+          // A cycle is named as one on every channel in it (and on those that use them)
+          else throw new ExprError(dep.error?.startsWith(CIRCULAR) ? dep.error : `${ref} has an error`, 0)
         }
       }
       const refs = [...references(ast)].flatMap((r) => env.get(r) ?? [])

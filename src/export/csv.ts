@@ -45,8 +45,10 @@ export function waveformRowCount(ref: Channel['wave'], tStart: number, tEnd: num
 /**
  * Waveform samples between tStart and tEnd on the time base of the first channel
  * (other channels are interpolated if their time base differs); every `step`-th sample.
+ * A long record is millions of rows: it is written in parts, with a pause after each so the page
+ * stays responsive meanwhile (it would freeze for seconds otherwise).
  */
-export function buildWaveformCsv(channels: Channel[], tStart: number, tEnd: number, format: CsvFormat, step = 1): Blob {
+export async function buildWaveformCsv(channels: Channel[], tStart: number, tEnd: number, format: CsvFormat, step = 1): Promise<Blob> {
   const w = writer(format)
   const ref = channels[0].wave
   const i0 = Math.max(0, Math.ceil((tStart - ref.t0) / ref.dt))
@@ -65,6 +67,7 @@ export function buildWaveformCsv(channels: Channel[], tStart: number, tEnd: numb
     if (lines.length >= CHUNK) {
       parts.push(lines.join('\n') + '\n')
       lines = []
+      await new Promise((resolve) => setTimeout(resolve))
     }
   }
   if (lines.length) parts.push(lines.join('\n') + '\n')

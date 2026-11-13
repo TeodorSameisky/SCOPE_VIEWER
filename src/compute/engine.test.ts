@@ -247,4 +247,22 @@ describe('compute engine', () => {
     await settle()
     expect(engine.spectrum(ch1.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT1')?.spec).toBeDefined()
   })
+
+  it('answers what was running or waiting when its worker fails: measurements from the page, spectra with the error', async () => {
+    const { engine, workers } = setup([ch1, long])
+    let told = 0
+    engine.subscribeResults(() => told++)
+    const n = long.data.length
+    // One running, one waiting
+    expect(engine.measured(long, 0, n, 'table:CH3')).toBeUndefined()
+    expect(engine.spectrum(ch1.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT1')).toBeUndefined()
+    workers[0].stopped = true
+    workers[0].onerror?.({ message: 'out of memory' } as ErrorEvent)
+    expect(told).toBe(2)
+    expect(engine.measured(long, 0, n, 'table:CH3')).toEqual(measure(long.data, 0, n, long.t0, long.dt))
+    expect(engine.spectrum(ch1.data, 1e-6, 0, 2000, 'hann', 'spectrum:FFT1')).toEqual({ error: 'The computation stopped: out of memory' })
+    // Nothing is asked for again: no new worker is started for them
+    await settle()
+    expect(workers).toHaveLength(1)
+  })
 })

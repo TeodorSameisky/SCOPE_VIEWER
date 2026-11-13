@@ -200,6 +200,17 @@ Wheel behaviour (`onWheel`, registered non-passive so it can `preventDefault`):
 | Ctrl+wheel | V/div of the selected channel |
 | Alt+wheel | position of the selected channel (0.1 div steps) |
 
+Zooming and panning with the wheel start from `nav.getWin()`, the window as it is at that moment, not from
+the window of the last render: several wheel events can arrive between two renders, and each goes on from
+the one before (see [State and persistence](state-and-persistence.md#4-navigation-and-back)).
+
+**The pointer is followed once per frame.** A mouse reports its position far more often than the screen is
+drawn; `followPointer` keeps the latest position and puts it into the `hover` state on the next animation
+frame. What a render of the plot needs for it is prepared once, not per move: the channel tags of each view
+are laid out (their texts measured) by `tagsOf` only when channels or view sizes change, and the functions
+the plot hands to the callout layer are the same on every render, so the memoized `CalloutLayer` is not
+rendered again.
+
 **Dragging a cursor is kept out of the analysis while it lasts.** Every move re-rendered the whole workspace
 (top bar, channel bar, tables, panels – they all follow the analysis, and the cursors are part of it), which is
 much more work than moving a line. So the drag state holds where the pointer has taken the cursors (`now` in
@@ -222,7 +233,7 @@ is closest in pixels (within 20 px).
 
 | Component | Role |
 | --- | --- |
-| **ChannelBar** | One badge per channel, grouped by view with numbers. A click selects the channel and opens its settings popover (`ChannelSettings`); the eye button toggles visibility; right-click opens the channel menu. Drag a badge (mouse or pen; a finger scrolls the row instead) onto a view group or the *New view* box to move it – a press only becomes a drag after the pointer moves 6 px. Hosts **+ Math** (`MathEditor`) and **FFT** buttons. Scrolls horizontally in narrow windows; below 700 px the badges get their own row. |
+| **ChannelBar** | One badge per channel, grouped by view with numbers. A click selects the channel and opens its settings popover (`ChannelSettings`); the eye button toggles visibility; right-click opens the channel menu. Drag a badge (mouse or pen; a finger scrolls the row instead) onto a view group or the *New view* box to move it – a press only becomes a drag after the pointer moves 6 px. Hosts **+ Math** (`MathEditor`) and **FFT** buttons. Scrolls horizontally in narrow windows; below 700 px the badges get their own row. **Memoized**: the workspace renders on every step of a pan or zoom, the bar only when its channels change. Its handlers therefore come from `useStableCallbacks` in `Scope`, and its horizontal summary (`HorizontalInfo`) reads the time window from `TimebaseContext` instead of props. |
 | **ChannelSettings** | Popover for one channel: label, colour, V/div (typed values like `500m`, `2 V`), position, offset, view, plus the read-only input settings from the scope. |
 | **MathEditor** | Expression field with live `checkSyntax` feedback and error position, unit override, quick-operation presets (`MATH_PRESETS`). |
 | **MeasurementTable** | Rows = measured channels, columns = chosen measurements. Header click → explanation (`MeasureInfo`/`MeasureFigure`), drag to reorder, *Channels* chooser, range choice, resizable height (`ResizeHandle`). Reads through `useDeferredValue`; keeps old values dimmed while the worker computes. |
@@ -257,6 +268,11 @@ is closest in pixels (within 20 px).
   `SpectrumViewHandle` (`reveal`, export data), `ChannelBarHandle` (`openSettings`), `ScopeHandle`
   (`importAnalysisFile`), via `forwardRef` + `useImperativeHandle`.
 - **Heavy computation never runs in render** without caching: `useMemo`, `useDeferredValue`, `SampleCache`.
+- **A memoized component needs props that stay the same.** `Scope` makes its handlers anew on every render
+  (they read its current state). Handlers passed to a memoized component go through
+  [`useStableCallbacks`](../src/components/useStableCallbacks.ts): functions that never change and call the
+  latest ones. Values that change with every pan step (the time window) reach such a component through a
+  context it reads in a small child ([`timebaseContext.ts`](../src/components/timebaseContext.ts)), not as a prop.
 - **`useSyncExternalStore`** is used for external, non-React state: the analysis store, the undo history, the
   compute engine's measurement version, TeX renders, the install prompt, the system colour scheme.
 - **`eslint-disable react-hooks/exhaustive-deps`** comments appear where an effect deliberately reads

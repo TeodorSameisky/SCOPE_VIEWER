@@ -143,6 +143,7 @@ export function defaultWorkspace(session: Session): Workspace {
   const span = win.end - win.start
   const c = session.cursors
   const firstId = session.channels[0]?.wave.id ?? ''
+  const isChannel = (id: string | undefined): id is string => id !== undefined && session.channels.some((ch) => ch.wave.id === id)
   const fromSetup = (session.measurements ?? []).map((m) => TEK_MEAS[m.type]).filter(Boolean)
   return {
     version: WORKSPACE_VERSION,
@@ -156,11 +157,12 @@ export function defaultWorkspace(session: Session): Workspace {
       on: !!c,
       a: c?.a ?? win.start + span * 0.3,
       b: c?.b ?? win.start + span * 0.7,
-      source: c?.source && session.channels.some((ch) => ch.wave.id === c.source) ? c.source : firstId,
+      source: isChannel(c?.source) ? c.source : firstId,
     },
     window: win,
     measurements: { keys: [...new Set([...fromSetup, ...DEFAULT_MEAS])], range: 'screen', exclude: [] },
-    selected: session.trigger?.source ?? firstId,
+    // The trigger source, when it is a channel of the file (not AUX, LINE or a channel that was not saved)
+    selected: isChannel(session.trigger?.source) ? session.trigger.source : firstId,
     notes: '',
   }
 }

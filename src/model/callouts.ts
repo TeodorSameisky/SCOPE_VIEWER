@@ -155,6 +155,7 @@ export function boxZoomPatch(c: Callout, channel: ChannelDisplay | undefined, di
 export function sanitizeCallouts(list: unknown): Callout[] {
   if (!Array.isArray(list)) return []
   const out: Callout[] = []
+  const ids = new Set<string>()
   for (const item of list) {
     if (!item || typeof item !== 'object') continue
     const c = item as Partial<Callout>
@@ -166,9 +167,13 @@ export function sanitizeCallouts(list: unknown): Callout[] {
     const onChannel = typeof c.channel === 'string' && num(c.v) !== undefined && num(c.v2) !== undefined
     if (box && !onChannel && (num(c.view) === undefined || num(c.div) === undefined || num(c.div2) === undefined)) continue
     if (c.type === 'span' && (typeof c.channel !== 'string' || typeof c.channel2 !== 'string')) continue
+    // Ids are unique (a second callout with an id gets a new one), view numbers whole
+    const id = typeof c.id === 'string' && c.id && !ids.has(c.id) ? c.id : newCalloutId()
+    ids.add(id)
+    const view = num(c.view)
     out.push({
-      id: typeof c.id === 'string' ? c.id : newCalloutId(),
-      n: typeof c.n === 'number' ? c.n : out.length + 1,
+      id,
+      n: num(c.n) !== undefined && Number.isInteger(c.n) && c.n! > 0 ? c.n! : out.length + 1,
       type: c.type,
       t: c.t!,
       t2: num(c.t2),
@@ -176,7 +181,7 @@ export function sanitizeCallouts(list: unknown): Callout[] {
       channel2: c.type === 'span' ? c.channel2 : undefined,
       v: box ? num(c.v) : undefined,
       v2: box ? num(c.v2) : undefined,
-      view: num(c.view),
+      view: view === undefined ? undefined : Math.max(0, Math.round(view)),
       div: num(c.div),
       div2: box ? num(c.div2) : undefined,
       dx: num(c.dx),

@@ -102,6 +102,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
           const { value } = keep(def.id, undefined, (last) => last.source === def.source && last.window === def.window)
           return { def, channel, spec: value?.spec, pending: true }
         }
+        if (computed.error) return { def, channel, error: computed.error }
         if (!computed.spec) return { def, channel, error: `Fewer than ${MIN_FFT_SAMPLES} samples in the range` }
         keep(def.id, { source: def.source, window: def.window, spec: computed.spec })
         return { def, channel, spec: computed.spec }

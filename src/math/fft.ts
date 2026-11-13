@@ -217,6 +217,8 @@ export function isWindowKind(v: unknown): v is WindowKind {
 }
 
 const windowCache = new Map<string, Float64Array>()
+/** Samples of all remembered windows together (4 × the largest FFT: 32 MB) */
+const WINDOW_CACHE_SAMPLES = 4 * 2 ** 20
 
 /** Periodic (DFT-even) window of length n. */
 export function windowCoefficients(kind: WindowKind, n: number): Float64Array {
@@ -239,8 +241,16 @@ export function windowCoefficients(kind: WindowKind, n: number): Float64Array {
     }
     w[i] = v
   }
-  if (windowCache.size > 8) windowCache.delete(windowCache.keys().next().value!)
+  // The oldest go when there are many, or when together they are long (a window of a million
+  // samples is 8 MB, and while zooming every length is a new one)
   windowCache.set(key, w)
+  let total = 0
+  for (const c of windowCache.values()) total += c.length
+  for (const [k, c] of windowCache) {
+    if (windowCache.size <= 1 || (windowCache.size <= 8 && total <= WINDOW_CACHE_SAMPLES)) break
+    windowCache.delete(k)
+    total -= c.length
+  }
   return w
 }
 

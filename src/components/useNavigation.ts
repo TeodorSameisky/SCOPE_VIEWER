@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type { ChannelDisplay, Session } from '../model/types'
 import { keepInRecord, patchDisplays, verticalsOf, zoomAround, type DisplayPatch, type NavKind, type TimeWindow, type Verticals } from '../model/view'
 import { recordWindow, scopeWindow, spanLimits } from '../model/workspace'
@@ -33,7 +33,16 @@ export function useNavigation(
   /** The view the scope showed when the session was saved */
   const savedWin = useMemo(() => scopeWindow(session), [session])
   const { minDt, minSpan, maxSpan } = useMemo(() => spanLimits(session), [session])
-  const [win, setWin] = useState(initial)
+  const [win, setWinState] = useState(initial)
+  // The window as it is now, also before the next render: several wheel events can arrive between
+  // two renders, and each has to go on from where the one before it left the window
+  const latest = useRef(initial)
+  const setWin = (w: TimeWindow) => {
+    latest.current = w
+    setWinState(w)
+  }
+  /** The window right now: for handlers of events that come faster than the page renders (the wheel) */
+  const getWin = useCallback(() => latest.current, [])
   const [history, setHistory] = useState<ViewState[]>([])
   const lastNav = useRef<{ kind: NavKind | null; time: number }>({ kind: null, time: 0 })
 
@@ -46,7 +55,8 @@ export function useNavigation(
     const last = lastNav.current
     if (kind === 'zoom' || last.kind !== kind || now - last.time > GESTURE_MS) {
       const vertical = verticalsOf(displays, scaled)
-      setHistory((h) => [...h.slice(-49), { win, vertical }])
+      const from = latest.current
+      setHistory((h) => [...h.slice(-49), { win: from, vertical }])
     }
     lastNav.current = { kind, time: now }
     setWin(free ? w : keepInRecord(w, record))
@@ -79,10 +89,11 @@ export function useNavigation(
     lastNav.current = { kind: null, time: 0 }
   }
   /** Zoom by `f` (> 1 = out) keeping time t in place */
-  const zoomAt = (t: number, f: number) => zoomTo(zoomAround(win, t, f, minSpan, maxSpan))
+  const zoomAt = (t: number, f: number) => zoomTo(zoomAround(latest.current, t, f, minSpan, maxSpan))
 
   return {
     win,
+    getWin,
     record,
     savedWin,
     minDt,

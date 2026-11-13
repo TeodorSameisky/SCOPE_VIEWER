@@ -162,7 +162,10 @@ then rebuilds a valid workspace field by field, falling back to the file default
 - views keep only known ids, each id once; channels missing from every view are added (inputs join
   the last view, math channels get their own);
 - `viewSizes` is accepted only if there is exactly one finite positive number per view;
-- spectra are kept only if their source channel exists; callouts go through `sanitizeCallouts`;
+- spectra are kept only if their source channel exists; callouts go through `sanitizeCallouts` (unique
+  ids, a whole positive number, a whole view index);
+- the selected channel must exist; the default is the trigger source when it is a channel of the file
+  (not AUX, LINE or a channel that was not saved), else the first channel;
 - the time window is clamped to the zoom limits and rejected if it lies absurdly far from the record;
 - notes are cut at 20,000 characters.
 

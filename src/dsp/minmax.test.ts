@@ -39,4 +39,25 @@ describe('min/max pyramid', () => {
     p.range(500, 501, mm)
     expect(mm).toEqual([NaN, NaN])
   })
+
+  it('agrees with a plain scan for any range, also after other ranges were asked for', () => {
+    const n = 5000
+    const data = Float32Array.from({ length: n }, (_, i) => Math.sin(i * 0.37) * (1 + (i % 97)) + (i % 211 === 0 ? 500 : 0))
+    const p = new MinMaxPyramid(data)
+    const mm: [number, number] = [0, 0]
+    let seed = 1
+    const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647
+    for (let k = 0; k < 300; k++) {
+      const i0 = Math.floor(random() * n)
+      const i1 = Math.min(n, i0 + 1 + Math.floor(random() * (k % 3 ? 4000 : 40)))
+      let lo = Infinity
+      let hi = -Infinity
+      for (let i = i0; i < i1; i++) {
+        lo = Math.min(lo, data[i])
+        hi = Math.max(hi, data[i])
+      }
+      p.range(i0, i1, mm)
+      expect(mm).toEqual([lo, hi])
+    }
+  })
 })

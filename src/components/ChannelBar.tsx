@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
+import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { AlertTriangle, AudioLines, ChevronLeft, ChevronRight, Eye, EyeOff, Plus } from 'lucide-react'
 import type { MathResult } from '../math/expr'
@@ -10,7 +10,8 @@ import { si } from '../util/format'
 import { channelName, perDiv, slopeSymbol, sourceUnit } from '../util/names'
 import { ChannelSettings } from './ChannelSettings'
 import { MathEditor } from './MathEditor'
-import type { DisplayPatch, LiveChannel, TimeWindow } from '../model/view'
+import type { DisplayPatch, LiveChannel } from '../model/view'
+import { useTimebase } from './timebaseContext'
 import { placeNear } from './ui/placement'
 import { useDismiss } from './ui/useDismiss'
 import { useTheme } from './ui/themeContext'
@@ -39,8 +40,6 @@ interface Props {
   spectrumSources: Set<string>
   canAddSpectrum: boolean
   onToggleSpectrum: (id: string) => void
-  win: TimeWindow
-  timePerDiv: number
   sampleRate: number
   recordLength: number
   trigger?: Session['trigger']
@@ -67,8 +66,12 @@ const POPOVER_W = 340
  * one compact badge per channel and math channel (click to select and open its
  * settings), followed by horizontal and trigger summaries. The badges stay in one row;
  * when they do not fit, the row scrolls sideways (wheel, the arrows at its edges).
+ *
+ * Memoized: the workspace renders on every step of a pan or zoom, the bar only when its channels
+ * change (the horizontal summary follows the time window by itself, see HorizontalInfo). For that
+ * its handlers have to be the same functions on every render (see useStableCallbacks).
  */
-export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBar(p, ref) {
+export const ChannelBar = memo(forwardRef<ChannelBarHandle, Props>(function ChannelBar(p, ref) {
   // The popover is positioned fixed so it is never clipped
   const [open, setOpen] = useState<{ id: string; style: React.CSSProperties } | null>(null)
   const popRef = useRef<HTMLDivElement>(null)
@@ -504,16 +507,7 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
         </button>
       </div>
       <div className="spacer" />
-      <div className="info-box" title={`Window ${si(p.win.start, 's')} … ${si(p.win.end, 's')}`} onContextMenu={p.onTimebaseMenu}>
-        <span className="info-title">Horizontal</span>
-        {/* The window next to the time per division, as on the scope: zoomed freely, it is not always 10 divisions */}
-        <span className="info-main mono">
-          {si(p.timePerDiv, 's/div', 3)} <span className="info-window">{si(p.win.end - p.win.start, 's', 3)}</span>
-        </span>
-        <span className="info-sub mono">
-          {si(p.sampleRate, 'S/s', 3)} · {si(p.recordLength, 'pts', 3)}
-        </span>
-      </div>
+      <HorizontalInfo sampleRate={p.sampleRate} recordLength={p.recordLength} onContextMenu={p.onTimebaseMenu} />
       {p.trigger && (
         <div className="info-box trigger" onContextMenu={p.onTimebaseMenu}>
           <span className="info-title">Trigger</span>
@@ -526,4 +520,21 @@ export const ChannelBar = forwardRef<ChannelBarHandle, Props>(function ChannelBa
       )}
     </footer>
   )
-})
+}))
+
+/** The horizontal summary: it follows the time window by itself (see timebaseContext.ts) */
+function HorizontalInfo(p: { sampleRate: number; recordLength: number; onContextMenu?: (e: React.MouseEvent) => void }) {
+  const { win, timePerDiv } = useTimebase()
+  return (
+    <div className="info-box" title={`Window ${si(win.start, 's')} … ${si(win.end, 's')}`} onContextMenu={p.onContextMenu}>
+      <span className="info-title">Horizontal</span>
+      {/* The window next to the time per division, as on the scope: zoomed freely, it is not always 10 divisions */}
+      <span className="info-main mono">
+        {si(timePerDiv, 's/div', 3)} <span className="info-window">{si(win.end - win.start, 's', 3)}</span>
+      </span>
+      <span className="info-sub mono">
+        {si(p.sampleRate, 'S/s', 3)} · {si(p.recordLength, 'pts', 3)}
+      </span>
+    </div>
+  )
+}

@@ -99,14 +99,22 @@ function Main() {
       try {
         const loaded = await loadSession(data, run.signal)
         let initial: InitialState = { kind: 'stored' }
+        // One notice for all there is to say (a newer notice of the same kind replaces an older one)
+        const notes: string[] = []
         const text = jsons.length ? await jsons[0].text() : loaded.analysis
         if (text) {
-          const parsed = parseAnalysisJson(text)
+          // An analysis that cannot be read (damaged, or of a newer version) does not keep the session from opening
+          let parsed: ReturnType<typeof parseAnalysisJson> | undefined
+          try {
+            parsed = parseAnalysisJson(text)
+          } catch (e) {
+            notes.push(`The analysis was not applied: ${e instanceof Error ? e.message : String(e)}.`)
+          }
           const fp = loaded.session.fingerprint
-          const foreign = parsed.fingerprint && fp && parsed.fingerprint !== fp
+          const foreign = parsed?.fingerprint && fp && parsed.fingerprint !== fp
           const apply =
-            !foreign || (await confirm({ title: 'Apply the analysis?', message: 'The analysis file was saved for a different session file.', confirmLabel: 'Apply it' }))
-          if (apply) {
+            parsed && (!foreign || (await confirm({ title: 'Apply the analysis?', message: 'The analysis file was saved for a different session file.', confirmLabel: 'Apply it' })))
+          if (parsed && apply) {
             initial = parsed.kind === 'analysis' ? { kind: 'analysis', workspace: parsed.workspace } : { kind: 'stored', addCallouts: parsed.callouts }
           }
         }
@@ -118,8 +126,6 @@ function Main() {
           : data.map((f) => ({ name: f.name, blob: f }))
         setCurrent((c) => ({ session: loaded.session, pyramids: loaded.pyramids, sources, initial, generation: (c?.generation ?? 0) + 1 }))
         setErrorText(null)
-        // One notice for both (a newer notice of the same kind replaces an older one)
-        const notes: string[] = []
         if (expected && loaded.session.fingerprint && expected.fingerprint !== loaded.session.fingerprint) {
           notes.push(`This is not the stored session “${expected.fileName}” (the content differs), so it was opened on its own.`)
         }

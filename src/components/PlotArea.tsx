@@ -21,6 +21,7 @@ import {
   viewBoxes,
   viewShares,
   viewsHeight,
+  type ChannelTag,
   type ViewDrawOptions,
 } from '../render/draw'
 import { PLOT_FONT, SANS, font } from '../render/fonts'
@@ -98,7 +99,7 @@ interface Props {
   /** A view outlined while the pointer is on its channels in the channel bar */
   highlightView?: number
   /** The time window: the plot zooms and pans it (the wheel, the tools) */
-  nav: Pick<Navigation, 'win' | 'record' | 'minSpan' | 'navigate' | 'zoomTo'>
+  nav: Pick<Navigation, 'win' | 'getWin' | 'record' | 'minSpan' | 'navigate' | 'zoomTo'>
   tool: Tool
   /** Short instruction shown while a non-default tool is active */
   hint?: string
@@ -165,6 +166,18 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
   const cursors = drag?.kind === 'cursor' && drag.now ? drag.now : savedCursors
   const cursorSync = useMemo(() => throttle((c: CursorState) => update((a) => edits.setCursors(a, c)), CURSOR_SYNC_MS), [update])
   useEffect(() => () => cursorSync.cancel(), [cursorSync])
+  // The changes the plot makes to the analysis: the same functions on every render, so the callout
+  // layer (memoized) is not rendered again whenever the pointer moves
+  const changes = useMemo<Pick<Resolved, 'setCursors' | 'onAdjust' | 'onMoveToView' | 'onUpdateCallout' | 'onResizeViews'>>(
+    () => ({
+      setCursors: (c) => update((a) => edits.setCursors(a, c)),
+      onAdjust: (id, patch) => update((a) => edits.patchChannel(a, id, patch)),
+      onMoveToView: (id, view) => update((a) => edits.moveToView(a, id, view)),
+      onUpdateCallout: (id, patch) => update((a) => edits.updateCallout(a, id, patch)),
+      onResizeViews: (sizes) => update((a) => edits.setViewSizes(a, sizes)),
+    }),
+    [update],
+  )
   const p: Resolved = {
     ...rest,
     views,
@@ -176,11 +189,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
     minSpan: nav.minSpan,
     onNavigate: nav.navigate,
     onZoomTo: nav.zoomTo,
-    setCursors: (c) => update((a) => edits.setCursors(a, c)),
-    onAdjust: (id, patch) => update((a) => edits.patchChannel(a, id, patch)),
-    onMoveToView: (id, view) => update((a) => edits.moveToView(a, id, view)),
-    onUpdateCallout: (id, patch) => update((a) => edits.updateCallout(a, id, patch)),
-    onResizeViews: (sizes) => update((a) => edits.setViewSizes(a, sizes)),
+    ...changes,
   }
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([])
@@ -191,6 +200,24 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
   const [size, setSize] = useState({ w: 800, h: 600 })
   /** Pointer position over the plot (CSS pixels) */
   const [hover, setHover] = useState<{ x: number; y: number; alt: boolean } | undefined>()
+  // The pointer can move many times between two frames (a mouse reports up to 1000 times a second):
+  // the plot follows it once per frame, with the latest position
+  const hoverNext = useRef<{ x: number; y: number; alt: boolean } | undefined>(undefined)
+  const hoverFrame = useRef(0)
+  const followPointer = (h: { x: number; y: number; alt: boolean }) => {
+    hoverNext.current = h
+    if (hoverFrame.current) return
+    hoverFrame.current = requestAnimationFrame(() => {
+      hoverFrame.current = 0
+      setHover(hoverNext.current)
+    })
+  }
+  const pointerLeft = () => {
+    cancelAnimationFrame(hoverFrame.current)
+    hoverFrame.current = 0
+    setHover(undefined)
+  }
+  useEffect(() => () => cancelAnimationFrame(hoverFrame.current), [])
   const dragMoved = useRef(false)
 
   const nViews = Math.max(1, p.views.length)
@@ -307,11 +334,26 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
     const traces = (p.views[vi] ?? []).map((id) => byId.get(id)).filter((c): c is LiveChannel => !!c && c.display.visible)
     return { traces, axis: traces.find((t) => t.display.id === p.selected) ?? traces[0] }
   }
+  /**
+   * Where the tags of view `vi` are. Laid out once for the channels and view sizes there are (their
+   * texts are measured for it), not again whenever the pointer moves over the plot
+   */
+  const tagsOf = useMemo(() => {
+    const laidOut = new Map<number, ChannelTag[]>()
+    return (vi: number): ChannelTag[] => {
+      let tags = laidOut.get(vi)
+      if (!tags) {
+        const traces = (p.views[vi] ?? []).map((id) => byId.get(id)).filter((c): c is LiveChannel => !!c && c.display.visible)
+        laidOut.set(vi, (tags = layoutTags(traces, boxes.heights[vi])))
+      }
+      return tags
+    }
+  }, [p.views, byId, boxes])
   /** The channel tag at (x, y) on the left edge of a view, and that view */
   const tagUnder = (x: number, y: number): { id: string; view: number } | undefined => {
     if (y < 0 || y >= viewsH) return undefined
     const view = viewOf(y)
-    const tag = tagAt(layoutTags(viewChannels(view).traces, hOf(view)), x, y - topOf(view))
+    const tag = tagAt(tagsOf(view), x, y - topOf(view))
     return tag && { id: tag.display.id, view }
   }
 
@@ -553,21 +595,23 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
         else p.onAdjust(ch.wave.id, { position: stepPosition(ch.display.position, -step * POSITION_STEP) })
         return
       }
-      // Shift+wheel or a sideways swipe pans, the wheel zooms
+      // Shift+wheel or a sideways swipe pans, the wheel zooms. From the window as it is now: wheel
+      // events can come faster than the plot renders, and each goes on from the one before
+      const win = nav.getWin()
       const pan = wheelPan(e)
       if (pan !== undefined) {
-        const shift = span * panShare(pan)
-        if (shift) p.onNavigate({ start: p.win.start + shift, end: p.win.end + shift }, 'pan')
+        const shift = (win.end - win.start) * panShare(pan)
+        if (shift) p.onNavigate({ start: win.start + shift, end: win.end + shift }, 'pan')
         return
       }
-      const t = xToT(Math.min(plotW, Math.max(0, x)))
-      p.onNavigate(zoomAround(p.win, t, wheelZoomFactor(delta), p.minSpan, maxSpan), 'wheel')
+      const t = win.start + (Math.min(plotW, Math.max(0, x)) / plotW) * (win.end - win.start)
+      p.onNavigate(zoomAround(win, t, wheelZoomFactor(delta), p.minSpan, maxSpan), 'wheel')
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
     // tagUnder, viewChannels and wheelStep only read the props and sizes listed here
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p, byId, span, plotW, boxes, viewsH, xToT, maxSpan])
+  }, [p, byId, nav.getWin, plotW, boxes, viewsH, maxSpan])
 
   const local = (e: { clientX: number; clientY: number }) => {
     const r = containerRef.current!.getBoundingClientRect()
@@ -629,7 +673,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
 
   const onPointerMove = (e: React.PointerEvent) => {
     const { x, y } = local(e)
-    setHover({ x, y, alt: e.altKey })
+    followPointer({ x, y, alt: e.altKey })
     if (!drag) return
     if (drag.kind === 'click') {
       if (Math.hypot(x - drag.x0, y - drag.y0) > 3) dragMoved.current = true
@@ -803,7 +847,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
       : undefined
   const dragged = drag?.kind === 'tag' && drag.moved ? byId.get(drag.id) : undefined
   /** The readout of a dragged tag goes right of the tag, clear of the offset in it */
-  const draggedTagW = drag?.kind === 'tag' && dragged ? (layoutTags(viewChannels(drag.view).traces, hOf(drag.view)).find((t) => t.display.id === drag.id)?.w ?? 0) : 0
+  const draggedTagW = drag?.kind === 'tag' && dragged ? (tagsOf(drag.view).find((t) => t.display.id === drag.id)?.w ?? 0) : 0
 
   const showHover = hover !== undefined && hoverT !== undefined && !drag && !p.editingCallout && !hoverTag
   const nearCursor =
@@ -835,7 +879,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={cancelDrag}
-      onPointerLeave={() => setHover(undefined)}
+      onPointerLeave={pointerLeft}
       // no auto-scroll on a middle click
       onMouseDown={(e) => e.button === 1 && e.preventDefault()}
       onDoubleClick={(e) => {

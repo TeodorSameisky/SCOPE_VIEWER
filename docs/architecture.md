@@ -17,7 +17,7 @@ is enforced, not just promised.
 | UI | React 19 function components and hooks, TypeScript (strict, `erasableSyntaxOnly`) |
 | Build | Vite 8, `vite-plugin-pwa` (Workbox) |
 | Drawing | Canvas 2D for waveforms, grid, spectrum; SVG for callouts |
-| Background work | Two Web Workers: file parsing, and computation (math, spectra, long measurements) |
+| Background work | Web Workers: file parsing, computation (math, spectra, long measurements), and packing a bundle when one is saved |
 | Persistence | `localStorage` (analyses, settings), IndexedDB (kept session files), `BroadcastChannel` (tab sync) |
 | Libraries | `fflate` (zip), `lucide-react` (icons), `@mathjax/src` (TeX in callouts, loaded on demand), `workbox-window` |
 | Tests | Vitest, plain unit tests (no DOM, no component tests) |

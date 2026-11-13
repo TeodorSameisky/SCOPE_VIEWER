@@ -53,7 +53,8 @@ of a change itself, around the edit:
 ```ts
 const removeMath = (id: string) => {
   const attached = calloutsOn(callouts, id)                  // for the message
-  offerUndo(`${channelName(id)} deleted …`)
+  editHistory.commit()                                       // the deletion is a step of its own
+  offerUndo(`${channelName(id)} deleted …`)                  // before the change (see section 3)
   update((a) => edits.removeMath(a, id, firstId))            // the change to the analysis
   if (selected === id) setSelected(firstId)                  // what the interface does about it
 }
@@ -159,7 +160,9 @@ change opens.) The history sees the restored document as a change that equals it
 `keepSelectionsIn(analysis)` makes sure nothing stays selected, edited or offered that the restored
 analysis no longer has (a selected callout, a deleted math channel's selection, a stale "Undo" notice).
 Deletions offer an **Undo notice** (`offerUndo`, 8 s) that is dismissed as soon as another step is
-recorded.
+recorded. `offerUndo` notes how many steps the history has started and expects the deletion to be the
+next one, so it is always called **just before** the `update` that deletes (math channels, a callout,
+all callouts alike); called after it, the notice would outlive the next edit and undo that instead.
 
 ## 4. Navigation and "Back"
 
@@ -168,6 +171,7 @@ recorded.
 ```ts
 const nav = useNavigation(session, ws0.window, displays, patchChannels, onScale)
 nav.win         // current { start, end }
+nav.getWin()    // the same, also between two renders (for wheel handlers)
 nav.navigate(w, 'wheel' | 'pan' | 'zoom')    // continuous: grouped into one Back step
 nav.zoomTo(w, patches?, free?)               // discrete; may rescale channels
 nav.zoomAt(t, factor)                        // zoom around a time
@@ -177,6 +181,9 @@ nav.zoomBack()                               // Backspace
 - **History:** the last 50 windows. Continuous changes of the same kind within **800 ms** count as one
   Back step, so a wheel gesture is one step back, not hundreds.
 - `keepInRecord` clamps panning and zooming to the record unless `free` is set.
+- **`getWin()`** returns the window as it is *now*. Wheel events can arrive faster than React renders; a
+  handler that computed the next window from `nav.win` of its render would start from the same window
+  twice and lose a step. The wheel handlers of the plot and the overview therefore start from `getWin()`.
 - A zoom that scales channels stores the channels' previous vertical settings in the history entry
   (`Verticals`); Back restores them. The hook changes channels through the `patchChannels` callback it is
   given (in `Scope`: `store.update((a) => edits.patchChannels(a, patches))`), not through React state.

@@ -4,19 +4,48 @@ import type { ChannelInput } from '../model/types'
  * Parser for Tektronix SCPI "learn" setup files (*.set as stored in sessions).
  * Each line holds one or more `:HEADER:PATH value` commands separated by ';'.
  * Later occurrences of a header override earlier ones, like on the instrument.
+ *
+ * The older families shorten commands that share a path, as SCPI allows: in
+ * `:CH1:BANDWIDTH 1E9;COUPLING DC;SCALE 2.0` the commands without a leading ':' continue the path
+ * of the one before them (`:CH1:COUPLING`, `:CH1:SCALE`).
  */
 export function parseTekSetup(text: string): Record<string, string> {
   const out: Record<string, string> = {}
   for (const line of text.split(/\r?\n/)) {
-    for (const cmd of line.split(/;(?=[:*])/)) {
+    /** Path of the last full header without its last part: what a shortened command continues */
+    let parent: string | undefined
+    for (const cmd of splitCommands(line)) {
       const c = cmd.trim()
-      if (!c.startsWith(':')) continue
-      const sp = c.indexOf(' ')
-      const key = (sp < 0 ? c : c.slice(0, sp)).toUpperCase()
+      if (!c || c.startsWith('*')) continue
+      const sp = c.search(/\s/)
+      const header = (sp < 0 ? c : c.slice(0, sp)).toUpperCase()
       const value = sp < 0 ? '' : c.slice(sp + 1).trim()
-      out[key] = value
+      if (header.startsWith(':')) {
+        parent = header.slice(0, header.lastIndexOf(':'))
+        out[header] = value
+      } else if (parent !== undefined && /^[A-Z_][A-Z0-9_:]*\??$/.test(header)) {
+        out[`${parent}:${header}`] = value
+        // A shortened command with a path of its own (`PROBE:GAIN 1`) is continued from there
+        if (header.includes(':')) parent = `${parent}:${header.slice(0, header.lastIndexOf(':'))}`
+      }
     }
   }
+  return out
+}
+
+/** The commands of a line: split at ';', but not inside a quoted string ("0;ch1;ch2") */
+function splitCommands(line: string): string[] {
+  const out: string[] = []
+  let start = 0
+  let quoted = false
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '"') quoted = !quoted
+    else if (line[i] === ';' && !quoted) {
+      out.push(line.slice(start, i))
+      start = i + 1
+    }
+  }
+  out.push(line.slice(start))
   return out
 }
 
