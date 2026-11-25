@@ -39,6 +39,7 @@ Words used in the code, the UI and these documents. Oscilloscope terms first, th
 | **Analysis** | The undoable, saveable, shareable part of the workspace – everything but the time window and the selected channel. Also the name of the `.scopeview.json` file. |
 | **Analysis store** | `AnalysisStore`: the analysis in one place outside React. Components, undo and autosave subscribe to it; changes are made with `update`. |
 | **Autosave** | Writing the workspace to `localStorage` 400 ms after a change. |
+| **Back** | Return to the previous time window (Backspace). Navigation, not undo: a run of pans or wheel zooms of the same kind is one Back step. Back from a zoom that scaled channels also restores their vertical settings. |
 | **Badge** | A channel's chip in the channel bar. |
 | **Bundle** | A `.scopeview` file: the session file(s) plus the analysis in one zip. |
 | **Callout** | An annotation: note, marker, region, box or span. |
@@ -67,6 +68,7 @@ Words used in the code, the UI and these documents. Oscilloscope terms first, th
 | **Stale** | A worker reply for a sample array that no longer exists; treated as "not computed". |
 | **Step (undo)** | A group of changes undone together, e.g. a whole drag. Where one ends is decided by the `StepGrouper`. |
 | **Take over** | Adopting an analysis another tab saved (`takeOver`). |
+| **Timebase** | The horizontal side of the workspace, as on the scope: the time window, the limits it may zoom between (10 samples of the fastest channel up to 4× the record), keeping it on the record, and the Back history. Pans and zooms go through it; a zoom that scales channels is the one part of it that undo sees. |
 | **View** | One stacked plot area with its own 10-division grid, holding one or more channels. Numbered from the top. (Not to be confused with the *view state*: the time window.) |
-| **View state** | Where you are looking: the time window and the selected channel. Not undoable. |
+| **View state** | Where you are looking: the time window (kept by the *timebase*) and the selected channel. Not undoable. |
 | **Workspace** | Everything about the user's work on a session: `Analysis` + view state. |
