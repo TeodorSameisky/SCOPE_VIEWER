@@ -54,7 +54,10 @@ Key choices, with their constants:
   edge; `period` = mean spacing of rising edges (needs ≥ 2 edges); `frequency = 1 / period`; `posWidth` =
   first rising 50 % to the next falling 50 %; `duty = posWidth / period`.
 - **Measurement range** is a user choice (`MeasureRange`): the samples `screen`, between `cursors`, or
-  the whole `record`. `sampleRange()` in `model/view.ts` converts a range to fractional sample indices.
+  the whole `record`. [`model/measureRange.ts`](../src/model/measureRange.ts) turns a range into samples for
+  everything that measures (table, edge snapping, spectrum, callout values, exports): the samples whose time
+  lies within the window, both ends included (`rangeSamples`, `samplesIn`). One rule everywhere also lets the
+  compute engine share a result between the table and snapping, since it remembers results by sample indices.
 
 ### Edge snapping
 

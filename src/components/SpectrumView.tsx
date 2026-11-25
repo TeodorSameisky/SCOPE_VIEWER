@@ -4,6 +4,7 @@ import type { ComputeEngine } from '../compute/engine'
 import { MIN_FFT_SAMPLES, WINDOW_DEFS, findPeaks, toDb, windowDef, type Peak, type Spectrum, type WindowKind } from '../math/fft'
 import { MAX_SPECTRA, PEAK_COUNTS, levelUnit, type FreqAxis, type SpectrumDef, type SpectrumOptions, type SpectrumScale } from '../model/spectrum'
 import { rangeChoices } from './scopeCommands'
+import { rangeSamples } from '../model/measureRange'
 import { useEngineResults, useLastResults } from './useEngineResults'
 import { ResizeHandle } from './ui/ResizeHandle'
 import { panShare, wheelPan, wheelPixels, wheelZoomFactor } from './ui/wheel'
@@ -86,17 +87,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
         const channel = p.channels.find((c) => c.wave.id === def.source)
         if (!channel) return { def, error: `${channelName(def.source)} has no waveform` }
         const w = channel.wave
-        let t0 = -Infinity
-        let t1 = Infinity
-        if (range === 'screen') {
-          t0 = win.start
-          t1 = win.end
-        } else if (range === 'cursors') {
-          t0 = Math.min(cursors.a, cursors.b)
-          t1 = Math.max(cursors.a, cursors.b)
-        }
-        const i0 = Math.max(0, Math.ceil((t0 - w.t0) / w.dt - 1e-9))
-        const i1 = Math.min(w.data.length, Math.floor((t1 - w.t0) / w.dt + 1e-9) + 1)
+        const [i0, i1] = rangeSamples(w, range, win, cursors)
         const computed = p.engine.spectrum(w.data, w.dt, i0, i1, def.window, `spectrum:${def.id}`)
         if (!computed) {
           const { value } = keep(def.id, undefined, (last) => last.source === def.source && last.window === def.window)

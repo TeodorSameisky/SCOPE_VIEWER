@@ -1,4 +1,5 @@
 import type { Channel } from '../model/types'
+import { samplesIn } from '../model/measureRange'
 import { valueAt } from '../render/draw'
 import { channelName } from '../util/names'
 
@@ -37,9 +38,8 @@ function writer(f: CsvFormat) {
 
 /** Number of rows a waveform export would have */
 export function waveformRowCount(ref: Channel['wave'], tStart: number, tEnd: number, step: number): number {
-  const i0 = Math.max(0, Math.ceil((tStart - ref.t0) / ref.dt))
-  const i1 = Math.min(ref.data.length - 1, Math.floor((tEnd - ref.t0) / ref.dt))
-  return i1 < i0 ? 0 : Math.floor((i1 - i0) / step) + 1
+  const [i0, i1] = samplesIn(ref, { start: tStart, end: tEnd })
+  return Math.ceil((i1 - i0) / step)
 }
 
 /**
@@ -51,15 +51,14 @@ export function waveformRowCount(ref: Channel['wave'], tStart: number, tEnd: num
 export async function buildWaveformCsv(channels: Channel[], tStart: number, tEnd: number, format: CsvFormat, step = 1): Promise<Blob> {
   const w = writer(format)
   const ref = channels[0].wave
-  const i0 = Math.max(0, Math.ceil((tStart - ref.t0) / ref.dt))
-  const i1 = Math.min(ref.data.length - 1, Math.floor((tEnd - ref.t0) / ref.dt))
+  const [i0, i1] = samplesIn(ref, { start: tStart, end: tEnd })
   const same = channels.map((c) => c.wave.t0 === ref.t0 && c.wave.dt === ref.dt && c.wave.data.length === ref.data.length)
   // Channels named as everywhere else in the app and the other exports ("Ch 1")
   const header = ['Time (s)', ...channels.map((c) => `${channelName(c.wave.id)}${c.display.label ? ` ${c.display.label}` : ''}${c.wave.yUnit ? ` (${c.wave.yUnit})` : ''}`)]
   const parts: string[] = [w.start + w.row(header.map(w.text)) + '\n']
   const CHUNK = 20000
   let lines: string[] = []
-  for (let i = i0; i <= i1; i += step) {
+  for (let i = i0; i < i1; i += step) {
     const t = ref.t0 + i * ref.dt
     const cells = [w.num(t, 10)]
     for (let k = 0; k < channels.length; k++) cells.push(w.num(same[k] ? channels[k].wave.data[i] : valueAt(channels[k].wave, t)))

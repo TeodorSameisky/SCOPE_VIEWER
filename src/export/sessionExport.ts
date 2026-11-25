@@ -4,6 +4,7 @@ import type { MathResult } from '../math/expr'
 import { toDb, type Peak, type Spectrum } from '../math/fft'
 import { calloutName, calloutSpan, calloutTitle, hasTimeSpan, type Callout } from '../model/callouts'
 import { calloutValueText } from '../model/calloutValues'
+import { rangeWindow } from '../model/measureRange'
 import { inputSummary } from '../model/input'
 import type { MathDef } from '../model/math'
 import type { SpectrumDef, SpectrumOptions, SpectrumScale } from '../model/spectrum'
@@ -104,17 +105,15 @@ export interface ExportContext {
 
 const visible = (ctx: ExportContext) => ctx.channels.filter((c) => c.display.visible)
 
-/** Time window of a measurement / export range */
-export function rangeWindow(ctx: ExportContext, r: MeasureRange): TimeWindow {
-  if (r === 'screen') return ctx.win
-  if (r === 'cursors') return { start: Math.min(ctx.cursors.a, ctx.cursors.b), end: Math.max(ctx.cursors.a, ctx.cursors.b) }
-  return ctx.record
+/** Time window of a measurement / export range; the record is the session's, so it can be written in a note */
+function exportWindow(ctx: ExportContext, r: MeasureRange): TimeWindow {
+  return r === 'record' ? ctx.record : rangeWindow(r, ctx.win, ctx.cursors)
 }
 
 export function waveformRows(ctx: ExportContext, o: WaveformOptions): { rows: number; columns: number } {
   const list = o.channels === 'all' ? ctx.channels : visible(ctx)
   if (!list.length) return { rows: 0, columns: 0 }
-  const w = rangeWindow(ctx, o.range)
+  const w = exportWindow(ctx, o.range)
   return { rows: waveformRowCount(list[0].wave, w.start, w.end, o.step), columns: list.length }
 }
 
@@ -198,7 +197,7 @@ function reportTables(ctx: ExportContext, prefs: ExportPrefs): ReportTable[] {
     })
   }
   if (o.measurements && ctx.measKeys.length) {
-    const w = rangeWindow(ctx, ctx.measRange)
+    const w = exportWindow(ctx, ctx.measRange)
     const t = measurementTable(measureChannels(channels, ctx.measRange, ctx.win, cursors, ctx.measExclude), ctx.measKeys)
     tables.push({ title: 'Measurements', note: `Range: ${RANGE_LABEL[ctx.measRange].toLowerCase()} (${si(w.start, 's')} … ${si(w.end, 's')})`, ...t })
   }
@@ -313,7 +312,7 @@ export async function runExport(ctx: ExportContext, kind: ExportKind, prefs: Exp
     const o = prefs.waveforms
     const list = o.channels === 'all' ? ctx.channels : visible(ctx)
     if (!list.length) throw new Error('No channels to export')
-    const w = rangeWindow(ctx, o.range)
+    const w = exportWindow(ctx, o.range)
     downloadBlob(await buildWaveformCsv(list, w.start, w.end, format, o.step), `${fileStem}-${o.range}.csv`)
     return
   }

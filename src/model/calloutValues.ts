@@ -6,6 +6,7 @@ import { channelName } from '../util/names'
 import { SampleCache } from '../util/sampleCache'
 import type { Callout } from './callouts'
 import type { Waveform } from './types'
+import { samplesIn } from './measureRange'
 
 /** Short names of the measurements in region labels */
 export const MEASURE_SHORT: Record<MeasurementKey, string> = {
@@ -67,8 +68,7 @@ export function calloutValueText(c: Callout, waves: Waveform[], measureSpan: Spa
     if (!w) return `${channelName(channel)}: no waveform`
     const t2 = c.t2 ?? c.t
     // The samples inside its time span
-    const i0 = Math.max(0, Math.ceil((Math.min(c.t, t2) - w.t0) / w.dt - 1e-9))
-    const i1 = Math.min(w.data.length, Math.floor((Math.max(c.t, t2) - w.t0) / w.dt + 1e-9) + 1)
+    const [i0, i1] = samplesIn(w, { start: Math.min(c.t, t2), end: Math.max(c.t, t2) })
     const m = measureSpan(w, i0, i1, c.id)
     if (!m) return `${channelName(w.id)}: measuring…`
     return `${channelName(w.id)}: ${keys.map((k) => `${MEASURE_SHORT[k]} ${formatMeasurement(k, m[k], w.yUnit)}`).join(' · ')}`

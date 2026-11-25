@@ -75,6 +75,7 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 | `workspace.ts` | `Workspace`/`Analysis`; `WORKSPACE_FIELDS`, `WORKSPACE_VERSION`/`WORKSPACE_MIGRATIONS`; defaults from a file; `sanitizeWorkspace`; autosave storage; analysis files; zoom limits |
 | `migrations.ts` | `upgrade`: bring saved data of an older version up to date with a chain of steps; `versionOf` |
 | `view.ts` | Time window, cursors, measurement range, tools; zoom/pan/autoscale/view-size helpers; `LiveChannel` |
+| `measureRange.ts` | Which samples a measurement range means: `rangeWindow`, `samplesIn`, `rangeSamples` (one rule for table, snapping, spectrum, callouts, exports) |
 | `callouts.ts` | `Callout` and `NewCallout` types, colours, `sanitizeCallouts`; navigation helpers (`adjacentCallout`, `calloutWindow`, `isOffRecord`, `boxZoomPatch`, `calloutsOn`) |
 | `edits.ts` | The changes a user can make to the analysis, as pure functions `(Analysis, args) → Analysis` (channels, views, math, callouts, cursors, measurements, spectra, notes) |
 | `analysisStore.ts` | `AnalysisStore`: the analysis in an external store with `update`, `subscribe`, `changedAt` and `adopt` (tab sync) |

@@ -1,7 +1,8 @@
 import { measure, type MeasurementKey, type Measurements } from '../dsp/measure'
 import { formatMeasurement, measurementDef } from '../dsp/measureDefs'
 import { channelName } from '../util/names'
-import { sampleRange, type CursorState, type LiveChannel, type MeasureRange, type TimeWindow } from '../model/view'
+import { rangeSamples } from '../model/measureRange'
+import type { CursorState, LiveChannel, MeasureRange, TimeWindow } from '../model/view'
 
 export interface MeasuredChannel {
   channel: LiveChannel
@@ -17,7 +18,7 @@ export function measuredChannels<T extends Pick<LiveChannel, 'wave' | 'display'>
 export function measureChannels(channels: LiveChannel[], range: MeasureRange, win: TimeWindow, cursors: CursorState, exclude: readonly string[]): MeasuredChannel[] {
   return measuredChannels(channels, exclude)
     .map((channel) => {
-      const [i0, i1] = sampleRange(channel.wave, range, win, cursors)
+      const [i0, i1] = rangeSamples(channel.wave, range, win, cursors)
       return { channel, m: measure(channel.wave.data, i0, i1, channel.wave.t0, channel.wave.dt) }
     })
 }
