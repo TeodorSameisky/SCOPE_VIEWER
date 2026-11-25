@@ -281,7 +281,7 @@ callout colours are data of the session, not tokens.
 | --- | --- | --- |
 | Spacing (padding, margin, gap) | `--space-1` … `--space-6` | 2, 4, 6, 8, 12, 16 px |
 | Text size | `--fs-xs`, `--fs-sm`, `--fs-md`, `--fs-lg` | 11, 12, 13 (body), 15 px |
-| Corners | `--radius-sm`, `--radius-md`, `--radius-lg` | 4, 6 (buttons), 8 px |
+| Corners | `--radius-sm`, `--radius-md`, `--radius-lg` | 4, 6 (buttons and fields), 8 px |
 | Elevation | `--elev-1`, `--elev-2`, `--elev-3` | small hints and the dragged badge · popovers, menus, toasts · dialogs and the palette |
 | Stacking | `--z-overlay`, `--z-sidebar`, `--z-popover`, `--z-dialog`, `--z-toast`, `--z-menu`, `--z-busy` | 2, 30, 40, 60, 70, 90, 100; inside one component small numbers or `calc(var(--z-overlay) + n)` |
 | Keyboard focus | `--focus-ring`, `--focus-offset` | 2 px accent outline, 1 px outside |
