@@ -15,7 +15,7 @@ state is tells you whether it can be undone, saved or shared.
 | Kind | Examples | Lives in | Undo | Saved | Shared with other tabs |
 | --- | --- | --- | --- | --- | --- |
 | **Analysis** – the user's work | channel settings, views, math, spectra, callouts, cursors, measurement choice, notes | `AnalysisStore` (not React state) | yes | yes (400 ms after a change) | yes |
-| **View** – where you are looking | time window, selected channel | `useNavigation`, `useState` | no (use **Back**) | yes (with the workspace) | no |
+| **View** – where you are looking | time window, selected channel | `Timebase`, `useState` | no (use **Back**) | yes (with the workspace) | no |
 | **Interaction** | active tool, selected/edited callout, open menus and dialogs, highlighted view | `useState` in `Scope`/components | no | no | no |
 | **Layout / preferences** | open panel, overview and table visibility, heights, theme, export options | `usePersistentState` | no | yes, separately (see §2) | no |
 
@@ -166,28 +166,37 @@ all callouts alike); called after it, the notice would outlive the next edit and
 
 ## 4. Navigation and "Back"
 
-[`useNavigation`](../src/components/useNavigation.ts) owns the time window.
+The [`Timebase`](../src/model/timebase.ts) owns the time window. Like the analysis store it is a plain
+class outside React: `Scope` creates it next to the store and the undo history, and passes the object down
+in `TimebaseContext`. The places that show the window subscribe to it (`useTimebaseState`); callers say
+what the user did and never compute the next window themselves.
 
 ```ts
-const nav = useNavigation(session, ws0.window, displays, patchChannels, onScale)
-nav.win         // current { start, end }
-nav.getWin()    // the same, also between two renders (for wheel handlers)
-nav.navigate(w, 'wheel' | 'pan' | 'zoom')    // continuous: grouped into one Back step
-nav.zoomTo(w, patches?, free?)               // discrete; may rescale channels
-nav.zoomAt(t, factor)                        // zoom around a time
-nav.zoomBack()                               // Backspace
+const timebase = new Timebase(session, ws0.window, { store, history: editHistory })
+timebase.get()          // { window, canGoBack, showsRecord }, a new object on every change
+timebase.pan(w)         // drag the plot or the overview box      (continuous)
+timebase.panBy(share)   // keys, Shift+wheel                       (continuous)
+timebase.resize(edge, t)              // drag an edge of the overview box (continuous)
+timebase.zoomAt(t, factor, { continuous })  // wheel (continuous); buttons, keys, clicks (one step each)
+timebase.zoomTo(range, { patches, free })   // a range, a callout, the record; may rescale channels
+timebase.back()         // Backspace
+timebase.show(w)        // undo / redo of a zoom that scaled channels: no Back step
 ```
 
 - **History:** the last 50 windows. Continuous changes of the same kind within **800 ms** count as one
-  Back step, so a wheel gesture is one step back, not hundreds.
-- `keepInRecord` clamps panning and zooming to the record unless `free` is set.
-- **`getWin()`** returns the window as it is *now*. Wheel events can arrive faster than React renders; a
-  handler that computed the next window from `nav.win` of its render would start from the same window
-  twice and lose a step. The wheel handlers of the plot and the overview therefore start from `getWin()`.
-- A zoom that scales channels stores the channels' previous vertical settings in the history entry
-  (`Verticals`); Back restores them. The hook changes channels through the `patchChannels` callback it is
-  given (in `Scope`: `store.update((a) => edits.patchChannels(a, patches))`), not through React state.
-- Limits come from `spanLimits(session)` – see [Data model](data-model.md#4-coordinates-and-units).
+  Back step, so a wheel gesture is one step back, not hundreds. A change that does not move the window
+  is no step.
+- **Limits** (`spanLimits(session)`, see [Data model](data-model.md#4-coordinates-and-units)) apply to every
+  verb: no caller clamps. `zoomTo` widens a range narrower than the limit around its middle and shows a
+  range within the limits exactly. Pans, resizes and zooms stay on the record (`keepInRecord`) unless
+  `free` is set.
+- **Always the window as it is now.** Wheel events can arrive faster than React renders; since every verb
+  starts from the timebase's own window, not from a render's copy, no event loses a step.
+- **A zoom that scales channels** is the timebase's rule end to end: it stores the channels' previous
+  vertical settings in the Back step (`Verticals`), changes them in the store (`edits.patchChannels`) and
+  attaches the window move to the open undo step (`moveView`). Back restores them the same way. Undo and
+  redo of such a step return the window with `show`. `timebase.test.ts` covers this with a real store and
+  undo history.
 
 ## 5. Autosave
 
