@@ -185,7 +185,7 @@ the saved state.
 | FFT length | 2²⁰ samples (longer ranges are block-averaged first) | `MAX_FFT` |
 | Fewest samples for a spectrum | 16 | `MIN_FFT_SAMPLES` |
 | Undo steps kept | 200 | `UndoHistory` constructor |
-| "Back" view history | 50 | `useNavigation` |
+| "Back" view history | 50 | `BACK_STEPS` (`timebase.ts`) |
 | Analyses remembered in the browser | 50 sessions | `MAX_STORED_SESSIONS` |
 | Session file kept in IndexedDB | 300 MB each, 1 GB total, and at most 40 % of the browser's quota | `fileStore.ts` |
 | Shortest view | 40 px | `MIN_VIEW_H` |

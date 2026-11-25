@@ -2,9 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { calloutSpan, calloutTitle, hasTimeSpan, type Callout } from '../model/callouts'
 import { AXIS_GUTTER, DIVS_Y, valueToDiv } from '../render/draw'
 import { PLOT_FONT } from '../render/fonts'
+import { useTimebase, useTimebaseState } from './timebaseContext'
 import { useTheme } from './ui/themeContext'
 import { panShare, wheelPan, wheelPixels, wheelZoomFactor } from './ui/wheel'
-import { zoomAround, type LiveChannel, type NavKind, type TimeWindow } from '../model/view'
+import type { LiveChannel, TimeWindow } from '../model/view'
 
 const HEIGHT = 46
 const EDGE_PX = 6
@@ -15,12 +16,6 @@ const HIT_PX = 5
 interface Props {
   channels: LiveChannel[]
   views: string[][]
-  record: TimeWindow
-  win: TimeWindow
-  /** The window right now, also between two renders (wheel events come faster than the page renders) */
-  getWin?: () => TimeWindow
-  minSpan: number
-  onNavigate: (w: TimeWindow, kind: NavKind) => void
   /** Right-click, with the time at the pointer */
   onContextMenu?: (e: React.MouseEvent, t: number) => void
   /** Shown as ticks along the bottom; a click on one goes there */
@@ -40,7 +35,10 @@ type Drag =
  * as a box. Drag the box to pan, drag its edges to resize, drag elsewhere to mark
  * a new range to zoom into, click to centre the view.
  */
-export function Overview({ channels, views, record, win, getWin, minSpan, onNavigate, onContextMenu, callouts, selectedCallout, onJumpToCallout }: Props) {
+export function Overview({ channels, views, onContextMenu, callouts, selectedCallout, onJumpToCallout }: Props) {
+  const timebase = useTimebase()
+  const { window: win } = useTimebaseState(timebase)
+  const { record } = timebase
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const tracesRef = useRef<HTMLCanvasElement | null>(null)
@@ -266,13 +264,9 @@ export function Overview({ channels, views, record, win, getWin, minSpan, onNavi
     moved.current = true
     if (drag.kind === 'move') {
       const dt = ((x - drag.x0) / plotW) * recSpan
-      onNavigate({ start: drag.win.start + dt, end: drag.win.end + dt }, 'pan')
-    } else if (drag.kind === 'start') {
-      const t = Math.min(xToT(x), win.end - minSpan)
-      onNavigate({ start: t, end: win.end }, 'pan')
-    } else if (drag.kind === 'end') {
-      const t = Math.max(xToT(x), win.start + minSpan)
-      onNavigate({ start: win.start, end: t }, 'pan')
+      timebase.pan({ start: drag.win.start + dt, end: drag.win.end + dt })
+    } else if (drag.kind === 'start' || drag.kind === 'end') {
+      timebase.resize(drag.kind, xToT(x))
     } else if (drag.kind === 'select') {
       setDrag({ ...drag, x1: x })
     }
@@ -284,15 +278,12 @@ export function Overview({ channels, views, record, win, getWin, minSpan, onNavi
       if (!moved.current) onJumpToCallout(drag.callout)
     } else if (drag?.kind === 'select') {
       if (Math.abs(drag.x1 - drag.x0) > 3) {
-        const a = xToT(Math.min(drag.x0, drag.x1))
-        const b = xToT(Math.max(drag.x0, drag.x1))
-        const s = Math.max(b - a, minSpan)
-        onNavigate({ start: (a + b) / 2 - s / 2, end: (a + b) / 2 + s / 2 }, 'zoom')
+        timebase.zoomTo({ start: xToT(Math.min(drag.x0, drag.x1)), end: xToT(Math.max(drag.x0, drag.x1)) })
       } else {
         // click: centre the current window there
         const span = win.end - win.start
         const t = xToT(x)
-        onNavigate({ start: t - span / 2, end: t + span / 2 }, 'zoom')
+        timebase.zoomTo({ start: t - span / 2, end: t + span / 2 })
       }
     }
     setDrag(null)
@@ -304,20 +295,15 @@ export function Overview({ channels, views, record, win, getWin, minSpan, onNavi
     if (!el) return
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
-      const now = getWin?.() ?? win
       const pan = wheelPan(e)
-      if (pan !== undefined) {
-        const shift = (now.end - now.start) * panShare(pan)
-        if (shift) onNavigate({ start: now.start + shift, end: now.end + shift }, 'pan')
-        return
-      }
+      if (pan !== undefined) return timebase.panBy(panShare(pan))
       const x = e.clientX - el.getBoundingClientRect().left
       const t = record.start + (Math.min(plotW, Math.max(0, x)) / plotW) * recSpan
-      onNavigate(zoomAround(now, t, wheelZoomFactor(wheelPixels(e).y), minSpan, recSpan * 4), 'wheel')
+      timebase.zoomAt(t, wheelZoomFactor(wheelPixels(e).y), { continuous: true })
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [win, getWin, record.start, recSpan, plotW, minSpan, onNavigate])
+  }, [timebase, record.start, recSpan, plotW])
 
   const dpr = window.devicePixelRatio || 1
   const cursor =

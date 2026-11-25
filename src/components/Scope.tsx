@@ -83,7 +83,7 @@ import {
   shownViews,
   cursorsInView,
   sampleRange,
-  timeTicks,
+  timePerDiv,
   type CursorState,
   type DisplayPatch,
   type LiveChannel,
@@ -99,10 +99,10 @@ import { UndoHistory } from '../model/undoHistory'
 import { AnalysisContext, useStoreAnalysis } from './analysisContext'
 import { useAutosave } from './useAutosave'
 import { useMathResults } from './useMathResults'
-import { useNavigation } from './useNavigation'
 import { useShortcuts } from './useShortcuts'
 import { useStableCallbacks } from './useStableCallbacks'
-import { TimebaseContext } from './timebaseContext'
+import { TimebaseContext, useTimebaseState } from './timebaseContext'
+import { Timebase } from '../model/timebase'
 import { useUndoHistory } from './useUndoHistory'
 
 const PANEL_TITLE: Record<PanelId, string> = { cursors: 'Cursors', callouts: 'Callouts', info: 'Session', reference: 'Reference' }
@@ -273,17 +273,12 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   const openSettings = (id: string) => channelBarRef.current?.openSettings(id)
 
   // ---------- navigation ----------
-  // A zoom that scales channels (or Back from it) is an undo step that takes the window with it
-  const nav = useNavigation(
-    session,
-    ws0.window,
-    displays,
-    (patches) => update((a) => edits.patchChannels(a, patches)),
-    (from, to) => editHistory.moveView(from, to),
-  )
-  const { win, record, minSpan } = nav
-  const ticks = timeTicks(win)
-  const tPerDiv = ticks.length > 1 ? ticks[1] - ticks[0] : (win.end - win.start) / 10
+  // The time window and Back, outside React like the analysis. A zoom that scales channels (or Back
+  // from it) changes them in the store and is an undo step that takes the window with it.
+  const [timebase] = useState(() => new Timebase(session, ws0.window, { store, history: editHistory }))
+  const { window: win, canGoBack, showsRecord } = useTimebaseState(timebase)
+  const { record, minSpan } = timebase
+  const tPerDiv = timePerDiv(win)
 
   /** Fit channels into their views (one undo step): what is in `range`, by default what is on screen */
   const autoscale = (ids: string[], range: TimeWindow = win) => update((a) => edits.autoscale(a, channels, ids, range, DIVS_Y))
@@ -355,14 +350,14 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   }
   /** Go to a callout: its time span with some room. One placed off the record (zoomed out beyond it) is shown where it is */
   const jumpToCallout = (c: Callout) => {
-    nav.zoomTo(calloutWindow(c, win, minSpan), [], isOffRecord(c, record))
+    timebase.zoomTo(calloutWindow(c, win, minSpan), { free: isOffRecord(c, record) })
     setSelectedCallout(c.id)
   }
   /** Zoom to a box: its time span, and its channel scaled so the box fills most of the view */
   const zoomToBox = (c: Callout) => {
     const zoom = boxZoomPatch(c, c.channel ? displayById.get(c.channel) : undefined, DIVS_Y)
     if (!zoom) return jumpToCallout(c)
-    nav.zoomTo(calloutWindow(c, win, minSpan), [zoom], isOffRecord(c, record))
+    timebase.zoomTo(calloutWindow(c, win, minSpan), { patches: [zoom], free: isOffRecord(c, record) })
     setSelectedCallout(c.id)
   }
   /** A copy of a callout, a little later in time, selected */
@@ -455,7 +450,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     editHistory,
     store,
     (d, view) => {
-      if (view) nav.show(view)
+      if (view) timebase.show(view)
       update(d)
       keepSelectionsIn(d)
     },
@@ -569,7 +564,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     cursors,
     win,
     record,
-    minDt: nav.minDt,
+    minDt: timebase.minDt,
     timePerDiv: tPerDiv,
     measKeys,
     measRange,
@@ -589,7 +584,11 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   // ---------- actions: toolbar, menus, command palette and keyboard ----------
   const [paletteOpen, setPaletteOpen] = useState(false)
   const canInstall = useCanInstall()
-  const mid = (win.start + win.end) / 2
+  /** Zoom by `f` around the middle of the window as it is now (keys repeat faster than the page renders) */
+  const zoomCentre = (f: number) => {
+    const now = timebase.get().window
+    timebase.zoomAt((now.start + now.end) / 2, f)
+  }
   const tools = Object.fromEntries(
     TOOL_ORDER.map((t): [Tool, Action] => {
       const def = TOOLS[t]
@@ -622,7 +621,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     // Their buttons do not close an open callout editor first: Undo takes back what was done in it (a new callout goes)
     undo: { label: 'Undo', icon: Undo2, hint: KEYS.undo, disabled: !undoRedo.canUndo, keepFocus: true, palette: { id: 'edit:undo', group: 'Edit' }, run: undoRedo.undo },
     redo: { label: 'Redo', icon: Redo2, hint: KEYS.redo, disabled: !undoRedo.canRedo, keepFocus: true, palette: { id: 'edit:redo', group: 'Edit' }, run: undoRedo.redo },
-    fullRecord: { label: 'Full record', icon: Maximize2, hint: KEYS.fullRecord, disabled: nav.showsRecord, palette: { id: 'view:full', group: 'View' }, run: () => nav.zoomTo(record) },
+    fullRecord: { label: 'Full record', icon: Maximize2, hint: KEYS.fullRecord, disabled: showsRecord, palette: { id: 'view:full', group: 'View' }, run: () => timebase.zoomTo(record) },
     autoscale: {
       label: 'Autoscale all channels',
       icon: UnfoldVertical,
@@ -632,16 +631,16 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
       palette: { id: 'view:autoscale', group: 'View', keywords: 'fit vertical scale autoset' },
       run: () => autoscale(visibleChannels.map((c) => c.wave.id)),
     },
-    back: { label: 'Back to the previous view', icon: ArrowLeft, hint: KEYS.back, disabled: !nav.canGoBack, palette: { id: 'view:back', group: 'View' }, run: nav.zoomBack },
+    back: { label: 'Back to the previous view', icon: ArrowLeft, hint: KEYS.back, disabled: !canGoBack, palette: { id: 'view:back', group: 'View' }, run: timebase.back },
     savedView: {
       label: 'Saved view',
       icon: Home,
       title: 'The view the scope showed when the session was saved',
       palette: { id: 'view:saved', group: 'View', keywords: 'as on the scope home' },
-      run: () => nav.zoomTo(nav.savedWin, [], true),
+      run: () => timebase.zoomTo(timebase.savedWindow, { free: true }),
     },
-    zoomIn: { label: 'Zoom in', icon: ZoomIn, hint: KEYS.zoomIn, palette: { id: 'view:in', group: 'View' }, run: () => nav.zoomAt(mid, 0.5) },
-    zoomOut: { label: 'Zoom out', icon: ZoomOut, hint: KEYS.zoomOut, palette: { id: 'view:out', group: 'View' }, run: () => nav.zoomAt(mid, 2) },
+    zoomIn: { label: 'Zoom in', icon: ZoomIn, hint: KEYS.zoomIn, palette: { id: 'view:in', group: 'View' }, run: () => zoomCentre(0.5) },
+    zoomOut: { label: 'Zoom out', icon: ZoomOut, hint: KEYS.zoomOut, palette: { id: 'view:out', group: 'View' }, run: () => zoomCentre(2) },
     cursors: { label: 'Cursors', icon: Ruler, hint: KEYS.cursors, checked: cursors.on, palette: { id: 'view:cursors', group: 'View' }, run: () => setCursors({ ...cursors, on: !cursors.on }) },
     cursorsHere: { label: 'Bring the cursors into the view', icon: Ruler, palette: { id: 'view:cursors-here', group: 'View' }, run: () => setCursors(cursorsInView(cursors, win)) },
     readout: { label: 'Values at the pointer', icon: Crosshair, hint: KEYS.readout, checked: layout.readout, palette: { id: 'view:readout', group: 'View' }, run: toggleReadout },
@@ -706,8 +705,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     openSettings,
     setCursors,
     placeCursor,
-    zoomAt: nav.zoomAt,
-    zoomTo: (w) => nav.zoomTo(w),
+    zoomAt: (t, f) => timebase.zoomAt(t, f),
+    zoomTo: (w) => timebase.zoomTo(w),
     addCallout,
     editCallout,
     updateCallout,
@@ -736,10 +735,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     editCallout,
     deleteCallout,
     nudgeCallout,
-    pan: (share) => {
-      const d = (win.end - win.start) * share
-      nav.navigate({ start: win.start + d, end: win.end + d }, 'pan')
-    },
+    pan: timebase.panBy,
     cancel: () => {
       setTool('pan')
       setSelectedCallout(undefined)
@@ -760,7 +756,6 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     channelMenu: (e: React.MouseEvent, id: string) => openMenu(e, channelMenu(api, id)),
     timebaseMenu: (e: React.MouseEvent) => openMenu(e, timebaseMenu(api, tPerDiv)),
   })
-  const timebase = useMemo(() => ({ win, timePerDiv: tPerDiv }), [win, tPerDiv])
 
   return (
     <AnalysisContext.Provider value={store}>
@@ -785,11 +780,6 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
               <Overview
                 channels={channels}
                 views={views}
-                record={record}
-                win={win}
-                getWin={nav.getWin}
-                minSpan={minSpan}
-                onNavigate={nav.navigate}
                 onContextMenu={(e, t) => openMenu(e, overviewMenu(api, t))}
                 callouts={callouts}
                 selectedCallout={selectedCallout}
@@ -802,7 +792,6 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
               channels={channels}
               viewsShown={viewsShown}
               highlightView={highlightView}
-              nav={nav}
               tool={tool}
               hint={TOOLS[tool].hint}
               readout={layout.readout}
@@ -945,7 +934,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
           onAdjust={bar.adjustChannel}
           onMoveToView={bar.moveToView}
           onAutoscale={bar.autoscale}
-          sampleRate={1 / nav.minDt}
+          sampleRate={1 / timebase.minDt}
           recordLength={session.channels[0].wave.data.length}
           trigger={session.trigger}
           onChannelMenu={bar.channelMenu}

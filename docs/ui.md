@@ -53,7 +53,7 @@ flowchart TD
 3. **Layout** (`usePersistentState`), including Focus mode (hide everything, remember what was open).
 4. **Channels** – the `ComputeEngine`, `useMathResults`, and the derived lists (`inputChannels`,
    `mathItems`, `channels`, `viewsShown`).
-5. **Navigation** – `useNavigation`; `autoscale` (one undo step); math add/change/remove with a *pending
+5. **Navigation** – the `Timebase` (created once, passed down in `TimebaseContext`); `autoscale` (one undo step); math add/change/remove with a *pending
    autoscale* so a new or edited math channel is fitted once its result exists.
 6. **Callout operations** – add, update, delete (with Undo notice), edit, jump to, zoom to box, duplicate,
    nudge, step.
@@ -200,9 +200,10 @@ Wheel behaviour (`onWheel`, registered non-passive so it can `preventDefault`):
 | Ctrl+wheel | V/div of the selected channel |
 | Alt+wheel | position of the selected channel (0.1 div steps) |
 
-Zooming and panning with the wheel start from `nav.getWin()`, the window as it is at that moment, not from
-the window of the last render: several wheel events can arrive between two renders, and each goes on from
-the one before (see [State and persistence](state-and-persistence.md#4-navigation-and-back)).
+Zooming and panning with the wheel go through the timebase (`zoomAt(t, f, { continuous: true })`,
+`panBy`), which starts from the window as it is at that moment, not from the window of the last render:
+several wheel events can arrive between two renders, and each goes on from the one before (see
+[State and persistence](state-and-persistence.md#4-navigation-and-back)).
 
 **The pointer is followed once per frame.** A mouse reports its position far more often than the screen is
 drawn; `followPointer` keeps the latest position and puts it into the `hover` state on the next animation
@@ -233,7 +234,7 @@ is closest in pixels (within 20 px).
 
 | Component | Role |
 | --- | --- |
-| **ChannelBar** | One badge per channel, grouped by view with numbers. A click selects the channel and opens its settings popover (`ChannelSettings`); the eye button toggles visibility; right-click opens the channel menu. Drag a badge (mouse or pen; a finger scrolls the row instead) onto a view group or the *New view* box to move it – a press only becomes a drag after the pointer moves 6 px. Hosts **+ Math** (`MathEditor`) and **FFT** buttons. Scrolls horizontally in narrow windows; below 700 px the badges get their own row. **Memoized**: the workspace renders on every step of a pan or zoom, the bar only when its channels change. Its handlers therefore come from `useStableCallbacks` in `Scope`, and its horizontal summary (`HorizontalInfo`) reads the time window from `TimebaseContext` instead of props. |
+| **ChannelBar** | One badge per channel, grouped by view with numbers. A click selects the channel and opens its settings popover (`ChannelSettings`); the eye button toggles visibility; right-click opens the channel menu. Drag a badge (mouse or pen; a finger scrolls the row instead) onto a view group or the *New view* box to move it – a press only becomes a drag after the pointer moves 6 px. Hosts **+ Math** (`MathEditor`) and **FFT** buttons. Scrolls horizontally in narrow windows; below 700 px the badges get their own row. **Memoized**: the workspace renders on every step of a pan or zoom, the bar only when its channels change. Its handlers therefore come from `useStableCallbacks` in `Scope`, and its horizontal summary (`HorizontalInfo`) subscribes to the timebase from `TimebaseContext` instead of taking the window as a prop. |
 | **ChannelSettings** | Popover for one channel: label, colour, V/div (typed values like `500m`, `2 V`), position, offset, view, plus the read-only input settings from the scope. |
 | **MathEditor** | Expression field with live `checkSyntax` feedback and error position, unit override, quick-operation presets (`MATH_PRESETS`). |
 | **MeasurementTable** | Rows = measured channels, columns = chosen measurements. Header click → explanation (`MeasureInfo`/`MeasureFigure`), drag to reorder, *Channels* chooser, range choice, resizable height (`ResizeHandle`). Reads through `useDeferredValue`; keeps old values dimmed while the worker computes. |
@@ -329,8 +330,9 @@ palette's search field, always focused while the palette is open, has none.
 - **A memoized component needs props that stay the same.** `Scope` makes its handlers anew on every render
   (they read its current state). Handlers passed to a memoized component go through
   [`useStableCallbacks`](../src/components/useStableCallbacks.ts): functions that never change and call the
-  latest ones. Values that change with every pan step (the time window) reach such a component through a
-  context it reads in a small child ([`timebaseContext.ts`](../src/components/timebaseContext.ts)), not as a prop.
+  latest ones. Values that change with every pan step (the time window) are not passed at all: the context
+  carries the timebase object, which never changes, and a small child subscribes to it
+  ([`timebaseContext.ts`](../src/components/timebaseContext.ts)).
 - **`useSyncExternalStore`** is used for external, non-React state: the analysis store, the undo history, the
   compute engine's measurement version, TeX renders, the install prompt, the system colour scheme.
 - **`eslint-disable react-hooks/exhaustive-deps`** comments appear where an effect deliberately reads

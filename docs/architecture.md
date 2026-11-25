@@ -217,6 +217,7 @@ See [State and persistence](state-and-persistence.md).
 | **Callouts are stored in data coordinates** (time, channel value) | They stay attached to the waveform when you zoom, pan or change V/div | [`model/callouts.ts`](../src/model/callouts.ts) |
 | **Canvas for traces, SVG for callouts** | Traces need raw speed; callouts need hit-testing, text layout and crisp vector output in exports | [`render/`](../src/render) |
 | **Screen and exports use the same drawing functions** | An exported image is exactly what is on screen, only larger and optionally in the light theme | `PlotArea.renderImage` |
+| **The time window lives in a `Timebase`**, outside React, and callers say what the user did (`pan`, `zoomAt`, `zoomTo`, `back`) | Limits, keeping the window on the record and Back grouping are decided in one tested place from the window as it is *now*, not re-derived by the plot, the overview and the keyboard from the window of their last render. A zoom that scales channels is its rule end to end: it writes the channels to the analysis store and the window move to the undo history, so Back and undo agree | [`model/timebase.ts`](../src/model/timebase.ts) |
 | **The analysis lives in an `AnalysisStore`, changed only by pure `edits`** | A change is testable without a browser (`edits.test.ts`); undo, autosave, tab sync and the plot follow the store themselves instead of being wired through one component; several changes in a row cannot act on stale state | [`model/analysisStore.ts`](../src/model/analysisStore.ts), [`model/edits.ts`](../src/model/edits.ts) |
 | **Each command is one `Action`**, offered by the toolbar, menus, palette and keyboard | The four can never disagree on label, icon, shortcut or enabled state; the palette entry and the key are derived from the action, not registered a second time | [`components/ui/action.ts`](../src/components/ui/action.ts) |
 | **A file format is a `FormatAdapter`**, tried in a list | A new family of scopes is a new file and one line; the loader, the worker and the interface do not change | [`parsers/formats.ts`](../src/parsers/formats.ts), [`parsers/session.ts`](../src/parsers/session.ts) |
@@ -239,8 +240,8 @@ A few files hold most of the integration logic; knowing them makes the rest easy
 - [`components/PlotArea.tsx`](../src/components/PlotArea.tsx) (~1080 lines) – the interactive plot:
   pointer events for every tool (what a gesture means is decided in `render/plotInteraction.ts`), drawing
   orchestration, callout layer, image rendering for exports. It reads
-  the analysis from the store and changes it there (`AnalysisContext`); its 22 props are the interface state, the
-  time window, and the things that need the workspace (menus, creating a callout).
+  the analysis from the store and changes it there (`AnalysisContext`), and pans and zooms through the timebase
+  (`TimebaseContext`); its props are the interface state and the things that need the workspace (menus, creating a callout).
 - [`model/workspace.ts`](../src/model/workspace.ts) – defaults from a file, sanitising untrusted
   input, and the storage format.
 - [`model/edits.ts`](../src/model/edits.ts) and [`analysisStore.ts`](../src/model/analysisStore.ts) – every

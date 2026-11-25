@@ -83,6 +83,7 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 | `spectrum.ts` | `SpectrumDef`, options, new-spectrum rules, level units, stored-spectra parsing |
 | `input.ts` | `ChannelInput` → display strings (settings table, badge flags, one-line summary) |
 | `undoHistory.ts` | `UndoHistory<T, V>`: snapshot steps with optional view movement |
+| `timebase.ts` | `Timebase`: the time window outside React – zoom limits, keeping it on the record, Back history and its grouping, zooms that scale channels (store + undo) |
 | `stepGrouping.ts` | `StepGrouper`: the rules that end an undo step (pointer, key, pause, hold), with no DOM |
 | `tabSync.ts` | `BroadcastChannel` news between tabs with the same session |
 | `fileStore.ts` | IndexedDB store for kept session files, eviction planning |
@@ -122,7 +123,7 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 | --- | --- |
 | `Scope.tsx` | The workspace: creates the analysis store and calls its edits, navigation, undo, autosave and tab sync wiring, interface state, actions, layout of all parts |
 | `analysisContext.ts` | `AnalysisContext` and the hooks `useAnalysisStore`, `useAnalysis`, `useStoreAnalysis` |
-| `timebaseContext.ts` | `TimebaseContext`, `useTimebase`: the time window for the places that only show it |
+| `timebaseContext.ts` | `TimebaseContext` (the session's `Timebase`), `useTimebase`, `useTimebaseState` (subscribe to the window) |
 | `useStableCallbacks.ts` | Handlers that stay the same on every render, for memoized components |
 | `scopeCommands.ts` | `ScopeActions`/`ScopeApi`; all menus; palette commands |
 | `keymap.ts` | `KEYS`, `TOOLS`, `HELP_ROWS` |
@@ -144,7 +145,6 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 | `PwaStatus.tsx` | Service worker registration and update/offline toasts |
 | `ErrorBoundary.tsx` | Render-error fallback |
 | `useAutosave.ts` | Debounced saving that follows the store (and the view), flush on hide, status |
-| `useNavigation.ts` | Time window (`win`, and `getWin` for the wheel), Back history, zoom helpers |
 | `useUndoHistory.ts` | Subscribes `UndoHistory` to the store and passes the page's pointer and key events to the `StepGrouper` |
 | `useMathResults.ts` | Subscribes to the engine's math state |
 | `useEngineResults.ts` | `useEngineResults` (re-render when a measurement or spectrum arrives), `useLastResults` (keep the last result while the next is computed) |
