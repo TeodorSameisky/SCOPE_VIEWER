@@ -180,6 +180,13 @@ button.active {
   border-color: var(--accent);
   color: var(--on-accent);
 }
+/* button:hover outranks button.active, so a pressed button would lose its fill on hover. This is
+   exactly as specific as button:hover (the :where adds nothing), so the active variants further
+   down (.pill, .toggle-btn, .dialog-nav) still win with their own colours. */
+button.active:hover:where(:not(:disabled)) {
+  background: color-mix(in srgb, var(--accent-2) 85%, var(--text));
+  border-color: var(--accent);
+}
 button.text-btn {
   background: transparent;
   border: none;
@@ -2118,6 +2125,18 @@ button.pill.active {
   margin: 8px 0 0;
   color: var(--text-2);
 }
+button.primary {
+  background: var(--accent-2);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+/* button:hover is more specific than button.primary: without this the fill turns --hover under
+   text that stays --on-accent (white on pale grey in the light appearance). Before .danger,
+   whose hover rule has the same specificity and must win. */
+button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-2) 85%, var(--text));
+  border-color: var(--accent);
+}
 /* A primary button that deletes or discards (text buttons with .danger are only red text) */
 button.primary.danger {
   background: var(--danger);
@@ -2139,11 +2158,6 @@ button.primary.danger:hover:not(:disabled) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-}
-button.primary {
-  background: var(--accent-2);
-  border-color: var(--accent);
-  color: var(--on-accent);
 }
 .storage {
   display: flex;
