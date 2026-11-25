@@ -1,7 +1,7 @@
 # User interface
 
 How the React UI is organised: the component tree, how a command is defined once and offered in four
-places, how the plot handles the mouse, and the small shared UI toolkit. Code:
+places, how the plot handles the mouse, the small shared UI toolkit, and the style tokens and buttons. Code:
 [`src/App.tsx`](../src/App.tsx) and [`src/components/`](../src/components).
 
 ## 1. Component tree
@@ -262,7 +262,65 @@ is closest in pixels (within 20 px).
 | `commandSearch.ts` | Palette ranking (pure, tested) |
 | `Logo.tsx` | The logo |
 
-## 7. Conventions in component code
+## 7. Styles: tokens and buttons
+
+All styling is in [`styles.css`](../src/styles.css), one file without a preprocessor. Its top (`:root`) defines
+the tokens and the rest uses them; a literal value is left only for a one-off layout size, a 1px nudge or `0`.
+
+**Colours** come in two sets with the same names: `:root` (dark) and `:root[data-theme='light']`. Surfaces
+(`--bg`, `--chrome`, `--panel`, `--panel-2`, `--field`, `--plot-bg`, …), text (`--text`, `--text-2`, `--muted`,
+`--text-strong`), lines (`--border`, `--border-strong`), the accent (`--accent`; `--accent-2` for fills with
+`--on-accent` on them; `--accent-soft`), states (`--danger`, `--warn`, `--success`, `--hover`, `--hover-soft`) and
+floating surfaces (`--float-bg`, `--toast-bg`, `--backdrop`, `--shadow`, …). The canvases draw with the `Theme`
+objects in [`render/theme.ts`](../src/render/theme.ts); `themeSync.test.ts` checks that both agree. Trace and
+callout colours are data of the session, not tokens.
+
+**Scales** are the same in both appearances:
+
+| Scale | Tokens | Steps |
+| --- | --- | --- |
+| Spacing (padding, margin, gap) | `--space-1` … `--space-6` | 2, 4, 6, 8, 12, 16 px |
+| Text size | `--fs-xs`, `--fs-sm`, `--fs-md`, `--fs-lg` | 11, 12, 13 (body), 15 px |
+| Corners | `--radius-sm`, `--radius-md`, `--radius-lg` | 4, 6 (buttons), 8 px |
+| Elevation | `--elev-1`, `--elev-2`, `--elev-3` | small hints and the dragged badge · popovers, menus, toasts · dialogs and the palette |
+| Stacking | `--z-overlay`, `--z-sidebar`, `--z-popover`, `--z-dialog`, `--z-toast`, `--z-menu`, `--z-busy` | 2, 30, 40, 60, 70, 90, 100; inside one component small numbers or `calc(var(--z-overlay) + n)` |
+| Keyboard focus | `--focus-ring`, `--focus-offset` | 2 px accent outline, 1 px outside |
+
+A value between two steps takes the nearer one, the smaller on a tie, so a dense row never grows. Off the
+scales on purpose: the 10 px counter badge, the 18–26 px headings, the pill corners and round dots.
+
+**Buttons** are one family, in the section *buttons* of `styles.css`:
+
+| Class | For | When on |
+| --- | --- | --- |
+| *(none)* | an ordinary button | filled with the accent |
+| `primary` | the main action of a dialog or notice | (always filled) |
+| `primary danger` | a main action that deletes or discards | (red fill) |
+| `text-btn`, `text-btn danger` | a link-like action in text or a list | – |
+| `icon-btn` (`with-label`) | toolbar and rail; rendered by `IconButton` | soft: `--accent-soft`, accent icon |
+| `toggle-btn` | a small on/off button with icon and word | soft, accent border |
+| `pill` | a rounded chip in a wrapping set | soft, accent border |
+| `swatch` | a colour; the background is set inline | ring |
+| `segmented` (`full`), on the container | buttons joined into one choice | as the button inside |
+
+The state is never a class; it is read from ARIA, so what is drawn is what a screen reader announces:
+
+| Attribute | Meaning |
+| --- | --- |
+| `aria-pressed="true"` | a toggle that is on, or the chosen button of a group |
+| `aria-checked="true"` | the chosen option of a choice row in a menu (`menuitemradio`) |
+| `aria-expanded="true"` | an icon button whose drop-down menu is open |
+| `aria-selected="true"` | the highlighted row of the command palette |
+
+Each state rule is exactly as specific as the class rule it replaced (`button[aria-pressed='true']` like
+`button.x`), so a component's own rules further down still override it.
+
+**Focus.** Everything focusable shows `--focus-ring` on `:focus-visible`, that is, when reached by keyboard.
+Fields show it on any focus, lying on their border; menu rows show it inside their edge. A menu focuses what the
+pointer moves over, so under the pointer its rows and choices show the hover look instead of the ring. The
+palette's search field, always focused while the palette is open, has none.
+
+## 8. Conventions in component code
 
 - **Imperative handles are rare and explicit**: `PlotAreaHandle` (`size`, `renderImage`),
   `SpectrumViewHandle` (`reveal`, export data), `ChannelBarHandle` (`openSettings`), `ScopeHandle`
@@ -277,9 +335,7 @@ is closest in pixels (within 20 px).
   compute engine's measurement version, TeX renders, the install prompt, the system colour scheme.
 - **`eslint-disable react-hooks/exhaustive-deps`** comments appear where an effect deliberately reads
   props through a closure and lists only what should retrigger it; each is explained next to it.
-- **A button's state is its ARIA attribute, not a class**: `aria-pressed` for a toggle or the chosen button of a
-  group, `aria-checked` for a choice in a menu, `aria-expanded` for an open drop-down, `aria-selected` for the
-  highlighted palette row. `styles.css` draws the state from these (section *buttons*, which also lists the button
-  variants), so what is shown is what a screen reader announces.
+- **A button's state is its ARIA attribute, not a class** (`aria-pressed`, `aria-checked`, `aria-expanded`,
+  `aria-selected`), and **sizes and colours are tokens**: see [Styles: tokens and buttons](#7-styles-tokens-and-buttons).
 - **Keys cause remounts on purpose**: `Scope` is remounted per session generation; the plot's canvas
   refs are arrays indexed by view.

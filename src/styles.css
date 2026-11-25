@@ -87,6 +87,10 @@
   --z-toast: 70;
   --z-menu: 90;
   --z-busy: 100;
+  /* Keyboard focus: one ring everywhere, outside the element (--focus-offset). Where the ring has
+     no room outside, it goes inside with a negative offset: on a field's border, in a menu row. */
+  --focus-ring: 2px solid var(--accent);
+  --focus-offset: 1px;
 
   color-scheme: dark;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -376,8 +380,8 @@ button.pill[aria-pressed='true'] {
   flex: 1;
 }
 :focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
 }
 
 input,
@@ -388,10 +392,12 @@ select {
   padding: var(--space-2) var(--space-3);
   min-width: 0;
 }
+/* Fields show it on any focus (typing goes there), with the ring lying on the border */
 input:focus,
 select:focus,
 textarea:focus {
-  outline: 1px solid var(--accent);
+  outline: var(--focus-ring);
+  outline-offset: -1px;
   border-color: var(--accent);
 }
 input[type='color'] {
@@ -603,8 +609,10 @@ code {
   background: var(--hover);
   outline: none;
 }
+/* Rows fill the menu's width: the ring goes inside */
 .context-menu .cm-item:focus-visible {
-  box-shadow: inset 0 0 0 1px var(--accent);
+  outline: var(--focus-ring);
+  outline-offset: -2px;
 }
 .context-menu .cm-item.danger {
   color: var(--danger);
@@ -684,17 +692,15 @@ code {
   font-size: var(--fs-sm);
   border-radius: var(--radius-sm);
 }
-.cm-options button:focus {
-  outline: 1px solid var(--accent);
-  outline-offset: 1px;
+/* Choices and swatches take the page's focus ring (:focus-visible). The menu also focuses what
+   the pointer moves over, which the browser counts as visible focus: under the pointer, the
+   hover look is enough, as for the menu's rows. */
+.cm-options button:hover:not(:disabled) {
+  outline: none;
 }
 .cm-options .swatch {
   width: 16px;
   height: 16px;
-}
-.cm-options .swatch:focus {
-  outline: none;
-  border-color: var(--swatch-ring);
 }
 
 .workspace {
@@ -2468,6 +2474,7 @@ th:hover .x {
   border-bottom: 1px solid var(--border);
   color: var(--muted);
 }
+/* The palette's only field, always focused while it is open: no ring */
 .palette-input input,
 .palette-input input:focus {
   flex: 1;

@@ -48,7 +48,7 @@ After that, pick what you need:
 | [Analysis](analysis.md) | How measurements, edge detection, the math-channel language and the FFT work |
 | [State and persistence](state-and-persistence.md) | Where state lives, undo/redo, navigation history, autosave, multi-tab sync, kept files |
 | [Rendering](rendering.md) | Canvas and SVG layers, the plot geometry, themes, callouts, TeX |
-| [User interface](ui.md) | Component tree, the action system, menus, command palette, keyboard, panels |
+| [User interface](ui.md) | Component tree, the action system, menus, command palette, keyboard, panels, style tokens and buttons |
 | [Exports](exports.md) | Image, report, CSV and bundle generation |
 | [Build and deploy](build-and-deploy.md) | Vite, PWA and service worker, CI, Docker/nginx, licences |
 | [Development](development.md) | Setup, tests, conventions, and step-by-step recipes for common changes |
