@@ -20,7 +20,7 @@ export function IconButton({ icon: Icon, label, shortcut, active, disabled, show
   return (
     <button
       type="button"
-      className={`icon-btn ${active ? 'active' : ''} ${showLabel ? 'with-label' : ''} ${className}`}
+      className={`icon-btn ${showLabel ? 'with-label' : ''} ${className}`}
       title={shortcut ? `${label} (${shortcut})` : label}
       aria-label={label}
       aria-pressed={active}

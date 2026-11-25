@@ -44,7 +44,7 @@ export function CalloutPanel(p: Props) {
           const a = p.tools[t]
           const Icon = TOOLS[t].icon
           return (
-            <button key={t} type="button" className={a.checked ? 'active' : ''} aria-pressed={!!a.checked} title={`${a.label} (${a.hint})`} onClick={a.run}>
+            <button key={t} type="button" aria-pressed={!!a.checked} title={`${a.label} (${a.hint})`} onClick={a.run}>
               <Icon size={14} strokeWidth={1.8} aria-hidden /> {a.label}
             </button>
           )

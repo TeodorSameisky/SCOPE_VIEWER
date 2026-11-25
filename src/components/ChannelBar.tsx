@@ -484,7 +484,7 @@ export const ChannelBar = memo(forwardRef<ChannelBarHandle, Props>(function Chan
         </button>
         <button
           type="button"
-          className={`add-math ${fftOn ? 'active' : ''}`}
+          className="add-math"
           aria-pressed={fftOn}
           aria-label={fftId ? `${fftOn ? 'Remove' : 'Show'} the spectrum of ${channelName(fftId)}` : 'Show a spectrum'}
           disabled={fftId === undefined || (!fftOn && !p.canAddSpectrum)}

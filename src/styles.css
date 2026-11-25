@@ -193,6 +193,17 @@ textarea {
   color: inherit;
 }
 
+/* ---------- buttons ----------
+   One family: a plain button, and the variants .primary (.danger), .text-btn (.danger), .icon-btn,
+   .toggle-btn, .pill, .swatch, and .segmented for a row of choices. Rules for buttons inside one
+   component (the channel bar, the dialog nav, ...) stay with that component.
+
+   State comes from ARIA, never from a class, so what is drawn is what assistive technology hears:
+     [aria-pressed='true']   a toggle that is on, or the chosen button of a group
+     [aria-checked='true']   the chosen option of a choice row in a menu (role menuitemradio)
+     [aria-expanded='true']  an icon button whose drop-down menu is open
+   A plain button shows it filled with the accent; .icon-btn, .toggle-btn, .pill and the dialog nav
+   show it soft (--accent-soft and accent text); a swatch gets a ring. */
 button {
   background: var(--panel-2);
   border: 1px solid var(--border);
@@ -209,18 +220,46 @@ button:disabled {
   opacity: 0.4;
   cursor: default;
 }
-button.active {
+/* Each state selector is exactly as specific as button.x (0,1,1); :where adds nothing. The menu's
+   checked items (.cm-item, menuitemcheckbox) are styled by the menu, hence only .cm-options. */
+button[aria-pressed='true'],
+:where(.cm-options) button[aria-checked='true'] {
   background: var(--accent-2);
   border-color: var(--accent);
   color: var(--on-accent);
 }
-/* button:hover outranks button.active, so a pressed button would lose its fill on hover. This is
-   exactly as specific as button:hover (the :where adds nothing), so the active variants further
-   down (.pill, .toggle-btn, .dialog-nav) still win with their own colours. */
-button.active:hover:where(:not(:disabled)) {
+/* As specific as button:hover and after it, so a pressed button keeps its fill; the soft variants
+   below come later still and keep their own colours. */
+button[aria-pressed='true']:hover:where(:not(:disabled)),
+:where(.cm-options) button[aria-checked='true']:hover:where(:not(:disabled)) {
   background: color-mix(in srgb, var(--accent-2) 85%, var(--text));
   border-color: var(--accent);
 }
+
+/* The main action of a dialog or notice */
+button.primary {
+  background: var(--accent-2);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+/* button:hover is as specific as button.primary and comes first; this keeps the fill. Before
+   .danger, whose hover rule is as specific and must win. */
+button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-2) 85%, var(--text));
+  border-color: var(--accent);
+}
+/* A primary button that deletes or discards (text buttons with .danger are only red text) */
+button.primary.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--on-danger);
+}
+button.primary.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 85%, var(--text));
+  border-color: var(--danger);
+}
+
+/* A link-like action in running text or a list */
 button.text-btn {
   background: transparent;
   border: none;
@@ -229,6 +268,112 @@ button.text-btn {
 }
 button.text-btn.danger {
   color: var(--danger);
+}
+
+/* Toolbar and rail: an icon, optionally with its label */
+.icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  height: 30px;
+  min-width: 30px;
+  padding: 0 var(--space-3);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+}
+.icon-btn:hover:not(:disabled) {
+  background: var(--hover-soft);
+  border-color: transparent;
+  color: var(--text);
+}
+.icon-btn:is([aria-pressed='true'], [aria-expanded='true']),
+.icon-btn:is([aria-pressed='true'], [aria-expanded='true']):hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+}
+.icon-btn.with-label {
+  padding: 0 var(--space-4) 0 var(--space-4);
+}
+.icon-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-lg);
+  background: var(--accent-2);
+  color: var(--on-accent);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+/* A small on/off button with an icon and a word (show value, view number, FFT) */
+button.toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-4);
+  font-size: var(--fs-sm);
+}
+button.toggle-btn[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* A rounded on/off chip in a wrapping set (measurements of a callout) */
+button.pill {
+  padding: 1px var(--space-3);
+  font-size: var(--fs-xs);
+  border-radius: 10px;
+  color: var(--muted);
+}
+button.pill[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* A colour to choose; the background is set inline */
+.swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+}
+.swatch:is([aria-pressed='true'], [aria-checked='true']),
+.swatch:hover:not(:disabled) {
+  border-color: var(--swatch-ring);
+}
+
+/* Buttons joined into one control, one of them chosen (aria-pressed) */
+.segmented {
+  display: flex;
+}
+.segmented button {
+  border-radius: 0;
+  margin-left: -1px;
+  padding: var(--space-1) var(--space-4);
+  font-size: var(--fs-sm);
+}
+.segmented button:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+.segmented button:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.segmented.full {
+  width: 100%;
+}
+.segmented.full button {
+  flex: 1;
 }
 :focus-visible {
   outline: 2px solid var(--accent);
@@ -288,49 +433,6 @@ kbd {
 }
 .spacer {
   flex: 1;
-}
-
-/* ---------- icon buttons ---------- */
-.icon-btn {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-3);
-  height: 30px;
-  min-width: 30px;
-  padding: 0 var(--space-3);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  color: var(--text-2);
-}
-.icon-btn:hover:not(:disabled) {
-  background: var(--hover-soft);
-  border-color: transparent;
-  color: var(--text);
-}
-.icon-btn.active,
-.icon-btn.active:hover:not(:disabled) {
-  background: var(--accent-soft);
-  border-color: transparent;
-  color: var(--accent);
-}
-.icon-btn.with-label {
-  padding: 0 var(--space-4) 0 var(--space-4);
-}
-.icon-badge {
-  position: absolute;
-  top: 1px;
-  right: 1px;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-lg);
-  background: var(--accent-2);
-  color: var(--on-accent);
-  font-size: 10px;
-  line-height: 15px;
 }
 
 /* ---------- landing ---------- */
@@ -1234,7 +1336,7 @@ code {
   gap: var(--space-2);
   color: var(--text);
 }
-.stepper button {
+.stepper button:not(.toggle-btn) {
   padding: 1px var(--space-4);
 }
 .stepper input.num {
@@ -1366,21 +1468,6 @@ th:hover .x {
 }
 .section-title {
   font-weight: 600;
-}
-.segmented {
-  display: flex;
-}
-.segmented button {
-  border-radius: 0;
-  margin-left: -1px;
-  padding: var(--space-1) var(--space-4);
-  font-size: var(--fs-sm);
-}
-.segmented button:first-child {
-  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
-}
-.segmented button:last-child {
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 .measure-scroll {
   overflow: auto;
@@ -1575,31 +1662,9 @@ th:hover .x {
   flex-wrap: wrap;
   gap: var(--space-1);
 }
-button.pill {
-  padding: 1px var(--space-3);
-  font-size: var(--fs-xs);
-  border-radius: 10px;
-  color: var(--muted);
-}
-button.pill.active {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-  color: var(--accent);
-}
 .callout-editor-hint {
   color: var(--muted);
   font-size: var(--fs-xs);
-}
-.swatch {
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border-radius: 50%;
-  border: 2px solid transparent;
-}
-.swatch.active,
-.swatch:hover:not(:disabled) {
-  border-color: var(--swatch-ring);
 }
 .callout-search {
   display: flex;
@@ -1704,7 +1769,7 @@ button.pill.active {
   background: var(--accent-soft);
 }
 /* The spectrum of the selected channel is shown: the button removes it again */
-.add-math.active {
+.add-math[aria-pressed='true'] {
   color: var(--accent);
   border-style: solid;
   border-color: var(--accent);
@@ -1942,12 +2007,6 @@ button.pill.active {
 .add-item:hover:not(:disabled) {
   background: var(--hover);
 }
-.segmented.full {
-  width: 100%;
-}
-.segmented.full button {
-  flex: 1;
-}
 .note-card {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -2079,7 +2138,7 @@ button.pill.active {
   color: var(--muted);
   font-size: var(--fs-xs);
 }
-.dialog-nav button.active {
+.dialog-nav button[aria-pressed='true'] {
   background: var(--accent-soft);
   color: var(--accent);
 }
@@ -2158,28 +2217,6 @@ button.pill.active {
 .confirm-body p {
   margin: var(--space-4) 0 0;
   color: var(--text-2);
-}
-button.primary {
-  background: var(--accent-2);
-  border-color: var(--accent);
-  color: var(--on-accent);
-}
-/* button:hover is more specific than button.primary: without this the fill turns --hover under
-   text that stays --on-accent (white on pale grey in the light appearance). Before .danger,
-   whose hover rule has the same specificity and must win. */
-button.primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent-2) 85%, var(--text));
-  border-color: var(--accent);
-}
-/* A primary button that deletes or discards (text buttons with .danger are only red text) */
-button.primary.danger {
-  background: var(--danger);
-  border-color: var(--danger);
-  color: var(--on-danger);
-}
-button.primary.danger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--danger) 85%, var(--text));
-  border-color: var(--danger);
 }
 .dialog-foot {
   display: flex;
@@ -2455,7 +2492,7 @@ button.primary.danger:hover:not(:disabled) {
   border-radius: var(--radius-md);
   cursor: pointer;
 }
-.palette-list li.active {
+.palette-list li[aria-selected='true'] {
   background: var(--hover);
 }
 .cmd-icon {
@@ -2465,7 +2502,7 @@ button.primary.danger:hover:not(:disabled) {
   flex: none;
   color: var(--muted);
 }
-.palette-list li.active .cmd-icon {
+.palette-list li[aria-selected='true'] .cmd-icon {
   color: var(--text);
 }
 .cmd-label {
@@ -2689,18 +2726,6 @@ button.primary.danger:hover:not(:disabled) {
 }
 .small {
   font-size: var(--fs-xs);
-}
-button.toggle-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-4);
-  font-size: var(--fs-sm);
-}
-button.toggle-btn.active {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-  color: var(--accent);
 }
 .window-table {
   margin-top: var(--space-2);

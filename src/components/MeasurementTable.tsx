@@ -264,7 +264,7 @@ export function MeasurementTable(p: Props) {
         <span className="section-title">Measurements</span>
         <div className="segmented">
           {MEASURE_RANGES.map((r) => (
-            <button key={r} type="button" className={p.range === r ? 'active' : ''} aria-pressed={p.range === r} onClick={() => p.setRange(r)}>
+            <button key={r} type="button" aria-pressed={p.range === r} onClick={() => p.setRange(r)}>
               {RANGE_LABEL[r]}
             </button>
           ))}

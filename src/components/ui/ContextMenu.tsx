@@ -154,7 +154,7 @@ function ContextMenu({ menu, onClose }: { menu: Open; onClose: () => void }) {
                     aria-label={o.title ?? o.label}
                     title={o.title ?? o.label}
                     disabled={o.disabled}
-                    className={`${o.checked ? 'active' : ''} ${o.color ? 'swatch' : ''}`}
+                    className={o.color ? 'swatch' : undefined}
                     // Colours as drawn in the plot (pale ones darkened in the light appearance)
                     style={o.color ? { background: ink(o.color) } : undefined}
                     onPointerMove={(e) => e.currentTarget.focus({ preventScroll: true })}

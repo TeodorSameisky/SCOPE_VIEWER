@@ -9,7 +9,7 @@ export function Menu({ icon: Icon, label, items, align = 'right' }: { icon: Luci
   return (
     <button
       type="button"
-      className={`icon-btn with-label ${open ? 'active' : ''}`}
+      className="icon-btn with-label"
       aria-haspopup="menu"
       aria-expanded={open}
       title={label}

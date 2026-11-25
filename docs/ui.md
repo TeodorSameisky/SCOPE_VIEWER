@@ -277,5 +277,9 @@ is closest in pixels (within 20 px).
   compute engine's measurement version, TeX renders, the install prompt, the system colour scheme.
 - **`eslint-disable react-hooks/exhaustive-deps`** comments appear where an effect deliberately reads
   props through a closure and lists only what should retrigger it; each is explained next to it.
+- **A button's state is its ARIA attribute, not a class**: `aria-pressed` for a toggle or the chosen button of a
+  group, `aria-checked` for a choice in a menu, `aria-expanded` for an open drop-down, `aria-selected` for the
+  highlighted palette row. `styles.css` draws the state from these (section *buttons*, which also lists the button
+  variants), so what is shown is what a screen reader announces.
 - **Keys cause remounts on purpose**: `Scope` is remounted per session generation; the plot's canvas
   refs are arrays indexed by view.

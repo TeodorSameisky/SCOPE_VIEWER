@@ -100,7 +100,7 @@ export function ExportDialog(p: Props) {
       <legend>Appearance</legend>
       <div className="segmented">
         {APPEARANCES.map((a) => (
-          <button key={a.key} type="button" className={value === a.key ? 'active' : ''} onClick={() => onChange(a.key)}>
+          <button key={a.key} type="button" aria-pressed={value === a.key} onClick={() => onChange(a.key)}>
             {a.label}
           </button>
         ))}
@@ -144,7 +144,7 @@ export function ExportDialog(p: Props) {
               <button
                 key={k.key}
                 type="button"
-                className={kind === k.key ? 'active' : ''}
+                aria-pressed={kind === k.key}
                 disabled={k.key === 'spectra' && !p.hasSpectra}
                 title={k.key === 'spectra' && !p.hasSpectra ? 'Add a spectrum first' : undefined}
                 onClick={() => {
@@ -178,7 +178,7 @@ export function ExportDialog(p: Props) {
                   <legend>Resolution</legend>
                   <div className="segmented">
                     {([1, 2, 3] as const).map((s) => (
-                      <button key={s} type="button" className={img.scale === s ? 'active' : ''} onClick={() => set('image', { scale: s })}>
+                      <button key={s} type="button" aria-pressed={img.scale === s} onClick={() => set('image', { scale: s })}>
                         {s}×
                       </button>
                     ))}
@@ -224,7 +224,7 @@ export function ExportDialog(p: Props) {
                   <legend>Range</legend>
                   <div className="segmented">
                     {MEASURE_RANGES.map((r) => (
-                      <button key={r} type="button" className={wf.range === r ? 'active' : ''} onClick={() => set('waveforms', { range: r })}>
+                      <button key={r} type="button" aria-pressed={wf.range === r} onClick={() => set('waveforms', { range: r })}>
                         {RANGE_LABEL[r]}
                       </button>
                     ))}
@@ -233,10 +233,10 @@ export function ExportDialog(p: Props) {
                 <fieldset>
                   <legend>Channels</legend>
                   <div className="segmented">
-                    <button type="button" className={wf.channels === 'visible' ? 'active' : ''} onClick={() => set('waveforms', { channels: 'visible' })}>
+                    <button type="button" aria-pressed={wf.channels === 'visible'} onClick={() => set('waveforms', { channels: 'visible' })}>
                       Visible
                     </button>
-                    <button type="button" className={wf.channels === 'all' ? 'active' : ''} onClick={() => set('waveforms', { channels: 'all' })}>
+                    <button type="button" aria-pressed={wf.channels === 'all'} onClick={() => set('waveforms', { channels: 'all' })}>
                       All, incl. hidden
                     </button>
                   </div>

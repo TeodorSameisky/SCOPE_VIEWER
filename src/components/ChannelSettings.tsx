@@ -113,7 +113,7 @@ export function ChannelSettings({ display: d, unit, input, hasWave, views, onAdj
             <button
               key={i}
               type="button"
-              className={`toggle-btn ${i === view ? 'active' : ''}`}
+              className="toggle-btn"
               aria-pressed={i === view}
               title={i === view ? `In view ${i + 1}` : `Move to view ${i + 1}`}
               onClick={() => i !== view && onMoveToView(id, i)}
@@ -137,7 +137,7 @@ export function ChannelSettings({ display: d, unit, input, hasWave, views, onAdj
         <div className="stepper">
           <button
             type="button"
-            className={`toggle-btn ${hasSpectrum ? 'active' : ''}`}
+            className="toggle-btn"
             aria-pressed={hasSpectrum}
             disabled={!hasSpectrum && (!canAddSpectrum || !hasWave)}
             title={hasSpectrum ? 'Remove the spectrum of this channel' : 'Show the frequency spectrum (FFT) of this channel below the time views'}

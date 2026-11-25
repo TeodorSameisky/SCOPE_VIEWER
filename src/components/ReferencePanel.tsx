@@ -43,14 +43,14 @@ export function ReferencePanel({ section, setSection, focus }: Props) {
 
   return (
     <div className="panel-body reference" ref={bodyRef}>
-      <div className="segmented full">
-        <button type="button" className={section === 'measurements' ? 'active' : ''} onClick={() => setSection('measurements')}>
+      <div className="segmented full" role="group" aria-label="Section">
+        <button type="button" aria-pressed={section === 'measurements'} onClick={() => setSection('measurements')}>
           Measurements
         </button>
-        <button type="button" className={section === 'math' ? 'active' : ''} onClick={() => setSection('math')}>
+        <button type="button" aria-pressed={section === 'math'} onClick={() => setSection('math')}>
           Math channels
         </button>
-        <button type="button" className={section === 'spectrum' ? 'active' : ''} onClick={() => setSection('spectrum')}>
+        <button type="button" aria-pressed={section === 'spectrum'} onClick={() => setSection('spectrum')}>
           Spectrum
         </button>
       </div>

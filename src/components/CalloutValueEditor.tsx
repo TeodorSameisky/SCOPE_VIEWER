@@ -36,7 +36,7 @@ export function CalloutValueEditor({ callout: c, sources, displays, onUpdate, ke
       <div className="callout-values">
         <button
           type="button"
-          className={`toggle-btn ${c.showValue ? 'active' : ''}`}
+          className="toggle-btn"
           aria-pressed={!!c.showValue}
           title={title}
           onMouseDown={hold}
@@ -81,7 +81,6 @@ export function CalloutValueEditor({ callout: c, sources, displays, onUpdate, ke
             <button
               key={s}
               type="button"
-              className={(c.shape ?? 'rect') === s ? 'active' : ''}
               aria-pressed={(c.shape ?? 'rect') === s}
               onMouseDown={hold}
               onClick={() => onUpdate({ shape: s === 'rect' ? undefined : s })}
@@ -115,7 +114,7 @@ export function CalloutValueEditor({ callout: c, sources, displays, onUpdate, ke
               <button
                 key={d.key}
                 type="button"
-                className={`pill ${on ? 'active' : ''}`}
+                className="pill"
                 aria-pressed={on}
                 title={`${d.label}: ${d.short}`}
                 onMouseDown={hold}

@@ -102,7 +102,6 @@ export function CommandPalette({ getCommands, onClose }: Props) {
               role="option"
               aria-selected={i === index}
               aria-checked={c.checked}
-              className={i === index ? 'active' : undefined}
               onMouseMove={() => i !== index && setActive(i)}
               onClick={() => run(c)}
             >

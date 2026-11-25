@@ -485,14 +485,14 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
           </select>
           <div className="segmented" role="group" aria-label="Level scale" title={mixedUnits ? 'Level scale (each spectrum in the unit of its channel)' : 'Level scale'}>
             {(['db', 'linear'] as const).map((sc) => (
-              <button key={sc} type="button" className={scale === sc ? 'active' : ''} aria-pressed={scale === sc} onClick={() => p.setOptions({ scale: sc })}>
+              <button key={sc} type="button" aria-pressed={scale === sc} onClick={() => p.setOptions({ scale: sc })}>
                 {levelUnit(sc, unit)}
               </button>
             ))}
           </div>
           <div className="segmented" role="group" aria-label="Frequency axis" title="Frequency axis">
             {(['log', 'linear'] as const).map((a) => (
-              <button key={a} type="button" className={axis === a ? 'active' : ''} aria-pressed={axis === a} onClick={() => p.setOptions({ axis: a })}>
+              <button key={a} type="button" aria-pressed={axis === a} onClick={() => p.setOptions({ axis: a })}>
                 {a === 'log' ? 'Log f' : 'Linear f'}
               </button>
             ))}

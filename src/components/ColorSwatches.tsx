@@ -14,7 +14,7 @@ export function ColorSwatches({ value, onChange, keepFocus }: { value: string; o
         <button
           key={col}
           type="button"
-          className={`swatch ${value === col ? 'active' : ''}`}
+          className="swatch"
           style={{ background: ink(col) }}
           title="Colour"
           aria-label={`Colour ${i + 1}`}
