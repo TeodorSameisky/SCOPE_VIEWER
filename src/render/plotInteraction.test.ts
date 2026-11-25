@@ -179,9 +179,6 @@ describe('releasing a drag', () => {
       pointer: { x, y, alt },
       moved: false,
       tool: 'pan' as Tool,
-      win,
-      minSpan: 0.01,
-      maxSpan: 40,
       plotW: 1000,
       viewsH: 400,
       boxes,
@@ -257,9 +254,9 @@ describe('releasing a drag', () => {
       expect(releaseOutcome({ kind: 'band', x0: 200, x1: 203 }, ctx())).toEqual(none)
     })
 
-    it('never zooms in beyond the least span', () => {
-      const r = releaseOutcome({ kind: 'band', x0: 200, x1: 206 }, ctx({ minSpan: 0.5 }))
-      expect(r.kind === 'zoom' && r.window.end - r.window.start).toBe(0.5)
+    it('zooms to the band, leaving the least span to the timebase', () => {
+      const r = releaseOutcome({ kind: 'band', x0: 200, x1: 206 }, ctx())
+      expect(r).toMatchObject({ kind: 'zoom', window: { start: 2, end: 2.06 } })
     })
   })
 
@@ -280,9 +277,9 @@ describe('releasing a drag', () => {
     it('zooms in 2x around the pointer on a click, out with Alt', () => {
       const click = rect({ x0: 500, x1: 502, y0: 50, y1: 51 })
       const zin = releaseOutcome(click, ctx({ x: 500 }))
-      expect(zin).toMatchObject({ kind: 'zoom', window: { start: 2.5, end: 7.5 } })
+      expect(zin).toEqual({ kind: 'zoomAt', t: 5, factor: 0.5 })
       const zout = releaseOutcome(click, ctx({ x: 500, alt: true }))
-      expect(zout).toMatchObject({ kind: 'zoom', window: { start: -5, end: 15 } })
+      expect(zout).toEqual({ kind: 'zoomAt', t: 5, factor: 2 })
     })
 
     it('does nothing when it is narrow but high', () => {

@@ -5,13 +5,13 @@ import type { MathResult } from '../math/expr'
 import { MAX_MATH, type MathDef } from '../model/math'
 import { badgeItems, inputSummary } from '../model/input'
 import type { ChannelDisplay, ChannelInput, Session } from '../model/types'
-import { shownViews } from '../model/view'
+import { shownViews, timePerDiv as timePerDivOf } from '../model/view'
 import { si } from '../util/format'
 import { channelName, perDiv, slopeSymbol, sourceUnit } from '../util/names'
 import { ChannelSettings } from './ChannelSettings'
 import { MathEditor } from './MathEditor'
 import type { DisplayPatch, LiveChannel } from '../model/view'
-import { useTimebase } from './timebaseContext'
+import { useTimebase, useTimebaseState } from './timebaseContext'
 import { placeNear } from './ui/placement'
 import { useDismiss } from './ui/useDismiss'
 import { useTheme } from './ui/themeContext'
@@ -524,7 +524,8 @@ export const ChannelBar = memo(forwardRef<ChannelBarHandle, Props>(function Chan
 
 /** The horizontal summary: it follows the time window by itself (see timebaseContext.ts) */
 function HorizontalInfo(p: { sampleRate: number; recordLength: number; onContextMenu?: (e: React.MouseEvent) => void }) {
-  const { win, timePerDiv } = useTimebase()
+  const { window: win } = useTimebaseState(useTimebase())
+  const timePerDiv = timePerDivOf(win)
   return (
     <div className="info-box" title={`Window ${si(win.start, 's')} … ${si(win.end, 's')}`} onContextMenu={p.onContextMenu}>
       <span className="info-title">Horizontal</span>

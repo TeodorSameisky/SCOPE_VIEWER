@@ -45,6 +45,12 @@ export function timeTicks(w: TimeWindow, target = 10): number[] {
   return ticksBetween(w.start, w.end, niceStep((w.end - w.start) / target))
 }
 
+/** Time per division of a window: the step of its grid (a tenth of it when it has no two ticks) */
+export function timePerDiv(w: TimeWindow): number {
+  const ticks = timeTicks(w)
+  return ticks.length > 1 ? ticks[1] - ticks[0] : (w.end - w.start) / 10
+}
+
 /** Next value in the 1-2-5 sequence above (dir=1) or below (dir=-1) the given scale. */
 export function stepScale(scale: number, dir: 1 | -1): number {
   const exp = Math.pow(10, Math.floor(Math.log10(scale) + 1e-9))
@@ -219,11 +225,6 @@ export function cursorsInView(c: CursorState, win: TimeWindow): CursorState {
 /** Active mouse tool in the plot */
 export type Tool = 'pan' | 'zoom' | 'note' | 'marker' | 'region' | 'box' | 'span'
 
-/**
- * How a view change was made. Continuous changes (wheel, pan) are grouped so that
- * "zoom back" steps over a whole gesture instead of every single event.
- */
-export type NavKind = 'zoom' | 'pan' | 'wheel'
 
 /**
  * A vertical level in divisions moved onto the nearest whole division when it is within `snapPx`

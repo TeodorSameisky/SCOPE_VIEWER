@@ -8,7 +8,7 @@
  * first view (the views are stacked, `ViewBoxes` says where each one is).
  */
 import type { NewCallout } from '../model/callouts'
-import { snapToGrid, zoomAround, type CursorState, type DisplayPatch, type LiveChannel, type TimeWindow, type Tool } from '../model/view'
+import { snapToGrid, type CursorState, type DisplayPatch, type LiveChannel, type TimeWindow, type Tool } from '../model/view'
 import { DIVS_Y, divToValue, valueAt, valueToDiv, viewAt, type ViewBoxes } from './draw'
 
 /** A drag shorter than this (px) is a click */
@@ -145,8 +145,10 @@ export type Release =
   /** A tag was dropped onto another view: the channel goes there, with its tag at `position` */
   | { kind: 'dropTag'; id: string; view: number; position: number }
   | { kind: 'addCallout'; callout: NewCallout }
-  /** Show this window, and set the vertical settings of channels (a zoom rectangle) */
+  /** Zoom to this range (the timebase widens one narrower than it allows), and set the vertical settings of channels (a zoom rectangle) */
   | { kind: 'zoom'; window: TimeWindow; patches?: { id: string; patch: DisplayPatch }[] }
+  /** Zoom by `factor` (> 1: out) keeping time t in place (a click with the zoom tool) */
+  | { kind: 'zoomAt'; t: number; factor: number }
   | { kind: 'select'; id: string }
 
 /** What `releaseOutcome` needs to know about the plot */
@@ -156,9 +158,6 @@ export interface ReleaseContext {
   /** The pointer moved since it was pressed (a click that moves is not a click) */
   moved: boolean
   tool: Tool
-  win: TimeWindow
-  minSpan: number
-  maxSpan: number
   /** Width of the plot without the scale labels, and the height of all its views */
   plotW: number
   viewsH: number
@@ -186,11 +185,7 @@ export function releaseOutcome(d: Drag, c: ReleaseContext): Release {
   const wide = (a: number, b: number) => Math.abs(a - b) >= MIN_BOX_PX
   const clampX = (v: number) => Math.min(c.plotW, Math.max(0, v))
   const none: Release = { kind: 'none' }
-  const zoomTo = (a: number, b: number, patches?: { id: string; patch: DisplayPatch }[]): Release => {
-    const span = Math.max(b - a, c.minSpan)
-    const mid = (a + b) / 2
-    return { kind: 'zoom', window: { start: mid - span / 2, end: mid + span / 2 }, patches }
-  }
+  const zoomTo = (a: number, b: number, patches?: { id: string; patch: DisplayPatch }[]): Release => ({ kind: 'zoom', window: { start: a, end: b }, patches })
 
   if (d.kind === 'tag') {
     // Dropped onto another view: the channel moves there, with its tag where it was dropped
@@ -218,7 +213,7 @@ export function releaseOutcome(d: Drag, c: ReleaseContext): Release {
       return zoomTo(t0, t1, rectZoomPatches(c.channels, c.views[d.view] ?? [], top, bottom))
     }
     // A plain click with the zoom tool: zoom in 2x, Alt+click zooms out
-    if (!wide(d.y0, d.y1)) return { kind: 'zoom', window: zoomAround(c.win, c.xToT(clampX(x)), alt ? 2 : 0.5, c.minSpan, c.maxSpan) }
+    if (!wide(d.y0, d.y1)) return { kind: 'zoomAt', t: c.xToT(clampX(x)), factor: alt ? 2 : 0.5 }
     return none
   }
   if (d.kind === 'click') {

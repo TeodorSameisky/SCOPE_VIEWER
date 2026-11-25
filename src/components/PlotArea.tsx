@@ -34,7 +34,7 @@ import { throttle } from '../util/throttle'
 import { useAnalysis, useAnalysisStore } from './analysisContext'
 import { useEngineResults } from './useEngineResults'
 import { CalloutLayer } from './CalloutLayer'
-import type { Navigation } from './useNavigation'
+import { useTimebase, useTimebaseState } from './timebaseContext'
 import { useTheme } from './ui/themeContext'
 import { panShare, wheelPan, wheelPixels, wheelZoomFactor } from './ui/wheel'
 import {
@@ -43,11 +43,9 @@ import {
   stepPosition,
   stepScale,
   timeTicks,
-  zoomAround,
   type CursorState,
   type DisplayPatch,
   type LiveChannel,
-  type NavKind,
   type TimeWindow,
   type Tool,
 } from '../model/view'
@@ -98,8 +96,6 @@ interface Props {
   viewsShown?: boolean[]
   /** A view outlined while the pointer is on its channels in the channel bar */
   highlightView?: number
-  /** The time window: the plot zooms and pans it (the wheel, the tools) */
-  nav: Pick<Navigation, 'win' | 'getWin' | 'record' | 'minSpan' | 'navigate' | 'zoomTo'>
   tool: Tool
   /** Short instruction shown while a non-default tool is active */
   hint?: string
@@ -128,19 +124,15 @@ interface Props {
  * What the component works with: its props, the analysis it follows in the store, and the changes it
  * makes to it. The names are the ones the drawing and pointer code uses throughout.
  */
-interface Resolved extends Omit<Props, 'nav'> {
+interface Resolved extends Props {
   views: string[][]
   /** Share of the plot's height of each view; equal without */
   viewSizes?: number[]
   cursors: CursorState
   callouts: Callout[]
+  /** The time window (the timebase's); the plot zooms and pans it through the timebase */
   win: TimeWindow
   record: TimeWindow
-  minSpan: number
-  /** Continuous navigation (wheel, pan) */
-  onNavigate: (w: TimeWindow, kind: NavKind) => void
-  /** Discrete zoom, optionally with new vertical settings for some channels */
-  onZoomTo: (w: TimeWindow, patches?: { id: string; patch: DisplayPatch }[]) => void
   setCursors: (c: CursorState) => void
   onAdjust: (id: string, patch: DisplayPatch) => void
   /** A channel tag was dropped onto another view */
@@ -158,7 +150,8 @@ export interface PlotAreaHandle extends PlotImageSource {
 export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(props, ref) {
   const store = useAnalysisStore()
   const { views, viewSizes, cursors: savedCursors, callouts } = useAnalysis()
-  const { nav, ...rest } = props
+  const timebase = useTimebase()
+  const { window: win } = useTimebaseState(timebase)
   const update = store.update
   const [drag, setDrag] = useState<Drag | null>(null)
   // A cursor being dragged is shown where the pointer has taken it (the drag holds that position, so only
@@ -179,16 +172,13 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
     [update],
   )
   const p: Resolved = {
-    ...rest,
+    ...props,
     views,
     viewSizes,
     cursors,
     callouts,
-    win: nav.win,
-    record: nav.record,
-    minSpan: nav.minSpan,
-    onNavigate: nav.navigate,
-    onZoomTo: nav.zoomTo,
+    win,
+    record: timebase.record,
     ...changes,
   }
   const containerRef = useRef<HTMLDivElement>(null)
@@ -236,7 +226,6 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
   const viewOf = (y: number) => viewAt(boxes, y)
   const plotW = size.w - AXIS_GUTTER
   const span = p.win.end - p.win.start
-  const maxSpan = (p.record.end - p.record.start) * 4
   const xToT = useCallback((x: number) => p.win.start + (x / plotW) * span, [p.win.start, plotW, span])
   const tToX = useCallback((t: number) => ((t - p.win.start) / span) * plotW, [p.win.start, plotW, span])
   const clampX = (x: number) => Math.min(plotW, Math.max(0, x))
@@ -597,21 +586,17 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
       }
       // Shift+wheel or a sideways swipe pans, the wheel zooms. From the window as it is now: wheel
       // events can come faster than the plot renders, and each goes on from the one before
-      const win = nav.getWin()
       const pan = wheelPan(e)
-      if (pan !== undefined) {
-        const shift = (win.end - win.start) * panShare(pan)
-        if (shift) p.onNavigate({ start: win.start + shift, end: win.end + shift }, 'pan')
-        return
-      }
-      const t = win.start + (Math.min(plotW, Math.max(0, x)) / plotW) * (win.end - win.start)
-      p.onNavigate(zoomAround(win, t, wheelZoomFactor(delta), p.minSpan, maxSpan), 'wheel')
+      if (pan !== undefined) return timebase.panBy(panShare(pan))
+      const now = timebase.get().window
+      const t = now.start + (Math.min(plotW, Math.max(0, x)) / plotW) * (now.end - now.start)
+      timebase.zoomAt(t, wheelZoomFactor(delta), { continuous: true })
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
     // tagUnder, viewChannels and wheelStep only read the props and sizes listed here
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p, byId, nav.getWin, plotW, boxes, viewsH, maxSpan])
+  }, [p, byId, timebase, plotW, boxes, viewsH])
 
   const local = (e: { clientX: number; clientY: number }) => {
     const r = containerRef.current!.getBoundingClientRect()
@@ -684,7 +669,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
     switch (drag.kind) {
       case 'pan': {
         const dt = ((x - drag.x0) / plotW) * (drag.win.end - drag.win.start)
-        p.onNavigate({ start: drag.win.start - dt, end: drag.win.end - dt }, 'pan')
+        timebase.pan({ start: drag.win.start - dt, end: drag.win.end - dt })
         break
       }
       case 'cursor': {
@@ -737,7 +722,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
       cursorSync.cancel()
       p.setCursors(d.orig)
     }
-    else if (d.kind === 'pan') p.onNavigate(d.win, 'pan')
+    else if (d.kind === 'pan') timebase.pan(d.win)
   }
   useEffect(() => {
     if (!drag) return
@@ -758,9 +743,6 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
       pointer: { x, y, alt: e.altKey },
       moved: dragMoved.current,
       tool: p.tool,
-      win: p.win,
-      minSpan: p.minSpan,
-      maxSpan,
       plotW,
       viewsH,
       boxes,
@@ -782,7 +764,10 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
         p.onAddCallout(release.callout)
         break
       case 'zoom':
-        p.onZoomTo(release.window, release.patches)
+        timebase.zoomTo(release.window, { patches: release.patches })
+        break
+      case 'zoomAt':
+        timebase.zoomAt(release.t, release.factor)
         break
       case 'select':
         p.setSelected(release.id)
@@ -886,7 +871,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
         const pt = local(e)
         const onTag = tagUnder(pt.x, pt.y)
         if (onTag) p.onChannelSettings?.(onTag.id)
-        else if (p.tool === 'pan' || p.tool === 'zoom') p.onZoomTo(p.record)
+        else if (p.tool === 'pan' || p.tool === 'zoom') timebase.zoomTo(timebase.record)
       }}
       onContextMenu={onContextMenu}
     >
