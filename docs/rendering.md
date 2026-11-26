@@ -98,14 +98,30 @@ flowchart TD
 The second regime is why a 100-million-sample record scrolls smoothly: each device-pixel column costs a
 few pyramid lookups. The selected channel is drawn slightly thicker (1.5 px vs 1.1 px).
 
+### The plot frame
+
+Where everything is on the plot is one value, the **plot frame** ([`render/plotFrame.ts`](../src/render/plotFrame.ts)),
+built by `plotFrame({ width, height, win, views, sizes, shown, channels })` once per layout. The callout layout,
+the gesture rules, the drag previews and the image export all ask it, so they map a time to x, find the view at a
+height and put a value at a y the same way:
+
+| Member | Answers |
+| --- | --- |
+| `tToX`, `xToT`, `clampX`, `plotW` | time ↔ x across the plot without its scale labels |
+| `viewsH`, `boxes`, `shown`, `viewAt(y)`, `box(view)` | where the stacked views are (`viewBoxes`: shares in whole pixels, a view left out gets 0, no shown view lower than `MIN_VIEW_H`, 40 px), which view is at a height (never one left out) |
+| `viewOf(id)`, `place(id)`, `traces(view)` | a channel's view; a visible channel in a shown view with its box; the visible channels of a view |
+| `yOf(id, t)`, `yOfValue(id, v)`, `divAt(view, y)`, `yOfDiv(view, div)` | a trace's height at a time, a value's height, levels of a view ↔ heights |
+
+Only a visible channel in a shown view has a place: for any other `place`, `traces` and `yOf` have nothing, so a
+callout, the nearest trace and a span preview all leave it out alike. Tested in
+[`plotFrame.test.ts`](../src/render/plotFrame.test.ts).
+
 ### Geometry helpers
 
 All pure and unit-tested ([`draw.test.ts`](../src/render/draw.test.ts)):
 
 | Function | Purpose |
 | --- | --- |
-| `viewBoxes(sizes, count, available, shown)` | tops and heights of the stacked views from their shares; hidden views get 0; no shown view is lower than `MIN_VIEW_H` (40 px); whole pixels, no gaps |
-| `viewAt(boxes, y)` | which view is at height `y` |
 | `valueToDiv`, `divToValue`, `valueAt` | value ↔ division ↔ interpolated sample at a time |
 | `gridRows`, `labelStep`, `labelEvery` | graticule rows, scale-label spacing, how many time labels fit |
 | `layoutTags`, `tagAt` | channel tag layout and hit-test |

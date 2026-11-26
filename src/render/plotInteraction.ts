@@ -4,12 +4,13 @@
  * keeps the events, the state and the drawing, and applies what these decide; so the rules of each
  * tool can be tested without a browser.
  *
- * Positions are in CSS pixels of the plot: x from its left edge (the time axis), y from the top of the
- * first view (the views are stacked, `ViewBoxes` says where each one is).
+ * Positions are in CSS pixels of the plot, as in its frame (see plotFrame.ts): x from its left edge
+ * (the time axis), y from the top of the first view.
  */
 import type { NewCallout } from '../model/callouts'
 import { snapToGrid, type CursorState, type DisplayPatch, type LiveChannel, type TimeWindow, type Tool } from '../model/view'
-import { DIVS_Y, divToValue, valueAt, valueToDiv, viewAt, type ViewBoxes } from './draw'
+import { DIVS_Y, divToValue } from './draw'
+import type { FrameChannel, PlotFrame } from './plotFrame'
 
 /** A drag shorter than this (px) is a click */
 export const MIN_BOX_PX = 5
@@ -38,30 +39,20 @@ export type Drag =
    */
   | { kind: 'tag'; id: string; view: number; y0: number; x: number; y: number; pos0: number; moved: boolean; target?: number }
 
-/** The level at plot height `y` in view `view`, in divisions from the centre of that view (up is positive) */
-export function divAtY(boxes: ViewBoxes, view: number, y: number): number {
-  return DIVS_Y / 2 - (y - boxes.tops[view]) / (boxes.heights[view] / DIVS_Y)
-}
-
 /**
  * The visible trace of the view at height `y` that passes closest to the pointer at time `t`, within
  * `maxPx`; undefined when none does. Traces without a value at `t` are not considered.
  */
-export function nearestTrace(channels: Pick<LiveChannel, 'wave' | 'display'>[], views: string[][], boxes: ViewBoxes, t: number, y: number, maxPx = 20): string | undefined {
-  const vi = viewAt(boxes, y)
-  const height = boxes.heights[vi]
-  const yIn = y - boxes.tops[vi]
+export function nearestTrace(frame: PlotFrame<FrameChannel>, t: number, y: number, maxPx = 20): string | undefined {
   let best: string | undefined
   let bestD = maxPx
-  for (const id of views[vi] ?? []) {
-    const c = channels.find((ch) => ch.wave.id === id)
-    if (!c || !c.display.visible) continue
-    const v = valueAt(c.wave, t)
-    if (!Number.isFinite(v)) continue
-    const dist = Math.abs(height / 2 - valueToDiv(v, c.display) * (height / DIVS_Y) - yIn)
+  for (const c of frame.traces(frame.viewAt(y))) {
+    const yc = frame.yOf(c.wave.id, t)
+    if (yc === undefined) continue
+    const dist = Math.abs(yc - y)
     if (dist < bestD) {
       bestD = dist
-      best = id
+      best = c.wave.id
     }
   }
   return best
@@ -80,30 +71,29 @@ export function tagPosition(div: number, divPx: number, free: boolean): number {
  */
 export function boxCallout(
   rect: { x0: number; x1: number; y0: number; y1: number; view: number },
-  o: { traces: LiveChannel[]; boxes: ViewBoxes; xToT: (x: number) => number; selected?: string; snapEdge?: (channel: string, t: number) => number | undefined },
+  o: { frame: PlotFrame; selected?: string; snapEdge?: (channel: string, t: number) => number | undefined },
 ): NewCallout {
-  const { traces, boxes, selected } = o
-  const top = divAtY(boxes, rect.view, Math.min(rect.y0, rect.y1))
-  const bottom = divAtY(boxes, rect.view, Math.max(rect.y0, rect.y1))
-  const ta = o.xToT(Math.min(rect.x0, rect.x1))
-  const tb = o.xToT(Math.max(rect.x0, rect.x1))
+  const { frame, selected } = o
+  const traces = frame.traces(rect.view)
+  const top = frame.divAt(rect.view, Math.min(rect.y0, rect.y1))
+  const bottom = frame.divAt(rect.view, Math.max(rect.y0, rect.y1))
+  const ta = frame.xToT(Math.min(rect.x0, rect.x1))
+  const tb = frame.xToT(Math.max(rect.x0, rect.x1))
   const range: [number, number] = [0, 0]
   const through = traces.filter(({ wave: w, display, pyramid }) => {
     pyramid.range(Math.floor((ta - w.t0) / w.dt), Math.ceil((tb - w.t0) / w.dt) + 1, range)
     return range[1] >= divToValue(bottom, display) && range[0] <= divToValue(top, display)
   })
   // Distance of a trace from the centre of the box (px)
-  const height = boxes.heights[rect.view]
-  const divPx = height / DIVS_Y
   const midT = (ta + tb) / 2
-  const midY = (rect.y0 + rect.y1) / 2 - boxes.tops[rect.view]
-  const distance = (c: LiveChannel) => Math.abs(height / 2 - valueToDiv(valueAt(c.wave, midT), c.display) * divPx - midY)
+  const midY = (rect.y0 + rect.y1) / 2
+  const distance = (c: LiveChannel) => Math.abs((frame.yOf(c.wave.id, midT) ?? NaN) - midY)
   const closest = (list: LiveChannel[]) =>
     list.filter((c) => Number.isFinite(distance(c))).reduce<LiveChannel | undefined>((best, c) => (!best || distance(c) < distance(best) ? c : best), undefined)
   const selectedIn = (list: LiveChannel[]) => list.find((c) => c.wave.id === selected)
   const ch = selectedIn(through) ?? closest(through) ?? selectedIn(traces) ?? closest(traces)
   const at = (x: number) => {
-    const t = o.xToT(x)
+    const t = frame.xToT(x)
     return !ch || !o.snapEdge ? t : (o.snapEdge(ch.wave.id, t) ?? t)
   }
   const t = at(Math.min(rect.x0, rect.x1))
@@ -114,13 +104,13 @@ export function boxCallout(
 }
 
 /** Where the note tool puts a note at (x, y): on the nearest trace (within 40 px), otherwise at that spot of the view */
-export function noteAnchor(o: { channels: LiveChannel[]; views: string[][]; boxes: ViewBoxes; t: number; y: number }): NewCallout {
-  const ch = nearestTrace(o.channels, o.views, o.boxes, o.t, o.y, 40)
-  const view = viewAt(o.boxes, o.y)
+export function noteAnchor(frame: PlotFrame<FrameChannel>, t: number, y: number): NewCallout {
+  const ch = nearestTrace(frame, t, y, 40)
+  const view = frame.viewAt(y)
   // The text box goes below the anchor near the top of the plot, above it elsewhere
-  const dy = o.y < 70 ? 24 : -46
-  if (ch) return { type: 'note', t: o.t, channel: ch, dy }
-  return { type: 'note', t: o.t, view, div: divAtY(o.boxes, view, o.y), dy }
+  const dy = y < 70 ? 24 : -46
+  if (ch) return { type: 'note', t, channel: ch, dy }
+  return { type: 'note', t, view, div: frame.divAt(view, y), dy }
 }
 
 /**
@@ -158,17 +148,9 @@ export interface ReleaseContext {
   /** The pointer moved since it was pressed (a click that moves is not a click) */
   moved: boolean
   tool: Tool
-  /** Width of the plot without the scale labels, and the height of all its views */
-  plotW: number
-  viewsH: number
-  boxes: ViewBoxes
-  views: string[][]
-  /** Everything that has a waveform, and the visible traces of one view */
-  channels: LiveChannel[]
-  viewTraces: (view: number) => LiveChannel[]
+  /** Where everything is on the plot */
+  frame: PlotFrame
   selected?: string
-  xToT: (x: number) => number
-  tToX: (t: number) => number
   /** A time moved onto an edge of the selected trace (markers, region edges), unless `alt` */
   snap: (t: number, alt: boolean) => number
   /** The edge of a channel's trace nearest to a time, if there is one within reach */
@@ -182,52 +164,53 @@ export interface ReleaseContext {
  */
 export function releaseOutcome(d: Drag, c: ReleaseContext): Release {
   const { x, y, alt } = c.pointer
+  const { frame } = c
   const wide = (a: number, b: number) => Math.abs(a - b) >= MIN_BOX_PX
-  const clampX = (v: number) => Math.min(c.plotW, Math.max(0, v))
+  const { clampX, xToT } = frame
   const none: Release = { kind: 'none' }
   const zoomTo = (a: number, b: number, patches?: { id: string; patch: DisplayPatch }[]): Release => ({ kind: 'zoom', window: { start: a, end: b }, patches })
 
   if (d.kind === 'tag') {
     // Dropped onto another view: the channel moves there, with its tag where it was dropped
-    if (d.target === undefined || !c.channels.some((ch) => ch.wave.id === d.id)) return none
-    return { kind: 'dropTag', id: d.id, view: d.target, position: tagPosition(divAtY(c.boxes, d.target, y), c.boxes.heights[d.target] / DIVS_Y, alt) }
+    if (d.target === undefined || !frame.channels.some((ch) => ch.wave.id === d.id)) return none
+    return { kind: 'dropTag', id: d.id, view: d.target, position: tagPosition(frame.divAt(d.target, y), frame.box(d.target).divPx, alt) }
   }
   if (d.kind === 'rect' && d.box) {
     if (!wide(d.x0, d.x1) || !wide(d.y0, d.y1)) return none
-    const callout = boxCallout(d, { traces: c.viewTraces(d.view), boxes: c.boxes, xToT: c.xToT, selected: c.selected, snapEdge: alt ? undefined : c.snapEdge })
+    const callout = boxCallout(d, { frame, selected: c.selected, snapEdge: alt ? undefined : c.snapEdge })
     return { kind: 'addCallout', callout }
   }
   if (d.kind === 'span') {
-    if (d.b && wide(c.tToX(d.a.t), c.tToX(d.b.t))) return { kind: 'addCallout', callout: { type: 'span', t: d.a.t, t2: d.b.t, channel: d.a.ch, channel2: d.b.ch } }
+    if (d.b && wide(frame.tToX(d.a.t), frame.tToX(d.b.t))) return { kind: 'addCallout', callout: { type: 'span', t: d.a.t, t2: d.b.t, channel: d.a.ch, channel2: d.b.ch } }
     return none
   }
-  if (d.kind === 'band') return wide(d.x0, d.x1) ? zoomTo(c.xToT(Math.min(d.x0, d.x1)), c.xToT(Math.max(d.x0, d.x1))) : none
+  if (d.kind === 'band') return wide(d.x0, d.x1) ? zoomTo(xToT(Math.min(d.x0, d.x1)), xToT(Math.max(d.x0, d.x1))) : none
   if (d.kind === 'rect') {
     if (wide(d.x0, d.x1)) {
-      const t0 = c.xToT(Math.min(d.x0, d.x1))
-      const t1 = c.xToT(Math.max(d.x0, d.x1))
+      const t0 = xToT(Math.min(d.x0, d.x1))
+      const t1 = xToT(Math.max(d.x0, d.x1))
       if (!wide(d.y0, d.y1)) return zoomTo(t0, t1)
       // Map the rectangle's vertical range onto the full height of its view
-      const top = divAtY(c.boxes, d.view, Math.min(d.y0, d.y1))
-      const bottom = divAtY(c.boxes, d.view, Math.max(d.y0, d.y1))
-      return zoomTo(t0, t1, rectZoomPatches(c.channels, c.views[d.view] ?? [], top, bottom))
+      const top = frame.divAt(d.view, Math.min(d.y0, d.y1))
+      const bottom = frame.divAt(d.view, Math.max(d.y0, d.y1))
+      return zoomTo(t0, t1, rectZoomPatches(frame.channels, frame.views[d.view] ?? [], top, bottom))
     }
     // A plain click with the zoom tool: zoom in 2x, Alt+click zooms out
-    if (!wide(d.y0, d.y1)) return { kind: 'zoomAt', t: c.xToT(clampX(x)), factor: alt ? 2 : 0.5 }
+    if (!wide(d.y0, d.y1)) return { kind: 'zoomAt', t: xToT(clampX(x)), factor: alt ? 2 : 0.5 }
     return none
   }
   if (d.kind === 'click') {
     if (c.moved) return none
-    if (c.tool === 'marker') return { kind: 'addCallout', callout: { type: 'marker', t: c.snap(c.xToT(clampX(x)), alt) } }
+    if (c.tool === 'marker') return { kind: 'addCallout', callout: { type: 'marker', t: c.snap(xToT(clampX(x)), alt) } }
     if (c.tool === 'note') {
-      const yIn = Math.min(c.viewsH - 1, Math.max(0, y))
-      return { kind: 'addCallout', callout: noteAnchor({ channels: c.channels, views: c.views, boxes: c.boxes, t: c.xToT(clampX(x)), y: yIn }) }
+      const yIn = Math.min(frame.viewsH - 1, Math.max(0, y))
+      return { kind: 'addCallout', callout: noteAnchor(frame, xToT(clampX(x)), yIn) }
     }
     return none
   }
-  if (d.kind === 'region') return wide(d.x0, d.x1) ? { kind: 'addCallout', callout: { type: 'region', t: c.xToT(Math.min(d.x0, d.x1)), t2: c.xToT(Math.max(d.x0, d.x1)) } } : none
+  if (d.kind === 'region') return wide(d.x0, d.x1) ? { kind: 'addCallout', callout: { type: 'region', t: xToT(Math.min(d.x0, d.x1)), t2: xToT(Math.max(d.x0, d.x1)) } } : none
   if (d.kind === 'pan' && !c.moved) {
-    const id = nearestTrace(c.channels, c.views, c.boxes, c.xToT(x), y)
+    const id = nearestTrace(frame, xToT(x), y)
     return id ? { kind: 'select', id } : none
   }
   return none
