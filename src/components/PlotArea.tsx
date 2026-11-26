@@ -5,6 +5,7 @@ import type { PlotImageSource } from '../export/sessionExport'
 import { DEFAULT_CALLOUT_COLOR, calloutSpan, type Callout, type NewCallout } from '../model/callouts'
 import * as edits from '../model/edits'
 import type { SpanMeasure } from '../model/calloutValues'
+import { samplesIn } from '../model/measureRange'
 import { calloutsSvg, flagsBottom, layoutCallouts } from '../render/callouts'
 import {
   AXIS_GUTTER,
@@ -248,8 +249,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
       let find = finders.get(ch.wave.id)
       if (!find) {
         const w = ch.wave
-        const i0 = Math.max(0, Math.floor((p.win.start - w.t0) / w.dt))
-        const i1 = Math.min(w.data.length, Math.ceil((p.win.end - w.t0) / w.dt) + 1)
+        const [i0, i1] = samplesIn(w, p.win)
         const maxN = (SNAP_PX * (p.win.end - p.win.start)) / Math.max(1, plotW) / w.dt
         let levels: EdgeLevels | undefined | null = null
         find = (t: number): number | undefined => {

@@ -7,7 +7,8 @@ import { channelName } from '../util/names'
 import { measuredChannels, measurementTable } from '../export/measureRows'
 import { MeasureInfo } from './MeasureInfo'
 import { useEngineResults, useLastResults } from './useEngineResults'
-import { MEASURE_RANGES, RANGE_LABEL, sampleRange, type CursorState, type LiveChannel, type MeasureRange, type TimeWindow } from '../model/view'
+import { rangeSamples } from '../model/measureRange'
+import { MEASURE_RANGES, RANGE_LABEL, type CursorState, type LiveChannel, type MeasureRange, type TimeWindow } from '../model/view'
 import { rangeChoices } from './scopeCommands'
 import { useContextMenu, type MenuEntry } from './ui/menuContext'
 import { placeNear } from './ui/placement'
@@ -72,8 +73,8 @@ export function MeasurementTable(p: Props) {
     for (const c of p.channels) {
       if (!c.display.visible || excluded.has(c.wave.id)) continue
       const w = c.wave
-      const [i0, i1] = sampleRange(w, p.range, win, cursors)
-      const { value, pending } = keep(w.id, p.engine.measured(w, Math.max(0, Math.floor(i0)), Math.min(w.data.length, Math.ceil(i1)), `table:${w.id}`))
+      const [i0, i1] = rangeSamples(w, p.range, win, cursors)
+      const { value, pending } = keep(w.id, p.engine.measured(w, i0, i1, `table:${w.id}`))
       if (value) out.set(w.id, { m: value, pending })
     }
     return out

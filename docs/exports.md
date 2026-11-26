@@ -100,8 +100,8 @@ quotes text cells that contain separators, quotes or newlines.
 - **Measurements CSV** – values in base units, one row per measured channel.
 - **Spectra CSV** – one column per visible spectrum in dB or linear as shown on screen.
 
-The range for waveform data is chosen in the dialog (`screen`, `cursors`, `record`; `rangeWindow` maps it
-to a `TimeWindow`) and for "all channels" includes hidden ones.
+The range for waveform data is chosen in the dialog (`screen`, `cursors`, `record`; `exportWindow` maps it
+to a `TimeWindow`, and `samplesIn` takes the samples within it, as the measurements do) and for "all channels" includes hidden ones.
 
 ## 5. The measurement rows are shared
 

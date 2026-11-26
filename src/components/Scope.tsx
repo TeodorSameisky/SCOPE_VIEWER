@@ -35,6 +35,7 @@ import type { MinMaxPyramid } from '../dsp/minmax'
 import { ComputeEngine } from '../compute/engine'
 import { AnalysisStore } from '../model/analysisStore'
 import * as edits from '../model/edits'
+import { rangeSamples } from '../model/measureRange'
 import type { MathDef } from '../model/math'
 import { MAX_SPECTRA, spectrumSource, type SpectrumDef } from '../model/spectrum'
 import {
@@ -82,7 +83,6 @@ import { TopBar } from './TopBar'
 import {
   shownViews,
   cursorsInView,
-  sampleRange,
   timePerDiv,
   type CursorState,
   type DisplayPatch,
@@ -576,8 +576,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     spectrum: spectrumRef.current,
   })
   const measuredCount = measuredChannels(visibleChannels, measExclude).filter((c) => {
-    const [i0, i1] = sampleRange(c.wave, measRange, win, cursors)
-    return Math.min(c.wave.data.length, i1) > Math.max(0, i0)
+    const [i0, i1] = rangeSamples(c.wave, measRange, win, cursors)
+    return i1 > i0
   }).length
   const hasSpectra = spectra.some((s) => s.visible)
 
