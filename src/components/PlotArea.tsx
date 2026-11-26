@@ -8,25 +8,18 @@ import type { SpanMeasure } from '../model/calloutValues'
 import { samplesIn } from '../model/measureRange'
 import { calloutsSvg, flagsBottom, layoutCallouts } from '../render/callouts'
 import {
-  AXIS_GUTTER,
-  DIVS_Y,
   drawHover,
   drawTimeAxis,
   drawView,
   layoutTags,
-  MIN_VIEW_H,
   tagAt,
   valueAt,
-  valueToDiv,
-  viewAt,
-  viewBoxes,
-  viewShares,
-  viewsHeight,
   type ChannelTag,
   type ViewDrawOptions,
 } from '../render/draw'
 import { PLOT_FONT, SANS, font } from '../render/fonts'
 import { nearestTrace as nearestTraceAt, noteAnchor, releaseOutcome, tagPosition as tagPositionOf, type Drag } from '../render/plotInteraction'
+import { MIN_VIEW_H, plotFrame, viewShares } from '../render/plotFrame'
 import { loadTex, useTexVersion } from '../render/tex'
 import type { Theme } from '../render/theme'
 import { si } from '../util/format'
@@ -212,27 +205,28 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
   const dragMoved = useRef(false)
 
   const nViews = Math.max(1, p.views.length)
-  /** Top and height of each view: their shares of the plot are set with the splitters between them */
-  const boxes = useMemo(() => viewBoxes(p.viewSizes, nViews, size.h - AXIS_H, p.viewsShown), [p.viewSizes, nViews, size.h, p.viewsShown])
-  const viewsH = viewsHeight(boxes)
+  /**
+   * Where everything is on the plot (see plotFrame.ts): the views get their shares of it, set with the
+   * splitters between them. Callouts, gestures, previews and the image export all ask this one frame.
+   */
+  const frame = useMemo(
+    () => plotFrame({ width: size.w, height: size.h - AXIS_H, win: p.win, views: p.views, sizes: p.viewSizes, shown: p.viewsShown, channels: p.channels }),
+    [size.w, size.h, p.win, p.views, p.viewSizes, p.viewsShown, p.channels],
+  )
+  const { boxes, viewsH, plotW, xToT, tToX, clampX } = frame
   /** The views the plot shows, top to bottom */
-  const shownIdx = boxes.heights.flatMap((h, i) => (h > 0 ? [i] : []))
+  const shownIdx = frame.shown
   /** The view of the selected channel */
-  const selectedView = p.views.findIndex((v) => p.selected !== undefined && v.includes(p.selected))
+  const selectedView = frame.viewOf(p.selected)
   const topOf = (vi: number) => boxes.tops[vi]
   const hOf = (vi: number) => boxes.heights[vi]
   /** Height of a division in view `vi` (px) */
-  const divOf = (vi: number) => boxes.heights[vi] / DIVS_Y
+  const divOf = (vi: number) => frame.box(vi).divPx
   /** The view at height `y` of the plot */
-  const viewOf = (y: number) => viewAt(boxes, y)
-  const plotW = size.w - AXIS_GUTTER
-  const span = p.win.end - p.win.start
-  const xToT = useCallback((x: number) => p.win.start + (x / plotW) * span, [p.win.start, plotW, span])
-  const tToX = useCallback((t: number) => ((t - p.win.start) / span) * plotW, [p.win.start, plotW, span])
-  const clampX = (x: number) => Math.min(plotW, Math.max(0, x))
+  const viewOf = frame.viewAt
 
   /** The visible trace of the view at y that passes closest to (x, y), within maxPx */
-  const nearestTrace = (x: number, y: number, maxPx = 20) => nearestTraceAt(p.channels, p.views, boxes, xToT(x), y, maxPx)
+  const nearestTrace = (x: number, y: number, maxPx = 20) => nearestTraceAt(frame, xToT(x), y, maxPx)
 
   /**
    * Edge finder of a trace: the time of its edge nearest to t (within SNAP_PX), or undefined. The
@@ -302,10 +296,10 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
   const measureSpan = useCallback<SpanMeasure>((w, i0, i1, id) => p.engine.measured(w, i0, i1, `callout:${id}`), [p.engine])
   // Laid out again only when something it depends on changes (not on every pointer move)
   const calloutGeo = useMemo(
-    () => layoutCallouts(p.callouts, { channels: p.channels, views: p.views, win: p.win, plotW, boxes, measure: measureSpan }),
+    () => layoutCallouts(p.callouts, { frame, measure: measureSpan }),
     // texVersion: a formula has been rendered meanwhile; resultsVersion: measurements arrived
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [p.callouts, p.channels, p.views, p.win, plotW, boxes, measureSpan, texVersion, resultsVersion],
+    [p.callouts, frame, measureSpan, texVersion, resultsVersion],
   )
 
   useLayoutEffect(() => {
@@ -320,7 +314,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
   const byId = useMemo(() => new Map(p.channels.map((c) => [c.wave.id, c])), [p.channels])
   /** The visible channels of view `vi`, and the one its scale labels are for: the selected one, else the first */
   const viewChannels = (vi: number) => {
-    const traces = (p.views[vi] ?? []).map((id) => byId.get(id)).filter((c): c is LiveChannel => !!c && c.display.visible)
+    const traces = frame.traces(vi)
     return { traces, axis: traces.find((t) => t.display.id === p.selected) ?? traces[0] }
   }
   /**
@@ -332,12 +326,11 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
     return (vi: number): ChannelTag[] => {
       let tags = laidOut.get(vi)
       if (!tags) {
-        const traces = (p.views[vi] ?? []).map((id) => byId.get(id)).filter((c): c is LiveChannel => !!c && c.display.visible)
-        laidOut.set(vi, (tags = layoutTags(traces, boxes.heights[vi])))
+        laidOut.set(vi, (tags = layoutTags(frame.traces(vi), boxes.heights[vi])))
       }
       return tags
     }
-  }, [p.views, byId, boxes])
+  }, [frame, boxes])
   /** The channel tag at (x, y) on the left edge of a view, and that view */
   const tagUnder = (x: number, y: number): { id: string; view: number } | undefined => {
     if (y < 0 || y >= viewsH) return undefined
@@ -462,10 +455,8 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
     if (drag?.kind !== 'span' || !drag.b) return
     // The ends on their traces, in plot coordinates (each view's canvas shows its part)
     const end = ({ ch, t }: { ch: string; t: number }) => {
-      const c = byId.get(ch)
-      const view = p.views.findIndex((v) => v.includes(ch))
-      const v = c ? valueAt(c.wave, t) : NaN
-      return c && view >= 0 && Number.isFinite(v) ? { x: tToX(t), y: topOf(view) + hOf(view) / 2 - valueToDiv(v, c.display) * divOf(view) } : undefined
+      const y = frame.yOf(ch, t)
+      return y === undefined ? undefined : { x: tToX(t), y }
     }
     const a = end(drag.a)
     const b = end(drag.b)
@@ -546,7 +537,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
       let flags = 0
       if (p.callouts.length) {
         await loadTex(p.callouts.map((c) => c.text))
-        const layout = { channels: p.channels, views: p.views, win: p.win, plotW, boxes }
+        const layout = { frame }
         const geo = layoutCallouts(p.callouts, layout)
         flags = flagsBottom(geo)
         const img = await svgToImage(await calloutsSvg(p.callouts, layout, theme, geo))
@@ -743,15 +734,8 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
       pointer: { x, y, alt: e.altKey },
       moved: dragMoved.current,
       tool: p.tool,
-      plotW,
-      viewsH,
-      boxes,
-      views: p.views,
-      channels: p.channels,
-      viewTraces: (vi) => viewChannels(vi).traces,
+      frame,
       selected: p.selected,
-      xToT,
-      tToX,
       snap: snapT,
       snapEdge: (id, t) => edgesOf(id)(t),
     })
@@ -776,7 +760,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
   }
 
   /** Where the note tool would put a note at (x, y): on the nearest trace, otherwise at that spot of the view */
-  const noteAt = (x: number, y: number) => noteAnchor({ channels: p.channels, views: p.views, boxes, t: xToT(x), y })
+  const noteAt = (x: number, y: number) => noteAnchor(frame, xToT(x), y)
 
   const onContextMenu = (e: React.MouseEvent) => {
     if (!p.onContextMenu || (e.target as HTMLElement).closest('.callout-editor')) return
@@ -914,11 +898,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
         geo={calloutGeo}
         snap={edgeNear}
         snapOn={edgesOf}
-        channels={p.channels}
-        views={p.views}
-        win={p.win}
-        plotW={plotW}
-        boxes={boxes}
+        frame={frame}
         selectedId={p.selectedCallout}
         editingId={p.editingCallout}
         onSelect={p.onSelectCallout}

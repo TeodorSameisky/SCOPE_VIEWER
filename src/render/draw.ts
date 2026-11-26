@@ -40,57 +40,6 @@ export interface ViewDrawOptions {
   theme: Theme
 }
 
-/** Where the stacked views of a plot are: the top and height of each (px from the top of the plot) */
-export interface ViewBoxes {
-  tops: number[]
-  heights: number[]
-}
-
-/** Least height of a view (px) */
-export const MIN_VIEW_H = 40
-
-/** The share of each view: its size, all equal without sizes for all of them */
-export function viewShares(sizes: number[] | undefined, count: number): number[] {
-  const n = Math.max(1, count)
-  return sizes?.length === n && sizes.every((s) => Number.isFinite(s) && s > 0) ? sizes : Array<number>(n).fill(1 / n)
-}
-
-/**
- * The views of a plot `available` px high, each its share (see viewShares) of it in whole pixels. A
- * view that is not `shown` gets no height and the others share the plot; a shown view is never lower
- * than MIN_VIEW_H, which may make them higher than the plot.
- */
-export function viewBoxes(sizes: number[] | undefined, count: number, available: number, shown?: boolean[]): ViewBoxes {
-  const shares = viewShares(sizes, count).map((s, i) => (shown && !shown[i] ? 0 : s))
-  const sum = shares.reduce((a, b) => a + b, 0) || 1
-  const tops: number[] = []
-  const heights: number[] = []
-  let top = 0
-  let before = 0
-  for (const s of shares) {
-    const h = s > 0 ? Math.max(MIN_VIEW_H, Math.round((available * (before + s)) / sum) - Math.round((available * before) / sum)) : 0
-    tops.push(top)
-    heights.push(h)
-    top += h
-    before += s
-  }
-  return { tops, heights }
-}
-
-/** Height of all the views together (px) */
-export function viewsHeight(b: ViewBoxes): number {
-  return b.tops[b.tops.length - 1] + b.heights[b.heights.length - 1]
-}
-
-/** The shown view at height `y` of the plot; above the first the first, below the last the last */
-export function viewAt(b: ViewBoxes, y: number): number {
-  let at = -1
-  b.tops.forEach((top, i) => {
-    if (b.heights[i] > 0 && (at < 0 || y >= top)) at = i
-  })
-  return Math.max(0, at)
-}
-
 export function valueToDiv(v: number, d: ChannelDisplay): number {
   return (v - d.offset) / d.scale + d.position
 }

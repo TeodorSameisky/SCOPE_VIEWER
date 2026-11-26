@@ -95,7 +95,8 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 
 | File | Purpose |
 | --- | --- |
-| `draw.ts` | View geometry (`viewBoxes`, `gridRows`, `layoutTags`, `scaleLabels`, `triggerMark`, `cursorMarks`), `drawView`, `drawTrace`, `drawHover`, `drawTimeAxis`, value↔division |
+| `draw.ts` | Geometry of one view (`gridRows`, `layoutTags`, `scaleLabels`, `triggerMark`, `cursorMarks`), `drawView`, `drawTrace`, `drawHover`, `drawTimeAxis`, value↔division |
+| `plotFrame.ts` | The plot frame: where everything is on the plot for one layout (time ↔ x, the stacked views and `viewBoxes`, a channel's view and the height of its trace), asked by callouts, gestures, previews and the image export |
 | `plotInteraction.ts` | What a pointer gesture in the plot means, as pure functions: `Drag`, `nearestTrace`, `boxCallout`, `noteAnchor`, `rectZoomPatches`, `releaseOutcome` |
 | `callouts.tsx` | `layoutCallouts` (geometry), `calloutShapes` (React elements), `calloutsSvg` (SVG document for export, written without a DOM) |
 | `spectrum.ts` | Frequency/level mapping, ticks, `drawSpectrum`, level reading |

@@ -3,8 +3,8 @@ import { calloutTitle, type BoxShape, type Callout } from '../model/callouts'
 import { calloutValueText, type SpanMeasure } from '../model/calloutValues'
 import type { Waveform } from '../model/types'
 import { si } from '../util/format'
-import type { LiveChannel, TimeWindow } from '../model/view'
-import { DIVS_Y, textWidth, valueAt, valueToDiv, viewsHeight, type ViewBoxes } from './draw'
+import { textWidth, valueToDiv } from './draw'
+import type { PlotFrame } from './plotFrame'
 import { MATH_SCALE, splitTex, texSource, texSvg, type TexSvg } from './tex'
 import { SANS, font } from './fonts'
 import type { Theme } from './theme'
@@ -24,12 +24,8 @@ const ARROW_W = 3.5
 
 /** What places the callouts on the plot */
 export interface CalloutLayout {
-  channels: LiveChannel[]
-  views: string[][]
-  win: TimeWindow
-  plotW: number
-  /** Where the views are (their sizes can differ) */
-  boxes: ViewBoxes
+  /** Where everything is on the plot */
+  frame: PlotFrame
   /** Measures regions and boxes; without it they are measured at once (exports) */
   measure?: SpanMeasure
 }
@@ -184,20 +180,6 @@ const FLAG_GAP = 3
 /** Default distance of a span's dimension line below its lower end (px) */
 export const SPAN_DY = 24
 
-/** A visible channel with the top and height of its view (px from the top of the plot), or undefined */
-function channelPlace(p: CalloutLayout, id: string | undefined): { ch: LiveChannel; top: number; h: number } | undefined {
-  const ch = id === undefined ? undefined : p.channels.find((x) => x.wave.id === id)
-  if (!ch || !ch.display.visible) return undefined
-  const vi = p.views.findIndex((v) => v.includes(ch.wave.id))
-  return vi < 0 ? undefined : { ch, top: p.boxes.tops[vi], h: p.boxes.heights[vi] }
-}
-
-/** Top and height of view `view` (px), clamped to the views there are */
-function viewPlace(p: CalloutLayout, view: number): { top: number; h: number } {
-  const v = clamp(view, 0, p.views.length - 1)
-  return { top: p.boxes.tops[v], h: p.boxes.heights[v] }
-}
-
 /** Label and value line of a region, box or span, and the size of their box */
 function labelBlock(title: string, valueText: string | undefined) {
   const label = layoutLine(title, FONT, FLAG_LINE)
@@ -207,22 +189,16 @@ function labelBlock(title: string, valueText: string | undefined) {
 
 /** Note: the text box stays inside the plot, whatever its stored offset from the anchor */
 function noteGeometry(c: Callout, p: CalloutLayout, waves: Waveform[]): NoteGeo | null {
-  const span = p.win.end - p.win.start
-  const ax = ((c.t - p.win.start) / span) * p.plotW
-  if (ax < -1 || ax > p.plotW + 1) return null
-  const totalH = viewsHeight(p.boxes)
-  let ay: number | undefined
-  const at = channelPlace(p, c.channel)
-  if (at) {
-    const v = valueAt(at.ch.wave, c.t)
-    if (Number.isFinite(v)) ay = at.top + at.h / 2 - (valueToDiv(v, at.ch.display) * at.h) / DIVS_Y
-  }
+  const f = p.frame
+  const ax = f.tToX(c.t)
+  if (ax < -1 || ax > f.plotW + 1) return null
+  const totalH = f.viewsH
+  let ay = f.yOf(c.channel, c.t)
   if (ay === undefined) {
     if (c.view === undefined || c.div === undefined) return null
-    const { top, h } = viewPlace(p, c.view)
     // Its view is left out (all its channels hidden)
-    if (!h) return null
-    ay = top + h / 2 - (c.div * h) / DIVS_Y
+    if (!f.box(c.view).h) return null
+    ay = f.yOfDiv(c.view, c.div)
   }
   const lines = (c.text || calloutTitle(c)).split('\n').map((l) => layoutLine(l, FONT, NOTE_LINE))
   const valueText = calloutValueText(c, waves)
@@ -230,30 +206,30 @@ function noteGeometry(c: Callout, p: CalloutLayout, waves: Waveform[]): NoteGeo 
   const all = value ? [...lines, value] : lines
   const bw = Math.ceil(Math.max(...all.map((l) => l.width))) + PAD * 2
   const bh = all.reduce((h, l) => h + l.ascent + l.descent, 0) + PAD
-  const bx = clamp(ax + (c.dx ?? 24), 2, p.plotW - bw - 2)
+  const bx = clamp(ax + (c.dx ?? 24), 2, f.plotW - bw - 2)
   const by = clamp(ay + (c.dy ?? -46), 2, totalH - bh - 2)
   return { type: 'note', ax, ay, bx, by, bw, bh, lines, value }
 }
 
 /** Marker: dashed line with its label at the top, on the left of the line near the right edge */
 function markerGeometry(c: Callout, p: CalloutLayout): MarkerGeo | null {
-  const x = ((c.t - p.win.start) / (p.win.end - p.win.start)) * p.plotW
-  if (x < -1 || x > p.plotW + 1) return null
+  const { plotW } = p.frame
+  const x = p.frame.tToX(c.t)
+  if (x < -1 || x > plotW + 1) return null
   const label = layoutLine(calloutTitle(c), FONT, FLAG_LINE)
   const w = label.width + 14
-  return { type: 'marker', x, fx: x + w > p.plotW ? x - w : x, fy: FLAG_Y, w, h: label.ascent + label.descent, label }
+  return { type: 'marker', x, fx: x + w > plotW ? x - w : x, fy: FLAG_Y, w, h: label.ascent + label.descent, label }
 }
 
 /** Region: shaded time span with its label at the bottom of the plot */
 function regionGeometry(c: Callout, p: CalloutLayout, waves: Waveform[]): RegionGeo | null {
-  const tToX = (t: number) => ((t - p.win.start) / (p.win.end - p.win.start)) * p.plotW
+  const { tToX, plotW, viewsH: totalH } = p.frame
   const t2 = c.t2 ?? c.t
   const xa = tToX(Math.min(c.t, t2))
   const xb = tToX(Math.max(c.t, t2))
-  if (xb < -1 || xa > p.plotW + 1) return null
+  if (xb < -1 || xa > plotW + 1) return null
   const { label, value, w, h } = labelBlock(`${calloutTitle(c)}  Δt ${si(Math.abs(t2 - c.t), 's')}`, calloutValueText(c, waves, p.measure))
-  const totalH = viewsHeight(p.boxes)
-  return { type: 'region', xa, xb, lx: Math.min(Math.max(xa, 0) + 4, p.plotW - w - 2), ly: totalH - h - 6, w, h, label, value }
+  return { type: 'region', xa, xb, lx: Math.min(Math.max(xa, 0) + 4, plotW - w - 2), ly: totalH - h - 6, w, h, label, value }
 }
 
 /**
@@ -261,58 +237,49 @@ function regionGeometry(c: Callout, p: CalloutLayout, waves: Waveform[]): Region
  * kept inside that view; hidden with its channel, like notes on a trace
  */
 function boxGeometry(c: Callout, p: CalloutLayout, waves: Waveform[]): BoxGeo | null {
-  const tToX = (t: number) => ((t - p.win.start) / (p.win.end - p.win.start)) * p.plotW
+  const { tToX, plotW, viewsH: totalH } = p.frame
   const t2 = c.t2 ?? c.t
   const xa = tToX(Math.min(c.t, t2))
   const xb = tToX(Math.max(c.t, t2))
-  if (xb < -1 || xa > p.plotW + 1) return null
-  // Upper and lower level in divisions from the centre of the view, and the top and height of the view
+  if (xb < -1 || xa > plotW + 1) return null
+  // Its view, and the upper and lower level in divisions from the centre of the view
   let levels: [number, number]
-  let top: number
-  let vh: number
+  let view: number
   if (c.channel !== undefined && c.v !== undefined && c.v2 !== undefined) {
-    const at = channelPlace(p, c.channel)
+    const at = p.frame.place(c.channel)
     if (!at) return null
-    top = at.top
-    vh = at.h
+    view = at.view
     levels = [valueToDiv(c.v, at.ch.display), valueToDiv(c.v2, at.ch.display)]
   } else if (c.view !== undefined && c.div !== undefined && c.div2 !== undefined) {
-    ;({ top, h: vh } = viewPlace(p, c.view))
+    view = c.view
     levels = [c.div, c.div2]
   } else return null
+  const { top, h: vh } = p.frame.box(view)
   // A view left out (all its channels hidden) has no height
   if (!vh) return null
-  const divH = vh / DIVS_Y
-  const yTop = top + vh / 2 - Math.max(...levels) * divH
-  const yBottom = top + vh / 2 - Math.min(...levels) * divH
+  const yTop = p.frame.yOfDiv(view, Math.max(...levels))
+  const yBottom = p.frame.yOfDiv(view, Math.min(...levels))
   if (yBottom < top || yTop > top + vh) return null
   const y = clamp(yTop, top, top + vh - 2)
   const h = Math.max(2, clamp(yBottom, top, top + vh) - y)
   const { label, value, w: lw, h: lh } = labelBlock(calloutTitle(c), calloutValueText(c, waves, p.measure))
-  const totalH = viewsHeight(p.boxes)
   const ly = y - lh - 3 >= 2 ? y - lh - 3 : y + h + 3 + lh <= totalH - 2 ? y + h + 3 : y + 3
-  return { type: 'box', x: xa, y, w: Math.max(2, xb - xa), h, shape: c.shape ?? 'rect', lx: clamp(xa, 2, p.plotW - lw - 2), ly, lw, lh, label, value }
+  return { type: 'box', x: xa, y, w: Math.max(2, xb - xa), h, shape: c.shape ?? 'rect', lx: clamp(xa, 2, plotW - lw - 2), ly, lw, lh, label, value }
 }
 
 /** Span: a dimension line from a point on one trace to a point on another, with Δt above it */
 function spanGeometry(c: Callout, p: CalloutLayout, waves: Waveform[]): SpanGeo | null {
-  const tToX = (t: number) => ((t - p.win.start) / (p.win.end - p.win.start)) * p.plotW
+  const { tToX, plotW, viewsH: totalH } = p.frame
   const t2 = c.t2 ?? c.t
   const xa = tToX(c.t)
   const xb = tToX(t2)
-  if (Math.max(xa, xb) < -1 || Math.min(xa, xb) > p.plotW + 1) return null
-  const endY = (id: string | undefined, t: number) => {
-    const at = channelPlace(p, id)
-    const v = at ? valueAt(at.ch.wave, t) : NaN
-    return at && Number.isFinite(v) ? at.top + at.h / 2 - (valueToDiv(v, at.ch.display) * at.h) / DIVS_Y : undefined
-  }
-  const ya = endY(c.channel, c.t)
-  const yb = endY(c.channel2, t2)
+  if (Math.max(xa, xb) < -1 || Math.min(xa, xb) > plotW + 1) return null
+  const ya = p.frame.yOf(c.channel, c.t)
+  const yb = p.frame.yOf(c.channel2, t2)
   if (ya === undefined || yb === undefined) return null
   const { label, value, w: lw, h: lh } = labelBlock(`${calloutTitle(c)}  Δt ${si(t2 - c.t, 's')}`, calloutValueText(c, waves))
-  const totalH = viewsHeight(p.boxes)
   const y = clamp(Math.max(ya, yb) + (c.dy ?? SPAN_DY), lh + 6, totalH - 4)
-  return { type: 'span', xa, ya, xb, yb, y, lx: clamp((xa + xb) / 2 - lw / 2, 2, p.plotW - lw - 2), ly: y - lh - 3, lw, lh, label, value }
+  return { type: 'span', xa, ya, xb, yb, y, lx: clamp((xa + xb) / 2 - lw / 2, 2, plotW - lw - 2), ly: y - lh - 3, lw, lh, label, value }
 }
 
 /**
@@ -340,7 +307,7 @@ export function layoutCallouts(callouts: Callout[], p: CalloutLayout): Map<strin
   const geo = new Map<string, CalloutGeo>()
   const markers: MarkerGeo[] = []
   const regions: RegionGeo[] = []
-  const waves = p.channels.map((ch) => ch.wave)
+  const waves = p.frame.channels.map((ch) => ch.wave)
   const geometry = {
     note: noteGeometry,
     marker: (c: Callout) => markerGeometry(c, p),
@@ -395,7 +362,7 @@ export function calloutShapes(
   interact?: (c: Callout, part: CalloutPart) => PartProps,
   geo = layoutCallouts(callouts, p),
 ): ReactNode[] {
-  const totalH = viewsHeight(p.boxes)
+  const totalH = p.frame.viewsH
   const order = { region: 0, box: 1, span: 2, marker: 3, note: 4 }
   const sorted = [...callouts].sort((a, b) => order[a.type] - order[b.type])
 
@@ -526,9 +493,9 @@ export function calloutShapes(
  */
 export async function calloutsSvg(callouts: Callout[], p: CalloutLayout, theme: Theme, geo = layoutCallouts(callouts, p)): Promise<string> {
   const { renderToStaticMarkup } = await import('react-dom/server')
-  const totalH = viewsHeight(p.boxes)
+  const { plotW, viewsH } = p.frame
   return renderToStaticMarkup(
-    <svg xmlns="http://www.w3.org/2000/svg" width={p.plotW} height={totalH} viewBox={`0 0 ${p.plotW} ${totalH}`}>
+    <svg xmlns="http://www.w3.org/2000/svg" width={plotW} height={viewsH} viewBox={`0 0 ${plotW} ${viewsH}`}>
       {calloutShapes(callouts, p, theme, undefined, undefined, geo)}
     </svg>,
   )

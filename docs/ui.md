@@ -162,7 +162,8 @@ cancelled pointer calls `cancelDrag`, which **puts everything back** (a moved ta
 pan).
 
 The *rules* of what a gesture means are not in the component but in [`render/plotInteraction.ts`](../src/render/plotInteraction.ts),
-as pure functions of the pointer position and the plot geometry: `Drag` (the union above), `nearestTrace`, `divAtY`,
+as pure functions of the pointer position and the plot frame (`render/plotFrame.ts`, where everything is on the
+plot): `Drag` (the union above), `nearestTrace`,
 `tagPosition`, `noteAnchor`, `boxCallout` (which trace a new box belongs to, snapped to edges), `rectZoomPatches`
 (the V/div and offset that make a zoom rectangle fill its view) and **`releaseOutcome(drag, context)`**. The last one
 answers *what releasing the pointer does* with a plain value – `none`, `dropTag`, `addCallout`, `zoom` (with the

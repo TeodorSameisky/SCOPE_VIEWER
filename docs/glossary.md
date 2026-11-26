@@ -59,6 +59,7 @@ Words used in the code, the UI and these documents. Oscilloscope terms first, th
 | **Overview** | The strip above the plot showing the whole record. |
 | **Palette** | The command palette (`Ctrl+K`). |
 | **Pending** | A measurement or spectrum that is being computed in the worker; the old value is shown dimmed meanwhile. |
+| **Plot frame** | `PlotFrame`: where everything is on the plot for one layout – time ↔ x, the stacked views, which view a channel is in and at what height its trace is. Only a visible channel in a shown view has a place. |
 | **Rail** | The icon column at the right edge that opens side panels. |
 | **Ref** | A short name for a sample array that crossed to the worker: `src:CH1` (input) or `m:3` (math result). |
 | **Sanitise** | Rebuild a value from untrusted data into a valid shape, using defaults for anything wrong. |

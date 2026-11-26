@@ -2,14 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { MinMaxPyramid } from '../dsp/minmax'
 import type { ChannelDisplay } from '../model/types'
 import type { LiveChannel, Tool } from '../model/view'
-import { viewBoxes } from './draw'
-import { MIN_BOX_PX, boxCallout, divAtY, nearestTrace, noteAnchor, rectZoomPatches, releaseOutcome, tagPosition, type Drag, type ReleaseContext } from './plotInteraction'
+import { AXIS_GUTTER } from './draw'
+import { plotFrame } from './plotFrame'
+import { MIN_BOX_PX, boxCallout, nearestTrace, noteAnchor, rectZoomPatches, releaseOutcome, tagPosition, type Drag, type ReleaseContext } from './plotInteraction'
 
 // Two views of 200 px (20 px per division, the centre of the first at y = 100, of the second at y = 300),
 // a plot 1000 px wide showing 0 … 10 s (100 px per second).
-const boxes = viewBoxes(undefined, 2, 400)
-const xToT = (x: number) => x / 100
-const tToX = (t: number) => t * 100
 
 const display = (id: string, over: Partial<ChannelDisplay> = {}): ChannelDisplay => ({ id, label: '', color: '#fff', visible: true, scale: 1, position: 0, offset: 0, ...over })
 /** A channel with a constant value over the whole window */
@@ -23,45 +21,37 @@ const ch2 = channel('CH2', -1)
 const ch3 = channel('CH3', 0)
 const channels = [ch1, ch2, ch3]
 const views = [['CH1', 'CH2'], ['CH3']]
-
-describe('levels in a view', () => {
-  it('count divisions from the centre of the view, up positive', () => {
-    expect(divAtY(boxes, 0, 100)).toBe(0)
-    expect(divAtY(boxes, 0, 60)).toBe(2)
-    expect(divAtY(boxes, 0, 0)).toBe(5)
-    expect(divAtY(boxes, 1, 300)).toBe(0)
-    expect(divAtY(boxes, 1, 380)).toBe(-4)
-  })
-})
+const frameOf = (chs: LiveChannel[] = channels, vs: string[][] = views) => plotFrame({ width: 1000 + AXIS_GUTTER, height: 400, win: { start: 0, end: 10 }, views: vs, channels: chs })
+const frame = frameOf()
 
 describe('the nearest trace', () => {
   it('is the visible trace of the view that passes closest to the pointer, within reach', () => {
-    expect(nearestTrace(channels, views, boxes, 5, 62)).toBe('CH1')
-    expect(nearestTrace(channels, views, boxes, 5, 118)).toBe('CH2')
+    expect(nearestTrace(frame, 5, 62)).toBe('CH1')
+    expect(nearestTrace(frame, 5, 118)).toBe('CH2')
     // between the two, further than 20 px from both
-    expect(nearestTrace(channels, views, boxes, 5, 90)).toBeUndefined()
-    expect(nearestTrace(channels, views, boxes, 5, 90, 40)).toBeDefined()
+    expect(nearestTrace(frame, 5, 90)).toBeUndefined()
+    expect(nearestTrace(frame, 5, 90, 40)).toBeDefined()
   })
 
   it('looks only in the view at the pointer', () => {
-    expect(nearestTrace(channels, views, boxes, 5, 300)).toBe('CH3')
-    expect(nearestTrace(channels, views, boxes, 5, 62)).not.toBe('CH3')
+    expect(nearestTrace(frame, 5, 300)).toBe('CH3')
+    expect(nearestTrace(frame, 5, 62)).not.toBe('CH3')
     // the first view's traces are far from the second
-    expect(nearestTrace(channels, views, boxes, 5, 260)).toBeUndefined()
+    expect(nearestTrace(frame, 5, 260)).toBeUndefined()
   })
 
   it('skips hidden traces and times where a trace has no value', () => {
     const hidden = { ...ch1, display: display('CH1', { visible: false }) }
-    expect(nearestTrace([hidden, ch2, ch3], views, boxes, 5, 62)).toBeUndefined()
+    expect(nearestTrace(frameOf([hidden, ch2, ch3]), 5, 62)).toBeUndefined()
     // outside the record
-    expect(nearestTrace(channels, views, boxes, 50, 62)).toBeUndefined()
+    expect(nearestTrace(frame, 50, 62)).toBeUndefined()
   })
 
   it('follows the scale, position and offset of the channel', () => {
     // 2 V at 0.5 V/div, 1 V offset, position 1: (2 - 1) / 0.5 + 1 = 3 divisions up
     const moved = channel('CH1', 2, { scale: 0.5, offset: 1, position: 1 })
-    expect(nearestTrace([moved], [['CH1']], boxes, 5, 100 - 3 * 20)).toBe('CH1')
-    expect(nearestTrace([moved], [['CH1']], boxes, 5, 60)).toBeUndefined()
+    expect(nearestTrace(frameOf([moved], [['CH1'], []]), 5, 100 - 3 * 20)).toBe('CH1')
+    expect(nearestTrace(frameOf([moved], [['CH1'], []]), 5, 60)).toBeUndefined()
   })
 })
 
@@ -80,8 +70,7 @@ describe('the position of a tag', () => {
 })
 
 describe('a new box', () => {
-  const traces = [ch1, ch2]
-  const o = { traces, boxes, xToT }
+  const o = { frame }
 
   it('belongs to the trace that runs through it, framed by the levels of its two edges', () => {
     // y 40 … 80 is 3 … 1 divisions up: CH1 (2 V) runs through, CH2 (-1 V) does not
@@ -108,7 +97,7 @@ describe('a new box', () => {
   })
 
   it('is tied to the levels of its view when the view has no trace', () => {
-    const b = boxCallout({ x0: 100, x1: 300, y0: 40, y1: 80, view: 0 }, { ...o, traces: [] })
+    const b = boxCallout({ x0: 100, x1: 300, y0: 40, y1: 80, view: 0 }, { frame: frameOf([], views) })
     expect(b).toEqual({ type: 'box', t: 1, t2: 3, view: 0, div: 3, div2: 1 })
   })
 
@@ -124,29 +113,29 @@ describe('a new box', () => {
 
   it('rounds the levels to six digits', () => {
     const odd = channel('CH1', 2, { scale: 0.123456789 })
-    const b = boxCallout({ x0: 100, x1: 300, y0: 41, y1: 83, view: 0 }, { ...o, traces: [odd], selected: 'CH1' })
+    const b = boxCallout({ x0: 100, x1: 300, y0: 41, y1: 83, view: 0 }, { frame: frameOf([odd], [['CH1'], []]), selected: 'CH1' })
     expect(String(b.v).replace(/^-?\d+\.?/, '').length).toBeLessThanOrEqual(6)
   })
 
   it('works in a view lower down', () => {
     // the second view: y 240 … 280 is 3 … 1 divisions up from its centre at 300 … no: 3 up is y = 240
-    const b = boxCallout({ x0: 100, x1: 300, y0: 240, y1: 280, view: 1 }, { ...o, traces: [ch3] })
+    const b = boxCallout({ x0: 100, x1: 300, y0: 240, y1: 280, view: 1 }, o)
     expect(b).toMatchObject({ channel: 'CH3', v: 3, v2: 1 })
   })
 })
 
 describe('a new note', () => {
   it('attaches to the nearest trace within 40 px, with its text below near the top and above elsewhere', () => {
-    expect(noteAnchor({ channels, views, boxes, t: 5, y: 80 })).toEqual({ type: 'note', t: 5, channel: 'CH1', dy: -46 })
+    expect(noteAnchor(frame, 5, 80)).toEqual({ type: 'note', t: 5, channel: 'CH1', dy: -46 })
     // 10 V trace near the top of the plot
     const high = channel('CH1', 4.5)
-    expect(noteAnchor({ channels: [high], views: [['CH1']], boxes, t: 5, y: 12 })).toMatchObject({ channel: 'CH1', dy: 24 })
+    expect(noteAnchor(frameOf([high], [['CH1'], []]), 5, 12)).toMatchObject({ channel: 'CH1', dy: 24 })
   })
 
   it('is placed at that spot of the view when no trace is near', () => {
-    const n = noteAnchor({ channels, views, boxes, t: 5, y: 190 })
+    const n = noteAnchor(frame, 5, 190)
     expect(n).toEqual({ type: 'note', t: 5, view: 0, div: -4.5, dy: -46 })
-    expect(noteAnchor({ channels, views, boxes, t: 5, y: 380 })).toMatchObject({ view: 1, div: -4 })
+    expect(noteAnchor(frame, 5, 380)).toMatchObject({ view: 1, div: -4 })
   })
 })
 
@@ -179,14 +168,7 @@ describe('releasing a drag', () => {
       pointer: { x, y, alt },
       moved: false,
       tool: 'pan' as Tool,
-      plotW: 1000,
-      viewsH: 400,
-      boxes,
-      views,
-      channels,
-      viewTraces: (vi) => (views[vi] ?? []).flatMap((id) => channels.filter((c) => c.wave.id === id)),
-      xToT,
-      tToX,
+      frame,
       snap: (t, alt) => (alt ? t : Math.round(t)),
       snapEdge: () => undefined,
       ...rest,

@@ -3,7 +3,6 @@ import type { Callout } from '../model/callouts'
 import { SPAN_DY, calloutShapes, type CalloutGeo, type CalloutLayout, type CalloutPart } from '../render/callouts'
 import { CalloutValueEditor } from './CalloutValueEditor'
 import { ColorSwatches } from './ColorSwatches'
-import { DIVS_Y, viewAt, viewsHeight } from '../render/draw'
 import { useTheme } from './ui/themeContext'
 
 interface Props extends CalloutLayout {
@@ -80,8 +79,9 @@ const PART_CURSOR: Record<CalloutPart, string> = {
 export const CalloutLayer = memo(forwardRef<SVGSVGElement, Props>(function CalloutLayer(p, ref) {
   const [drag, setDrag] = useState<Drag | null>(null)
   const { theme } = useTheme()
-  const span = p.win.end - p.win.start
-  const totalH = viewsHeight(p.boxes)
+  const { frame } = p
+  const { plotW, viewsH: totalH } = frame
+  const span = frame.win.end - frame.win.start
 
   // Dragging uses window listeners so it keeps working when the pointer leaves the element
   useEffect(() => {
@@ -92,32 +92,32 @@ export const CalloutLayer = memo(forwardRef<SVGSVGElement, Props>(function Callo
       const r = svg.getBoundingClientRect()
       const x = e.clientX - r.left
       const y = e.clientY - r.top
-      const dT = ((x - drag.x0) / p.plotW) * span
+      const dT = ((x - drag.x0) / plotW) * span
       const o = drag.orig
       // Upwards in divisions of the callout's view, and in the unit of a box's channel
-      const vi = o.channel ? p.views.findIndex((v) => v.includes(o.channel!)) : (o.view ?? 0)
-      const dDiv = -(y - drag.y0) / (p.boxes.heights[Math.min(p.views.length - 1, Math.max(0, vi))] / DIVS_Y)
+      const vi = o.channel ? frame.viewOf(o.channel) : (o.view ?? 0)
+      const dDiv = -(y - drag.y0) / frame.box(vi).divPx
       // Markers and region edges snap to edges of the selected trace, box edges and span ends to
       // those of their own channel; Alt moves them freely
       const snapped = (t: number) => (e.altKey ? t : (p.snap?.(t) ?? t))
       const snappedOn = (channel: string | undefined, t: number) => (e.altKey ? t : (p.snapOn?.(channel)(t) ?? t))
-      const scale = p.channels.find((c) => c.wave.id === o.channel)?.display.scale
+      const scale = frame.channels.find((c) => c.wave.id === o.channel)?.display.scale
       switch (drag.part) {
         case 'box': {
           // The box stays inside the plot, so the stored offset never runs past the edge either
           const b = drag.box
           if (!b) break
-          const bx = Math.max(2, Math.min(p.plotW - b.bw - 2, b.bx + x - drag.x0))
+          const bx = Math.max(2, Math.min(plotW - b.bw - 2, b.bx + x - drag.x0))
           const by = Math.max(2, Math.min(totalH - b.bh - 2, b.by + y - drag.y0))
           p.onUpdate(o.id, { dx: bx - b.ax, dy: by - b.ay })
           break
         }
         case 'anchor': {
-          const t = p.win.start + (Math.min(p.plotW, Math.max(0, x)) / p.plotW) * span
+          const t = frame.xToT(frame.clampX(x))
           if (o.channel) p.onUpdate(o.id, { t })
           else {
-            const at = viewAt(p.boxes, y)
-            p.onUpdate(o.id, { t, view: at, div: DIVS_Y / 2 - (y - p.boxes.tops[at]) / (p.boxes.heights[at] / DIVS_Y) })
+            const at = frame.viewAt(y)
+            p.onUpdate(o.id, { t, view: at, div: frame.divAt(at, y) })
           }
           break
         }
@@ -192,7 +192,7 @@ export const CalloutLayer = memo(forwardRef<SVGSVGElement, Props>(function Callo
       window.removeEventListener('pointercancel', cancel)
       window.removeEventListener('keydown', key)
     }
-  }, [drag, p, span, totalH, ref])
+  }, [drag, p, frame, plotW, span, totalH, ref])
 
   const startDrag = (c: Callout, part: CalloutPart) => (e: React.PointerEvent) => {
     if (e.button !== 0) return
@@ -245,9 +245,9 @@ export const CalloutLayer = memo(forwardRef<SVGSVGElement, Props>(function Callo
         ref={ref}
         className="callout-layer"
         xmlns="http://www.w3.org/2000/svg"
-        width={p.plotW}
+        width={plotW}
         height={totalH}
-        viewBox={`0 0 ${p.plotW} ${totalH}`}
+        viewBox={`0 0 ${plotW} ${totalH}`}
       >
         {items}
       </svg>
@@ -256,7 +256,7 @@ export const CalloutLayer = memo(forwardRef<SVGSVGElement, Props>(function Callo
           ref={editorRef}
           className="callout-editor"
           style={{
-            left: Math.max(4, Math.min(p.plotW - 250, pos.left)),
+            left: Math.max(4, Math.min(plotW - 250, pos.left)),
             ...(pos.above ? { top: pos.top, transform: 'translateY(-100%)' } : { top: Math.max(4, Math.min(totalH - editorH, pos.top)) }),
           }}
           onPointerDown={(e) => e.stopPropagation()}
@@ -279,8 +279,8 @@ export const CalloutLayer = memo(forwardRef<SVGSVGElement, Props>(function Callo
           />
           <CalloutValueEditor
             callout={editing}
-            sources={p.channels.map((c) => c.wave.id)}
-            displays={p.channels.map((c) => c.display)}
+            sources={frame.channels.map((c) => c.wave.id)}
+            displays={frame.channels.map((c) => c.display)}
             onUpdate={(patch) => p.onUpdate(editing.id, patch)}
             keepFocus
           />

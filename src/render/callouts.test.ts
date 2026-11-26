@@ -3,6 +3,8 @@ import { MinMaxPyramid } from '../dsp/minmax'
 import type { Callout } from '../model/callouts'
 import type { LiveChannel } from '../model/view'
 import { calloutsSvg, layoutCallouts, stackRows, type CalloutLayout } from './callouts'
+import { AXIS_GUTTER } from './draw'
+import { plotFrame } from './plotFrame'
 import { DARK_THEME, LIGHT_THEME } from './theme'
 
 /** A flat trace at `level` over 0…10 s */
@@ -15,12 +17,8 @@ const channel = (id: string, level: number, visible = true): LiveChannel => {
   }
 }
 // Two views 200 px high (20 px per division), 10 s across 100 px
-const layout = (channels: LiveChannel[], boxes = { tops: [0, 200], heights: [200, 200] }): CalloutLayout => ({
-  channels,
-  views: [['CH1'], ['CH2']],
-  win: { start: 0, end: 10 },
-  plotW: 100,
-  boxes,
+const layout = (channels: LiveChannel[], views: { sizes?: number[]; shown?: boolean[] } = {}): CalloutLayout => ({
+  frame: plotFrame({ width: 100 + AXIS_GUTTER, height: 400, win: { start: 0, end: 10 }, views: [['CH1'], ['CH2']], channels, ...views }),
 })
 const base: Callout = { id: 'x', n: 1, type: 'box', t: 2, t2: 4, text: '', color: '#fff' }
 
@@ -40,12 +38,12 @@ describe('box geometry', () => {
 
   it('takes the height of its own view when the views differ in height', () => {
     // View 2 from y = 100, 300 px high (30 px per division): -2 … 2 V is y 190 … 310
-    const g = layoutCallouts([{ ...base, channel: 'CH2', v: -2, v2: 2 }], layout([channel('CH1', 0), channel('CH2', 0)], { tops: [0, 100], heights: [100, 300] })).get('x')
+    const g = layoutCallouts([{ ...base, channel: 'CH2', v: -2, v2: 2 }], layout([channel('CH1', 0), channel('CH2', 0)], { sizes: [0.25, 0.75] })).get('x')
     expect(g).toMatchObject({ y: 190, h: 120 })
   })
 
   it('is left out with a view whose channels are all hidden', () => {
-    const shown = { tops: [0, 400], heights: [400, 0] }
+    const shown = { shown: [true, false] }
     expect(layoutCallouts([{ ...base, view: 1, div: 1, div2: -1 }], layout([channel('CH1', 0), channel('CH2', 0, false)], shown)).get('x')).toBeUndefined()
     const note: Callout = { id: 'n', n: 2, type: 'note', t: 3, text: 'here', color: '#fff', view: 1, div: 0 }
     expect(layoutCallouts([note], layout([channel('CH1', 0), channel('CH2', 0, false)], shown)).get('n')).toBeUndefined()
