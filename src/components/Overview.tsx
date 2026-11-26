@@ -6,6 +6,7 @@ import { useTimebase, useTimebaseState } from './timebaseContext'
 import { useTheme } from './ui/themeContext'
 import { panShare, wheelPan, wheelPixels, wheelZoomFactor } from './ui/wheel'
 import type { LiveChannel, TimeWindow } from '../model/view'
+import { useAnalysis } from './analysisContext'
 
 const HEIGHT = 46
 const EDGE_PX = 6
@@ -15,11 +16,9 @@ const HIT_PX = 5
 
 interface Props {
   channels: LiveChannel[]
-  views: string[][]
   /** Right-click, with the time at the pointer */
   onContextMenu?: (e: React.MouseEvent, t: number) => void
-  /** Shown as ticks along the bottom; a click on one goes there */
-  callouts: Callout[]
+  /** The callouts are shown as ticks along the bottom; a click on one goes there */
   selectedCallout?: string
   onJumpToCallout: (c: Callout) => void
 }
@@ -35,7 +34,8 @@ type Drag =
  * as a box. Drag the box to pan, drag its edges to resize, drag elsewhere to mark
  * a new range to zoom into, click to centre the view.
  */
-export function Overview({ channels, views, onContextMenu, callouts, selectedCallout, onJumpToCallout }: Props) {
+export function Overview({ channels, onContextMenu, selectedCallout, onJumpToCallout }: Props) {
+  const { views, callouts } = useAnalysis()
   const timebase = useTimebase()
   const { window: win } = useTimebaseState(timebase)
   const { record } = timebase

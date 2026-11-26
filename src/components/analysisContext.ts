@@ -26,3 +26,13 @@ export function useStoreAnalysis(store: AnalysisStore): Analysis {
 export function useAnalysis(): Analysis {
   return useStoreAnalysis(useAnalysisStore())
 }
+
+/**
+ * One part of the analysis of the open session (`pick` returns a field of it, which keeps its identity
+ * while it does not change): the component renders again only when that part changes, not with every
+ * change of the analysis (a cursor drag, say). For memoized components.
+ */
+export function useAnalysisPart<T>(pick: (a: Analysis) => T): T {
+  const store = useAnalysisStore()
+  return useSyncExternalStore(store.subscribe, () => pick(store.get()))
+}

@@ -1,7 +1,9 @@
 /**
  * The commands of the workspace: its actions (shared by the toolbar, the menus, the command
  * palette and the keyboard), the right-click menus and the commands of the palette. Scope builds
- * a ScopeApi every render and passes it here.
+ * a ScopeApi every render and passes it here. The menus read the analysis from its store when they
+ * are built and change it there with the edits of edits.ts; what the workspace does around a change
+ * (selection, the open editor, Undo notices, panels) are the verbs of the ScopeApi.
  */
 import {
   Activity,
@@ -33,10 +35,13 @@ import type { MeasurementKey } from '../dsp/measure'
 import { MEASUREMENT_DEFS } from '../dsp/measureDefs'
 import type { ExportKind } from '../export/sessionExport'
 import { CALLOUT_COLORS, CALLOUT_TYPE_LABEL, calloutName, calloutSpan, calloutTitle, hasTimeSpan, type Callout, type NewCallout } from '../model/callouts'
-import { MAX_MATH, type MathDef } from '../model/math'
-import { MAX_SPECTRA, spectrumSource, type SpectrumDef } from '../model/spectrum'
-import type { ChannelDisplay, Session } from '../model/types'
-import { MEASURE_RANGES, RANGE_LABEL, RANGE_SHORT, type CursorState, type DisplayPatch, type LiveChannel, type MeasureRange, type TimeWindow, type Tool } from '../model/view'
+import type { AnalysisStore } from '../model/analysisStore'
+import * as edits from '../model/edits'
+import { MAX_MATH } from '../model/math'
+import { MAX_SPECTRA, spectrumSource } from '../model/spectrum'
+import type { Timebase } from '../model/timebase'
+import type { Session } from '../model/types'
+import { MEASURE_RANGES, RANGE_LABEL, RANGE_SHORT, type CursorState, type DisplayPatch, type LiveChannel, type MeasureRange, type Tool } from '../model/view'
 import { valueAt } from '../render/draw'
 import { si } from '../util/format'
 import { channelName, perDiv } from '../util/names'
@@ -84,60 +89,58 @@ export interface ScopeActions {
 /** What the menus and the palette need from the workspace */
 export interface ScopeApi {
   session: Session
+  /** The analysis: read when a menu is built, changed with the edits of edits.ts */
+  store: Pick<AnalysisStore, 'get' | 'update'>
+  /** The time window: read and zoomed */
+  timebase: Pick<Timebase, 'get' | 'record' | 'zoomAt' | 'zoomTo'>
   actions: ScopeActions
   /** Channels with a waveform (inputs and computed math channels) */
   channels: LiveChannel[]
-  displays: ChannelDisplay[]
-  views: string[][]
-  mathDefs: MathDef[]
-  spectra: SpectrumDef[]
-  callouts: Callout[]
-  cursors: CursorState
-  win: TimeWindow
-  record: TimeWindow
   selected?: string
-  measKeys: MeasurementKey[]
-  measRange: MeasureRange
-  /** Channels left out of the measurement table */
-  measExclude: string[]
   panel: PanelId | null
   measurementsShown: boolean
   themePreference: ThemePreference
   setThemePreference: (p: ThemePreference) => void
 
   select: (id: string) => void
-  adjust: (id: string, patch: DisplayPatch) => void
-  showOnly: (id: string) => void
-  showAll: () => void
   /** Fit what is on screen of these channels into their views (a band each where visible ones share a view) */
   autoscale: (ids: string[]) => void
-  moveToView: (id: string, view: number) => void
   toggleSpectrum: (id: string) => void
   addSpectrum: () => void
   /** Add a math channel and open its editor */
   addMath: () => void
   removeMath: (id: string) => void
   openSettings: (id: string) => void
-  setCursors: (c: CursorState) => void
-  placeCursor: (which: 'a' | 'b', t: number) => void
-  /** Zoom by `f` (> 1 = out) around time t */
-  zoomAt: (t: number, f: number) => void
-  zoomTo: (w: TimeWindow) => void
 
   addCallout: (c: NewCallout) => void
   editCallout: (id: string) => void
-  updateCallout: (id: string, patch: Partial<Callout>) => void
   deleteCallout: (id: string) => void
   jumpToCallout: (c: Callout) => void
   zoomToBox: (c: Callout) => void
   duplicateCallout: (c: Callout) => void
 
-  setMeasKeys: (k: MeasurementKey[]) => void
-  setMeasRange: (r: MeasureRange) => void
-  setMeasExclude: (change: string[] | ((ids: string[]) => string[])) => void
   setPanel: (p: PanelId | null) => void
   openReference: (section: ReferenceSection, focus?: MeasurementKey) => void
   copy: (text: string, what: string) => void
+}
+
+/** The changes the menus make to the analysis: edits on the store (with the window as it is when one is made) */
+function editsOf(api: ScopeApi) {
+  const update = api.store.update
+  const win = () => api.timebase.get().window
+  return {
+    adjust: (id: string, patch: DisplayPatch) => update((a) => edits.adjustChannel(a, id, patch)),
+    showOnly: (id: string) => update((a) => edits.showOnly(a, id)),
+    showAll: () => update(edits.showAll),
+    moveToView: (id: string, view: number) => update((a) => edits.moveToView(a, id, view)),
+    setCursors: (c: CursorState) => update((a) => edits.setCursors(a, c)),
+    placeCursor: (which: 'a' | 'b', t: number) => update((a) => edits.placeCursor(a, which, t, win())),
+    updateCallout: (id: string, patch: Partial<Callout>) => update((a) => edits.updateCallout(a, id, patch)),
+    setMeasRange: (r: MeasureRange) => update((a) => edits.setMeasurementRange(a, r, win())),
+    setMeasKeys: (keys: MeasurementKey[]) => update((a) => edits.setMeasurementKeys(a, keys)),
+    /** Measure a channel in the table, or leave it out */
+    toggleMeasured: (id: string) => update((a) => edits.setMeasurementExclude(a, (ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]))),
+  }
 }
 
 // ---------- toolbar menus ----------
@@ -176,51 +179,53 @@ export function exportMenu(a: ScopeActions): MenuEntry[] {
 const hasWave = (api: ScopeApi, id: string) => api.channels.some((c) => c.wave.id === id)
 
 export function channelHeading(api: ScopeApi, id: string, detail?: string): MenuEntry {
-  const d = api.displays.find((x) => x.id === id)
+  const d = api.store.get().channels.find((x) => x.id === id)
   return { kind: 'heading', label: `${channelName(id)}${d?.label ? ` · ${d.label}` : ''}`, color: d?.color, detail }
 }
 
 /** Commands for one channel: on its badge, on its trace (`compact`) and on its measurement row */
 export function channelItems(api: ScopeApi, id: string, compact = false): MenuEntry[] {
-  const d = api.displays.find((x) => x.id === id)
+  const doc = api.store.get()
+  const e = editsOf(api)
+  const d = doc.channels.find((x) => x.id === id)
   if (!d) return []
   const wave = hasWave(api, id)
-  const others = api.displays.filter((x) => x.id !== id)
+  const others = doc.channels.filter((x) => x.id !== id)
   const solo = d.visible && others.every((x) => !x.visible)
-  const view = api.views.findIndex((v) => v.includes(id))
-  const hasSpectrum = api.spectra.some((s) => s.source === id)
-  const isMath = api.mathDefs.some((m) => m.id === id)
+  const { views, spectra, cursors } = doc
+  const view = views.findIndex((v) => v.includes(id))
+  const hasSpectrum = spectra.some((s) => s.source === id)
+  const isMath = doc.math.some((m) => m.id === id)
   return [
     { label: isMath ? 'Settings and expression…' : 'Settings…', icon: SlidersHorizontal, onClick: () => api.openSettings(id) },
-    { label: d.visible ? 'Hide' : 'Show', icon: d.visible ? EyeOff : Eye, onClick: () => api.adjust(id, { visible: !d.visible }) },
+    { label: d.visible ? 'Hide' : 'Show', icon: d.visible ? EyeOff : Eye, onClick: () => e.adjust(id, { visible: !d.visible }) },
     solo
-      ? { label: 'Show all channels', icon: Eye, disabled: !others.length, onClick: api.showAll }
-      : { label: 'Show only this channel', icon: ScanEye, onClick: () => api.showOnly(id) },
+      ? { label: 'Show all channels', icon: Eye, disabled: !others.length, onClick: e.showAll }
+      : { label: 'Show only this channel', icon: ScanEye, onClick: () => e.showOnly(id) },
     { label: 'Autoscale', icon: UnfoldVertical, title: 'Fit what is on screen of it into its view (its band, where it shares the view)', disabled: !wave, onClick: () => api.autoscale([id]) },
     !compact && {
       kind: 'choices',
       label: 'View',
       options: [
-        ...api.views.map((_, i) => ({ label: String(i + 1), title: `Move to view ${i + 1}`, checked: i === view, onClick: () => api.moveToView(id, i) })),
-        { label: 'New', title: 'Move to a new view of its own', disabled: view >= 0 && api.views[view].length === 1, onClick: () => api.moveToView(id, api.views.length) },
+        ...views.map((_, i) => ({ label: String(i + 1), title: `Move to view ${i + 1}`, checked: i === view, onClick: () => e.moveToView(id, i) })),
+        { label: 'New', title: 'Move to a new view of its own', disabled: view >= 0 && views[view].length === 1, onClick: () => e.moveToView(id, views.length) },
       ],
     },
     {
       label: hasSpectrum ? 'Remove spectrum' : 'Show spectrum (FFT)',
       icon: AudioLines,
-      disabled: !wave || (!hasSpectrum && api.spectra.length >= MAX_SPECTRA),
+      disabled: !wave || (!hasSpectrum && spectra.length >= MAX_SPECTRA),
       onClick: () => api.toggleSpectrum(id),
     },
     {
       label: 'Measure',
       icon: Activity,
       title: 'Show it in the measurement table',
-      checked: !api.measExclude.includes(id),
+      checked: !doc.measurements.exclude.includes(id),
       disabled: !wave,
-      onClick: () => api.setMeasExclude((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id])),
+      onClick: () => e.toggleMeasured(id),
     },
-    api.cursors.on &&
-      wave && { label: 'Cursor Δv on this channel', icon: Ruler, checked: api.cursors.source === id, onClick: () => api.setCursors({ ...api.cursors, source: id }) },
+    cursors.on && wave && { label: 'Cursor Δv on this channel', icon: Ruler, checked: cursors.source === id, onClick: () => e.setCursors({ ...cursors, source: id }) },
     !compact && isMath && '-',
     !compact && isMath && { label: 'Delete math channel', icon: Trash2, danger: true, onClick: () => api.removeMath(id) },
   ]
@@ -228,7 +233,7 @@ export function channelItems(api: ScopeApi, id: string, compact = false): MenuEn
 
 /** The menu of a channel badge or tag: its scale in the heading */
 export function channelMenu(api: ScopeApi, id: string): MenuEntry[] {
-  const d = api.displays.find((x) => x.id === id)
+  const d = api.store.get().channels.find((x) => x.id === id)
   const unit = api.channels.find((c) => c.wave.id === id)?.wave.yUnit ?? ''
   return [channelHeading(api, id, d && perDiv(d.scale, unit)), ...channelItems(api, id)]
 }
@@ -252,16 +257,18 @@ export function plotMenu(api: ScopeApi, at: PlotPoint): MenuEntry[] {
   const { t, note, edgeT, view } = at
   const a = api.actions
   const ch = at.channel ? api.channels.find((c) => c.wave.id === at.channel) : undefined
-  const { cursors, record } = api
+  const { cursors, views, callouts } = api.store.get()
+  const { record } = api.timebase
+  const e = editsOf(api)
   // The visible traces of the view under the pointer
-  const inView = view === undefined ? [] : api.channels.filter((c) => c.display.visible && api.views[view]?.includes(c.wave.id)).map((c) => c.wave.id)
+  const inView = view === undefined ? [] : api.channels.filter((c) => c.display.visible && views[view]?.includes(c.wave.id)).map((c) => c.wave.id)
   return [
     { kind: 'heading', label: 'Time', detail: si(t, 's', 5) },
-    { label: 'Zoom in here', icon: ZoomIn, onClick: () => api.zoomAt(t, 0.5) },
-    { label: 'Zoom out here', icon: ZoomOut, onClick: () => api.zoomAt(t, 2) },
+    { label: 'Zoom in here', icon: ZoomIn, onClick: () => api.timebase.zoomAt(t, 0.5) },
+    { label: 'Zoom out here', icon: ZoomOut, onClick: () => api.timebase.zoomAt(t, 2) },
     menuItem(a.back, { label: 'Back' }),
     menuItem(a.fullRecord),
-    api.views.length > 1
+    views.length > 1
       ? {
           kind: 'choices',
           label: 'Autoscale',
@@ -276,8 +283,8 @@ export function plotMenu(api: ScopeApi, at: PlotPoint): MenuEntry[] {
       kind: 'choices',
       label: 'Cursor',
       options: [
-        { label: 'A here', title: 'Put cursor A here', onClick: () => api.placeCursor('a', t) },
-        { label: 'B here', title: 'Put cursor B here', onClick: () => api.placeCursor('b', t) },
+        { label: 'A here', title: 'Put cursor A here', onClick: () => e.placeCursor('a', t) },
+        { label: 'B here', title: 'Put cursor B here', onClick: () => e.placeCursor('b', t) },
       ],
     },
     note && { label: 'Add note here', icon: StickyNote, onClick: () => api.addCallout(note) },
@@ -294,7 +301,7 @@ export function plotMenu(api: ScopeApi, at: PlotPoint): MenuEntry[] {
       icon: MoveHorizontal,
       onClick: () => api.addCallout({ type: 'region', t: Math.min(cursors.a, cursors.b), t2: Math.max(cursors.a, cursors.b) }),
     },
-    api.callouts.length > 0 && {
+    callouts.length > 0 && {
       kind: 'choices',
       label: 'Callout',
       options: [
@@ -320,7 +327,8 @@ export function plotMenu(api: ScopeApi, at: PlotPoint): MenuEntry[] {
 export function calloutMenu(api: ScopeApi, c: Callout): MenuEntry[] {
   const t2 = c.t2 ?? c.t
   const kind = CALLOUT_TYPE_LABEL[c.type].toLowerCase()
-  const { cursors } = api
+  const { cursors } = api.store.get()
+  const e = editsOf(api)
   return [
     {
       kind: 'heading',
@@ -329,20 +337,20 @@ export function calloutMenu(api: ScopeApi, c: Callout): MenuEntry[] {
       detail: c.type === 'span' ? `Δt ${si(t2 - c.t, 's')}` : hasTimeSpan(c) ? `Δt ${si(Math.abs(t2 - c.t), 's')}` : si(c.t, 's', 5),
     },
     { label: 'Edit text', icon: Pencil, hint: KEYS.editCallout, onClick: () => api.editCallout(c.id) },
-    { kind: 'choices', label: 'Colour', options: CALLOUT_COLORS.map((col) => ({ label: col, color: col, checked: c.color === col, onClick: () => api.updateCallout(c.id, { color: col }) })) },
+    { kind: 'choices', label: 'Colour', options: CALLOUT_COLORS.map((col) => ({ label: col, color: col, checked: c.color === col, onClick: () => e.updateCallout(c.id, { color: col }) })) },
     c.type === 'box' && {
       kind: 'choices',
       label: 'Shape',
       options: [
-        { label: 'Rectangle', checked: c.shape !== 'ellipse', onClick: () => api.updateCallout(c.id, { shape: undefined }) },
-        { label: 'Ellipse', checked: c.shape === 'ellipse', onClick: () => api.updateCallout(c.id, { shape: 'ellipse' }) },
+        { label: 'Rectangle', checked: c.shape !== 'ellipse', onClick: () => e.updateCallout(c.id, { shape: undefined }) },
+        { label: 'Ellipse', checked: c.shape === 'ellipse', onClick: () => e.updateCallout(c.id, { shape: 'ellipse' }) },
       ],
     },
     (c.type === 'note' || c.type === 'span') && {
       label: c.type === 'span' ? 'Show Δv and 1/Δt' : c.channel ? 'Show value at the anchor' : 'Show time at the anchor',
       icon: Hash,
       checked: !!c.showValue,
-      onClick: () => api.updateCallout(c.id, { showValue: c.showValue ? undefined : true }),
+      onClick: () => e.updateCallout(c.id, { showValue: c.showValue ? undefined : true }),
     },
     (c.type === 'region' || c.type === 'box') && { label: c.measure ? 'Change measurements…' : `Measure in this ${kind}…`, icon: Activity, onClick: () => api.editCallout(c.id) },
     c.type === 'box' && { label: 'Zoom to box', icon: ZoomIn, title: 'Its time span, and its channel scaled to fill the view', onClick: () => api.zoomToBox(c) },
@@ -353,16 +361,16 @@ export function calloutMenu(api: ScopeApi, c: Callout): MenuEntry[] {
           label: 'Set cursors to the ends',
           icon: Ruler,
           title: 'Cursor A at the start, B at the end, Δv on the channel of the start',
-          onClick: () => api.setCursors({ ...cursors, on: true, a: c.t, b: t2, source: c.channel && hasWave(api, c.channel) ? c.channel : cursors.source }),
+          onClick: () => e.setCursors({ ...cursors, on: true, a: c.t, b: t2, source: c.channel && hasWave(api, c.channel) ? c.channel : cursors.source }),
         }
       : hasTimeSpan(c)
-        ? { label: `Set cursors to ${kind}`, icon: Ruler, onClick: () => api.setCursors({ ...cursors, on: true, a: Math.min(c.t, t2), b: Math.max(c.t, t2) }) }
+        ? { label: `Set cursors to ${kind}`, icon: Ruler, onClick: () => e.setCursors({ ...cursors, on: true, a: Math.min(c.t, t2), b: Math.max(c.t, t2) }) }
         : {
             kind: 'choices',
             label: 'Cursor',
             options: [
-              { label: 'A here', title: 'Put cursor A at this callout', onClick: () => api.placeCursor('a', c.t) },
-              { label: 'B here', title: 'Put cursor B at this callout', onClick: () => api.placeCursor('b', c.t) },
+              { label: 'A here', title: 'Put cursor A at this callout', onClick: () => e.placeCursor('a', c.t) },
+              { label: 'B here', title: 'Put cursor B at this callout', onClick: () => e.placeCursor('b', c.t) },
             ],
           },
     '-',
@@ -371,10 +379,11 @@ export function calloutMenu(api: ScopeApi, c: Callout): MenuEntry[] {
 }
 
 export function overviewMenu(api: ScopeApi, t: number): MenuEntry[] {
-  const span = api.win.end - api.win.start
+  const win = api.timebase.get().window
+  const span = win.end - win.start
   return [
     { kind: 'heading', label: 'Time', detail: si(t, 's', 5) },
-    { label: 'Centre the view here', icon: LocateFixed, onClick: () => api.zoomTo({ start: t - span / 2, end: t + span / 2 }) },
+    { label: 'Centre the view here', icon: LocateFixed, onClick: () => api.timebase.zoomTo({ start: t - span / 2, end: t + span / 2 }) },
     ...viewItems(api.actions),
     '-',
     menuItem(api.actions.overview, { label: 'Hide overview', icon: EyeOff, checked: undefined }),
@@ -407,6 +416,9 @@ export function paletteCommands(api: ScopeApi): Command[] {
   const a = api.actions
   const togglePanel = (id: PanelId) => () => api.setPanel(api.panel === id ? null : id)
   const firstId = api.session.channels[0].wave.id
+  const doc = api.store.get()
+  const e = editsOf(api)
+  const { keys: measKeys, range: measRange, exclude: measExclude } = doc.measurements
   // The actions bring their own palette entry (`Action.palette`); the commands that are not actions
   // (panels, the callouts and channels of this session, measurements) are listed here
   const actions = actionsOf(a)
@@ -422,27 +434,27 @@ export function paletteCommands(api: ScopeApi): Command[] {
     { id: 'help:spectrum', group: 'Reference', label: 'Spectrum, windows and dB', keywords: 'fft', icon: BookOpen, run: () => api.openReference('spectrum') },
 
     ...paletteEntries(actions, 'Edit'),
-    api.mathDefs.length < MAX_MATH && { id: 'edit:math', group: 'Edit', label: 'Add math channel', keywords: 'expression difference power', icon: Plus, run: api.addMath },
-    api.spectra.length < MAX_SPECTRA && {
+    doc.math.length < MAX_MATH && { id: 'edit:math', group: 'Edit', label: 'Add math channel', keywords: 'expression difference power', icon: Plus, run: api.addMath },
+    doc.spectra.length < MAX_SPECTRA && {
       id: 'edit:fft',
       group: 'Edit',
-      label: `Add spectrum (FFT) of ${channelName(spectrumSource(api.channels.map((c) => ({ id: c.wave.id, visible: c.display.visible })), api.spectra, api.selected) ?? firstId)}`,
+      label: `Add spectrum (FFT) of ${channelName(spectrumSource(api.channels.map((c) => ({ id: c.wave.id, visible: c.display.visible })), doc.spectra, api.selected) ?? firstId)}`,
       keywords: 'frequency',
       icon: AudioLines,
       run: api.addSpectrum,
     },
     ...paletteEntries(actions, 'Callout'),
-    ...[...api.callouts]
+    ...[...doc.callouts]
       .sort((x, y) => calloutSpan(x)[0] - calloutSpan(y)[0])
       .map((c): Command => ({ id: `callout:${c.id}`, group: 'Callout', label: `Go to ${calloutTitle(c)}`, keywords: `${calloutName(c)} ${c.text}`, color: c.color, run: () => api.jumpToCallout(c) })),
 
     ...MEASURE_RANGES.map(
-      (r): Command => ({ id: `meas:range:${r}`, group: 'Measurements', label: `Measure ${RANGE_LABEL[r].toLowerCase()}`, icon: Activity, checked: api.measRange === r, run: () => api.setMeasRange(r) }),
+      (r): Command => ({ id: `meas:range:${r}`, group: 'Measurements', label: `Measure ${RANGE_LABEL[r].toLowerCase()}`, icon: Activity, checked: measRange === r, run: () => e.setMeasRange(r) }),
     ),
     ...MEASUREMENT_DEFS.map(
       (d): Command =>
-        api.measKeys.includes(d.key)
-          ? { id: `meas:remove:${d.key}`, group: 'Measurements', label: `Remove measurement: ${d.label}`, icon: X, run: () => api.setMeasKeys(api.measKeys.filter((k) => k !== d.key)) }
+        measKeys.includes(d.key)
+          ? { id: `meas:remove:${d.key}`, group: 'Measurements', label: `Remove measurement: ${d.label}`, icon: X, run: () => e.setMeasKeys(measKeys.filter((k) => k !== d.key)) }
           : {
               id: `meas:add:${d.key}`,
               group: 'Measurements',
@@ -450,31 +462,31 @@ export function paletteCommands(api: ScopeApi): Command[] {
               keywords: d.short,
               icon: Plus,
               run: () => {
-                api.setMeasKeys([...api.measKeys, d.key])
+                e.setMeasKeys([...measKeys, d.key])
                 if (!api.measurementsShown) a.measurements.run()
               },
             },
     ),
 
-    ...api.displays.flatMap((d): (Command | false)[] => {
+    ...doc.channels.flatMap((d): (Command | false)[] => {
       const name = `${channelName(d.id)}${d.label ? ` · ${d.label}` : ''}`
       return [
         { id: `ch:select:${d.id}`, group: 'Channel', label: `Select ${name}`, keywords: d.id, color: d.color, checked: api.selected === d.id, run: () => api.select(d.id) },
         { id: `ch:settings:${d.id}`, group: 'Channel', label: `Settings of ${name}…`, keywords: d.id, icon: SlidersHorizontal, run: () => api.openSettings(d.id) },
-        { id: `ch:visible:${d.id}`, group: 'Channel', label: `${d.visible ? 'Hide' : 'Show'} ${name}`, keywords: d.id, icon: d.visible ? EyeOff : Eye, run: () => api.adjust(d.id, { visible: !d.visible }) },
-        { id: `ch:only:${d.id}`, group: 'Channel', label: `Show only ${name}`, keywords: d.id, icon: ScanEye, run: () => api.showOnly(d.id) },
+        { id: `ch:visible:${d.id}`, group: 'Channel', label: `${d.visible ? 'Hide' : 'Show'} ${name}`, keywords: d.id, icon: d.visible ? EyeOff : Eye, run: () => e.adjust(d.id, { visible: !d.visible }) },
+        { id: `ch:only:${d.id}`, group: 'Channel', label: `Show only ${name}`, keywords: d.id, icon: ScanEye, run: () => e.showOnly(d.id) },
         hasWave(api, d.id) && {
           id: `ch:measure:${d.id}`,
           group: 'Measurements',
-          label: `${api.measExclude.includes(d.id) ? 'Measure' : 'Stop measuring'} ${name}`,
+          label: `${measExclude.includes(d.id) ? 'Measure' : 'Stop measuring'} ${name}`,
           keywords: `${d.id} table`,
           icon: Activity,
-          run: () => api.setMeasExclude((ids) => (ids.includes(d.id) ? ids.filter((x) => x !== d.id) : [...ids, d.id])),
+          run: () => e.toggleMeasured(d.id),
         },
         hasWave(api, d.id) && { id: `ch:autoscale:${d.id}`, group: 'Channel', label: `Autoscale ${name}`, keywords: d.id, icon: UnfoldVertical, run: () => api.autoscale([d.id]) },
       ]
     }),
-    api.displays.some((d) => !d.visible) && { id: 'ch:all', group: 'Channel', label: 'Show all channels', icon: Eye, run: api.showAll },
+    doc.channels.some((d) => !d.visible) && { id: 'ch:all', group: 'Channel', label: 'Show all channels', icon: Eye, run: e.showAll },
 
     ...paletteEntries(actions, 'File'),
     ...paletteEntries(actions, 'Export'),

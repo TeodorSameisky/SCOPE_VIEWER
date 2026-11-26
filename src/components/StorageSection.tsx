@@ -6,12 +6,12 @@ import { MAX_STORED_SESSIONS, type SaveStatus } from '../model/workspace'
 import { formatBytes } from '../util/format'
 import { RecentSessions } from './RecentSessions'
 import { useFeedback } from './ui/feedbackContext'
+import * as edits from '../model/edits'
+import { useAnalysis, useAnalysisStore } from './analysisContext'
 
 interface Props {
   fingerprint?: string
   status: SaveStatus
-  notes: string
-  setNotes: (s: string) => void
   onSaveAnalysis: () => void
   onSaveBundle: () => void
   onReset: () => void
@@ -25,6 +25,10 @@ interface Props {
 
 /** Session panel section: where the work is kept, saving it to files, managing stored sessions */
 export function StorageSection(p: Props) {
+  // The notes are part of the analysis
+  const store = useAnalysisStore()
+  const { notes } = useAnalysis()
+  const setNotes = (text: string) => store.update((a) => edits.setNotes(a, text))
   const { confirm } = useFeedback()
   const [recent, setRecent] = useState<RecentSession[]>([])
   const [keep, setKeep] = useState(keepFilesEnabled)
@@ -35,7 +39,7 @@ export function StorageSection(p: Props) {
   return (
     <section className="storage">
       <h4>Notes</h4>
-      <textarea rows={3} value={p.notes} placeholder="Describe the event, test conditions, conclusions… (saved with the session, used in reports)" onChange={(e) => p.setNotes(e.target.value)} />
+      <textarea rows={3} value={notes} placeholder="Describe the event, test conditions, conclusions… (saved with the session, used in reports)" onChange={(e) => setNotes(e.target.value)} />
 
       <h4>Saving</h4>
       <p className={`hint ${p.status.state === 'error' ? 'warn' : ''}`}>

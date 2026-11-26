@@ -227,8 +227,10 @@ An edit is a pure function in [`model/edits.ts`](../src/model/edits.ts): `(a: An
 4. **Test it in `edits.test.ts`.** The fixture there deep-freezes the analysis, so an edit that mutates its input
    throws. Check the same-object-when-unchanged case too.
 
-Components that read the analysis call `useAnalysis()`; components that change it call `useAnalysisStore().update`
-(only `PlotArea` does so today; the others receive callbacks from `Scope`).
+Components that read the analysis call `useAnalysis()` (a memoized one `useAnalysisPart(pick)`, which renders
+again only when that part changes); components that change it call `useAnalysisStore().update` with the edit.
+Only when the change also needs the workspace (selection, an editor, an Undo notice) does it go through a
+callback from `Scope`.
 
 ### Add a theme colour
 

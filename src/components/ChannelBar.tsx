@@ -15,6 +15,8 @@ import { useTimebase, useTimebaseState } from './timebaseContext'
 import { placeNear } from './ui/placement'
 import { useDismiss } from './ui/useDismiss'
 import { useTheme } from './ui/themeContext'
+import * as edits from '../model/edits'
+import { useAnalysisPart, useAnalysisStore } from './analysisContext'
 
 export interface MathItem {
   def: MathDef
@@ -26,11 +28,8 @@ interface Props {
   /** Input channels (not math) */
   channels: LiveChannel[]
   math: MathItem[]
-  views: string[][]
   selected?: string
   setSelected: (id: string) => void
-  onAdjust: (id: string, patch: DisplayPatch) => void
-  onMoveToView: (id: string, view: number) => void
   onAutoscale: (id: string) => void
   onAddMath: () => string | undefined
   onChangeMath: (id: string, patch: Partial<MathDef>) => void
@@ -69,9 +68,14 @@ const POPOVER_W = 340
  *
  * Memoized: the workspace renders on every step of a pan or zoom, the bar only when its channels
  * change (the horizontal summary follows the time window by itself, see HorizontalInfo). For that
- * its handlers have to be the same functions on every render (see useStableCallbacks).
+ * its handlers have to be the same functions on every render (see useStableCallbacks). The views
+ * come from the analysis store, and the bar changes channel settings and views there itself.
  */
 export const ChannelBar = memo(forwardRef<ChannelBarHandle, Props>(function ChannelBar(p, ref) {
+  const store = useAnalysisStore()
+  const views = useAnalysisPart((a) => a.views)
+  const adjust = useCallback((id: string, patch: DisplayPatch) => store.update((a) => edits.adjustChannel(a, id, patch)), [store])
+  const moveToView = useCallback((id: string, view: number) => store.update((a) => edits.moveToView(a, id, view)), [store])
   // The popover is positioned fixed so it is never clipped
   const [open, setOpen] = useState<{ id: string; style: React.CSSProperties } | null>(null)
   const popRef = useRef<HTMLDivElement>(null)
@@ -159,8 +163,8 @@ export const ChannelBar = memo(forwardRef<ChannelBarHandle, Props>(function Chan
   /** Where the badge `id` would go if it were dropped at (x, y); not where it already is */
   const targetAt = (id: string, x: number, y: number): number | undefined => {
     const drop = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-drop]')?.dataset.drop
-    const target = drop === 'new' ? p.views.length : drop === undefined ? undefined : Number(drop)
-    return target !== undefined && !p.views[target]?.includes(id) && !(target === p.views.length && p.views.some((v) => v.length === 1 && v[0] === id)) ? target : undefined
+    const target = drop === 'new' ? views.length : drop === undefined ? undefined : Number(drop)
+    return target !== undefined && !views[target]?.includes(id) && !(target === views.length && views.some((v) => v.length === 1 && v[0] === id)) ? target : undefined
   }
   const cancelDrag = () => {
     press.current = null
@@ -203,7 +207,7 @@ export const ChannelBar = memo(forwardRef<ChannelBarHandle, Props>(function Chan
 
   // The view of the channels the pointer is on, or of the open settings: outlined in the plot
   const [hoverView, setHoverView] = useState<number | undefined>()
-  const openView = openId ? p.views.findIndex((v) => v.includes(openId)) : -1
+  const openView = openId ? views.findIndex((v) => v.includes(openId)) : -1
   const litView = drag ? drag.target : (hoverView ?? (openView >= 0 ? openView : undefined))
   const { onHighlightView } = p
   useEffect(() => {
@@ -284,7 +288,7 @@ export const ChannelBar = memo(forwardRef<ChannelBarHandle, Props>(function Chan
               setTimeout(() => (justDragged.current = false))
               setDrag(null)
               if (target !== undefined) {
-                p.onMoveToView(id, target)
+                moveToView(id, target)
                 requestAnimationFrame(() => reveal(id))
               }
             }}
@@ -314,7 +318,7 @@ export const ChannelBar = memo(forwardRef<ChannelBarHandle, Props>(function Chan
             className="ch-eye"
             title={d.visible ? 'Hide channel' : 'Show channel'}
             aria-label={d.visible ? `Hide ${channelName(id)}` : `Show ${channelName(id)}`}
-            onClick={() => p.onAdjust(id, { visible: !d.visible })}
+            onClick={() => adjust(id, { visible: !d.visible })}
           >
             {d.visible ? <Eye size={14} /> : <EyeOff size={14} />}
           </button>
@@ -334,11 +338,11 @@ export const ChannelBar = memo(forwardRef<ChannelBarHandle, Props>(function Chan
       unit={unit}
       input={input}
       hasWave={hasWave}
-      views={p.views}
-      onAdjust={p.onAdjust}
+      views={views}
+      onAdjust={adjust}
       onPreviewView={setHoverView}
       onMoveToView={(id, view) => {
-        p.onMoveToView(id, view)
+        moveToView(id, view)
         // The badge now sits in another group: the settings follow it
         requestAnimationFrame(() => placeOpen(id))
       }}
@@ -390,22 +394,22 @@ export const ChannelBar = memo(forwardRef<ChannelBarHandle, Props>(function Chan
       ),
     )
   }
-  const grouped = p.views.length > 1
+  const grouped = views.length > 1
   const visible = (id: string) => !!(p.channels.find((c) => c.wave.id === id) ?? p.math.find((m) => m.def.id === id))?.display.visible
-  const shown = shownViews(p.views, visible)
+  const shown = shownViews(views, visible)
   const order = [...nodes.keys()]
-  const groups = p.views
+  const groups = views
     .map((v, view) => ({ view, ids: order.filter((id) => v.includes(id)), shown: shown[view], selected: p.selected !== undefined && v.includes(p.selected) }))
     .filter((g) => g.ids.length > 0)
-  const strays = order.filter((id) => !p.views.some((v) => v.includes(id)))
+  const strays = order.filter((id) => !views.some((v) => v.includes(id)))
   // While a badge is dragged: a place to drop it for a view of its own (not for the only channel of a view)
   const newView =
-    drag && !p.views.some((v) => v.length === 1 && v[0] === drag.id) ? (
-      <div key="new-view" data-drop="new" className={`ch-newview ${drag.target === p.views.length ? 'drop' : ''}`}>
+    drag && !views.some((v) => v.length === 1 && v[0] === drag.id) ? (
+      <div key="new-view" data-drop="new" className={`ch-newview ${drag.target === views.length ? 'drop' : ''}`}>
         <Plus size={14} aria-hidden /> New view
       </div>
     ) : null
-  const dragTarget = drag?.target === undefined ? '' : drag.target === p.views.length ? ' → new view' : ` → view ${drag.target + 1}`
+  const dragTarget = drag?.target === undefined ? '' : drag.target === views.length ? ' → new view' : ` → view ${drag.target + 1}`
   const dragColor = (p.channels.find((c) => c.wave.id === drag?.id) ?? p.math.find((m) => m.def.id === drag?.id))?.display.color
 
   return (

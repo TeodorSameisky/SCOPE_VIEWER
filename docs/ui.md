@@ -62,15 +62,18 @@ flowchart TD
 9. **Exports** – build an `ExportContext` on demand.
 10. **Actions and the `ScopeApi`**, then the keyboard hook, then the JSX.
 
-Most components still get their data **as props** and report changes **as callbacks** (`onAdjust`, `onNavigate`, …),
-so each `Props` interface lists exactly what the component reads and may change. `PlotArea`, the one with the
-most to do, is different: it follows the analysis store itself through
-[`AnalysisContext`](../src/components/analysisContext.ts) (`useAnalysis()` for the views, their sizes, the cursors
-and the callouts; `store.update(...)` with an edit for moving a channel, dragging a cursor, resizing views,
-editing a callout). Its props shrank from 35 to 22: what remains is the interface state (tool, selection), the
-time window (`nav`), and what needs the workspace – menus, and creating a callout, which also selects and opens it.
-Everything the interface does *around* a change (select, open an editor, offer Undo) stays in `Scope`; the change
-itself is an edit in `model/edits.ts`.
+Components read the analysis **from the store** and make their plain changes **there**, through
+[`AnalysisContext`](../src/components/analysisContext.ts): `useAnalysis()` for what they show, and
+`useAnalysisStore().update(...)` with an edit of `model/edits.ts` for a change that is only that edit. The plot
+(views, cursors, callouts), the measurement table (its columns, range and the channels left out), the spectrum
+view (its spectra and options), the channel bar (views, channel settings, moving a channel), the overview, the
+cursor and callout panels and the notes all do so. An edit that needs the time window (placing a cursor, a range
+that brings the cursors in) takes it from the timebase when it is made (`timebase.get().window`).
+
+What stays in `Scope` and reaches the components as callbacks is what the workspace does *around* a change:
+selecting, opening an editor, offering Undo after a deletion, the math channels' pending autoscale, revealing the
+spectrum view, the panels – and the live channels, which are computed there. So a component's `Props` list the
+interface state and these verbs, not the analysis.
 
 ## 3. Actions: one definition, four places
 
@@ -120,9 +123,13 @@ flowchart LR
 
 ### The `ScopeApi`
 
-Menus and the palette need more than actions – they need *data* (channels, callouts, cursors) and
-*operations* (select a channel, move it to a view, add a callout). `Scope` builds a `ScopeApi` object on
-every render and passes it to the menu builders in `scopeCommands.ts`:
+Menus and the palette need more than actions – they need the analysis and the workspace's verbs. The `ScopeApi`
+`Scope` builds on every render carries the analysis store and the timebase: a builder reads `api.store.get()`
+when the menu is built and changes the analysis with an edit on the store (show only, move to a view, a
+cursor, a callout's colour, the measurements); the window is read from the timebase when an item is clicked.
+The rest of the `ScopeApi` is the live channels, the selection, the panel and the verbs of the workspace
+(select, autoscale, add or remove a math channel or spectrum, add, edit, delete or go to a callout, panels,
+copy). `scopeCommands.test.ts` runs menu items against a real store and timebase. The builders:
 
 | Builder | Menu |
 | --- | --- |
@@ -235,7 +242,7 @@ is closest in pixels (within 20 px).
 
 | Component | Role |
 | --- | --- |
-| **ChannelBar** | One badge per channel, grouped by view with numbers. A click selects the channel and opens its settings popover (`ChannelSettings`); the eye button toggles visibility; right-click opens the channel menu. Drag a badge (mouse or pen; a finger scrolls the row instead) onto a view group or the *New view* box to move it – a press only becomes a drag after the pointer moves 6 px. Hosts **+ Math** (`MathEditor`) and **FFT** buttons. Scrolls horizontally in narrow windows; below 700 px the badges get their own row. **Memoized**: the workspace renders on every step of a pan or zoom, the bar only when its channels change. Its handlers therefore come from `useStableCallbacks` in `Scope`, and its horizontal summary (`HorizontalInfo`) subscribes to the timebase from `TimebaseContext` instead of taking the window as a prop. |
+| **ChannelBar** | One badge per channel, grouped by view with numbers. A click selects the channel and opens its settings popover (`ChannelSettings`); the eye button toggles visibility; right-click opens the channel menu. Drag a badge (mouse or pen; a finger scrolls the row instead) onto a view group or the *New view* box to move it – a press only becomes a drag after the pointer moves 6 px. Hosts **+ Math** (`MathEditor`) and **FFT** buttons. Scrolls horizontally in narrow windows; below 700 px the badges get their own row. **Memoized**: the workspace renders on every step of a pan or zoom, the bar only when its channels change. It reads the views with `useAnalysisPart` and changes channel settings and views in the store itself; its other handlers (math, spectra, autoscale, menus) come from `useStableCallbacks` in `Scope`, and its horizontal summary (`HorizontalInfo`) subscribes to the timebase from `TimebaseContext` instead of taking the window as a prop. |
 | **ChannelSettings** | Popover for one channel: label, colour, V/div (typed values like `500m`, `2 V`), position, offset, view, plus the read-only input settings from the scope. |
 | **MathEditor** | Expression field with live `checkSyntax` feedback and error position, unit override, quick-operation presets (`MATH_PRESETS`). |
 | **MeasurementTable** | Rows = measured channels, columns = chosen measurements. Header click → explanation (`MeasureInfo`/`MeasureFigure`), drag to reorder, *Channels* chooser, range choice, resizable height (`ResizeHandle`). Reads through `useDeferredValue`; keeps old values dimmed while the worker computes. |

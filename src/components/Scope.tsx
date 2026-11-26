@@ -37,7 +37,7 @@ import { AnalysisStore } from '../model/analysisStore'
 import * as edits from '../model/edits'
 import { rangeSamples } from '../model/measureRange'
 import type { MathDef } from '../model/math'
-import { MAX_SPECTRA, spectrumSource, type SpectrumDef } from '../model/spectrum'
+import { MAX_SPECTRA, spectrumSource } from '../model/spectrum'
 import {
   ANALYSIS_EXT,
   BUNDLE_EXT,
@@ -87,7 +87,6 @@ import {
   type CursorState,
   type DisplayPatch,
   type LiveChannel,
-  type MeasureRange,
   type TimeWindow,
   type Tool,
 } from '../model/view'
@@ -197,10 +196,9 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   const update = store.update
   const { math: mathDefs, channels: displays, views, cursors, notes, callouts, spectra, spectrumOptions: specOptions } = doc
   const { keys: measKeys, range: measRange, exclude: measExclude } = doc.measurements
-  const setCursors = useCallback((c: CursorState) => update((a) => edits.setCursors(a, c)), [update])
-  const setNotes = useCallback((text: string) => update((a) => edits.setNotes(a, text)), [update])
-  const setMeasKeys = (keys: MeasurementKey[]) => update((a) => edits.setMeasurementKeys(a, keys))
-  const setMeasExclude = (change: string[] | ((ids: string[]) => string[])) => update((a) => edits.setMeasurementExclude(a, change))
+  // The panels read the analysis from the store and make their plain edits there themselves; what stays
+  // here is what the workspace does around a change (selection, the open editor, Undo notices, panels)
+  const setCursors = (c: CursorState) => update((a) => edits.setCursors(a, c))
   // Undo history of the analysis (recorded in "undo / redo" below)
   const [editHistory] = useState(() => new UndoHistory<Analysis, TimeWindow>(doc))
 
@@ -264,12 +262,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   const viewsShown = useMemo(() => shownViews(views, (id) => !!displayById.get(id)?.visible), [views, displayById])
   const firstId = session.channels[0].wave.id
 
-  const onAdjust = useCallback((id: string, patch: DisplayPatch) => update((a) => edits.patchChannel(a, id, patch)), [update])
-  /** Change a channel's settings from its badge or a menu (a new colour also goes to the notes on its trace) */
+  /** Change a channel's settings (a new colour also goes to the notes on its trace) */
   const adjustChannel = (id: string, patch: DisplayPatch) => update((a) => edits.adjustChannel(a, id, patch))
-  const showOnly = (id: string) => update((a) => edits.showOnly(a, id))
-  const showAll = () => update(edits.showAll)
-  const onMoveToView = (id: string, view: number) => update((a) => edits.moveToView(a, id, view))
   const openSettings = (id: string) => channelBarRef.current?.openSettings(id)
 
   // ---------- navigation ----------
@@ -325,7 +319,6 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     setEditing({ id: callout.id, isNew: true })
     setTool('pan')
   }
-  const updateCallout = useCallback((id: string, patch: Partial<Callout>) => update((a) => edits.updateCallout(a, id, patch)), [update])
   /** Delete a callout; offers undo unless `silent` (an empty new note that is discarded) */
   const deleteCallout = (id: string, silent = false) => {
     const c = callouts.find((x) => x.id === id)
@@ -377,11 +370,6 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     if (next) jumpToCallout(next)
   }
 
-  // ---------- cursors ----------
-  /** Put cursor A or B at `t`; when the cursors come on, the other one is moved into view if needed */
-  const placeCursor = (which: 'a' | 'b', t: number) => update((a) => edits.placeCursor(a, which, t, win))
-  const changeMeasRange = (r: MeasureRange) => update((a) => edits.setMeasurementRange(a, r, win))
-
   // ---------- spectra ----------
   const spectrumSources = useMemo(() => new Set(spectra.map((s) => s.source)), [spectra])
   /** A spectrum was just added: bring the spectrum view into sight (in a narrow window it is below the plot) */
@@ -402,7 +390,6 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     if (spectrumSources.has(source)) update((a) => edits.toggleSpectrum(a, source))
     else addSpectrum(source)
   }
-  const changeSpectrum = (id: string, patch: Partial<SpectrumDef>) => update((a) => edits.changeSpectrum(a, id, patch))
 
   // ---------- reference panel ----------
   const [refSection, setRefSection] = useState<ReferenceSection>('measurements')
@@ -670,30 +657,17 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
   const { preference: themePreference, setPreference: setThemePreference } = useTheme()
   const api: ScopeApi = {
     session,
+    store,
+    timebase,
     actions,
     channels,
-    displays,
-    views,
-    mathDefs,
-    spectra,
-    callouts,
-    cursors,
-    win,
-    record,
     selected,
-    measKeys,
-    measRange,
-    measExclude,
     panel: layout.panel,
     measurementsShown: layout.measurements,
     themePreference,
     setThemePreference,
     select: setSelected,
-    adjust: adjustChannel,
-    showOnly,
-    showAll,
     autoscale: (ids) => autoscale(ids),
-    moveToView: onMoveToView,
     toggleSpectrum,
     addSpectrum: () => addSpectrum(),
     addMath: () => {
@@ -703,20 +677,12 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     },
     removeMath,
     openSettings,
-    setCursors,
-    placeCursor,
-    zoomAt: (t, f) => timebase.zoomAt(t, f),
-    zoomTo: (w) => timebase.zoomTo(w),
     addCallout,
     editCallout,
-    updateCallout,
     deleteCallout,
     jumpToCallout,
     zoomToBox,
     duplicateCallout,
-    setMeasKeys,
-    setMeasRange: changeMeasRange,
-    setMeasExclude,
     setPanel,
     openReference,
     copy,
@@ -731,7 +697,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     actions,
     selectedCallout,
     selectedDisplay,
-    adjust: onAdjust,
+    adjust: adjustChannel,
     editCallout,
     deleteCallout,
     nudgeCallout,
@@ -750,8 +716,6 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
     removeMath,
     openMathReference: () => openReference('math'),
     toggleSpectrum,
-    adjustChannel,
-    moveToView: onMoveToView,
     autoscale: onAutoscale,
     channelMenu: (e: React.MouseEvent, id: string) => openMenu(e, channelMenu(api, id)),
     timebaseMenu: (e: React.MouseEvent) => openMenu(e, timebaseMenu(api, tPerDiv)),
@@ -779,9 +743,7 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
             {layout.overview && (
               <Overview
                 channels={channels}
-                views={views}
                 onContextMenu={(e, t) => openMenu(e, overviewMenu(api, t))}
-                callouts={callouts}
                 selectedCallout={selectedCallout}
                 onJumpToCallout={jumpToCallout}
               />
@@ -817,18 +779,10 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
               <SpectrumView
                 ref={spectrumRef}
                 engine={engine}
-                defs={spectra}
-                options={specOptions}
-                setOptions={(patch) => update((a) => edits.setSpectrumOptions(a, patch, win))}
                 channels={channels}
-                win={win}
-                cursors={cursors}
                 height={layout.specHeight}
                 setHeight={(specHeight) => setLayout((l) => ({ ...l, specHeight }))}
                 onAdd={() => addSpectrum()}
-                onChange={changeSpectrum}
-                onRemove={(id) => update((a) => edits.removeSpectrum(a, id))}
-                onClose={() => update(edits.clearSpectra)}
                 onOpenReference={() => openReference('spectrum')}
                 onCopy={copy}
               />
@@ -837,19 +791,11 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
               <MeasurementTable
                 engine={engine}
                 channels={channels}
-                win={win}
-                cursors={cursors}
-                range={measRange}
-                setRange={changeMeasRange}
-                keys={measKeys}
-                setKeys={setMeasKeys}
-                exclude={measExclude}
-                setExclude={setMeasExclude}
                 height={layout.measHeight === FORMER_MEAS_HEIGHT ? null : layout.measHeight}
                 setHeight={(measHeight) => setLayout((l) => ({ ...l, measHeight }))}
                 selected={selected}
                 onSelect={setSelected}
-                onShowChannel={(id) => onAdjust(id, { visible: true })}
+                onShowChannel={(id) => adjustChannel(id, { visible: true })}
                 onClose={toggleMeasurements}
                 onOpenReference={(key) => openReference('measurements', key)}
                 channelMenu={(id) => channelItems(api, id)}
@@ -866,16 +812,14 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
                   <X size={16} />
                 </button>
               </div>
-              {layout.panel === 'cursors' && <CursorPanel channels={channels} cursors={cursors} setCursors={setCursors} win={win} />}
+              {layout.panel === 'cursors' && <CursorPanel channels={channels} />}
               {layout.panel === 'callouts' && (
                 <CalloutPanel
-                  callouts={callouts}
                   channels={channels}
                   selectedId={selectedCallout}
                   tools={tools}
                   tool={tool}
                   onSelect={setSelectedCallout}
-                  onUpdate={updateCallout}
                   onDelete={deleteCallout}
                   onJump={jumpToCallout}
                   onContextMenu={(e, c) => openMenu(e, calloutMenu(api, c))}
@@ -898,8 +842,6 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
                     <StorageSection
                       fingerprint={session.fingerprint}
                       status={saveStatus}
-                      notes={notes}
-                      setNotes={setNotes}
                       onSaveAnalysis={saveAnalysis}
                       onSaveBundle={saveBundle}
                       onReset={resetToDefaults}
@@ -928,11 +870,8 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
           spectrumSources={spectrumSources}
           canAddSpectrum={spectra.length < MAX_SPECTRA}
           onToggleSpectrum={bar.toggleSpectrum}
-          views={views}
           selected={selected}
           setSelected={setSelected}
-          onAdjust={bar.adjustChannel}
-          onMoveToView={bar.moveToView}
           onAutoscale={bar.autoscale}
           sampleRate={1 / timebase.minDt}
           recordLength={session.channels[0].wave.data.length}
@@ -953,8 +892,6 @@ export const Scope = forwardRef<ScopeHandle, Props>(function Scope({ session, py
             waveformRows={(o) => waveformRows(exportContext(), o)}
             plotSize={exportPlotSize}
             measurementInfo={{ range: measRange, count: measKeys.length, channels: measuredCount }}
-            notes={notes}
-            setNotes={setNotes}
             defaultTitle={stem(session.fileName)}
             canCopyImage={typeof ClipboardItem !== 'undefined' && !!navigator.clipboard?.write && window.isSecureContext}
             onExport={(kind, prefs, extra) => runExport(exportContext(), kind, prefs, extra)}

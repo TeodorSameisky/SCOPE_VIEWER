@@ -124,10 +124,10 @@ and are not listed. Counts are from the time of writing; the descriptions come f
 | File | Purpose |
 | --- | --- |
 | `Scope.tsx` | The workspace: creates the analysis store and calls its edits, navigation, undo, autosave and tab sync wiring, interface state, actions, layout of all parts |
-| `analysisContext.ts` | `AnalysisContext` and the hooks `useAnalysisStore`, `useAnalysis`, `useStoreAnalysis` |
+| `analysisContext.ts` | `AnalysisContext` and the hooks `useAnalysisStore`, `useAnalysis`, `useAnalysisPart`, `useStoreAnalysis` |
 | `timebaseContext.ts` | `TimebaseContext` (the session's `Timebase`), `useTimebase`, `useTimebaseState` (subscribe to the window) |
 | `useStableCallbacks.ts` | Handlers that stay the same on every render, for memoized components |
-| `scopeCommands.ts` | `ScopeActions`/`ScopeApi`; all menus; palette commands |
+| `scopeCommands.ts` | `ScopeActions`/`ScopeApi` (the analysis store, the timebase and the workspace verbs); all menus; palette commands |
 | `keymap.ts` | `KEYS`, `TOOLS`, `HELP_ROWS` |
 | `PlotArea.tsx` | Interactive plot: canvases, pointer tools, wheel, snapping, callout layer, `renderImage`; reads and changes the analysis through the store |
 | `CalloutLayer.tsx` | SVG layer: drag/resize/edit callouts, inline editor |

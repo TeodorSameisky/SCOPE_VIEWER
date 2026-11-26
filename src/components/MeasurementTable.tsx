@@ -8,27 +8,21 @@ import { measuredChannels, measurementTable } from '../export/measureRows'
 import { MeasureInfo } from './MeasureInfo'
 import { useEngineResults, useLastResults } from './useEngineResults'
 import { rangeSamples } from '../model/measureRange'
-import { MEASURE_RANGES, RANGE_LABEL, type CursorState, type LiveChannel, type MeasureRange, type TimeWindow } from '../model/view'
+import { MEASURE_RANGES, RANGE_LABEL, type LiveChannel, type MeasureRange } from '../model/view'
 import { rangeChoices } from './scopeCommands'
 import { useContextMenu, type MenuEntry } from './ui/menuContext'
 import { placeNear } from './ui/placement'
 import { ResizeHandle } from './ui/ResizeHandle'
 import { useDismiss } from './ui/useDismiss'
 import { useTheme } from './ui/themeContext'
+import * as edits from '../model/edits'
+import { useAnalysis, useAnalysisStore } from './analysisContext'
+import { useTimebase, useTimebaseState } from './timebaseContext'
 
 interface Props {
   /** Measures the channels (long ranges in its worker) */
   engine: Pick<ComputeEngine, 'measured' | 'subscribeResults' | 'resultsVersion'>
   channels: LiveChannel[]
-  win: TimeWindow
-  cursors: CursorState
-  range: MeasureRange
-  setRange: (r: MeasureRange) => void
-  keys: MeasurementKey[]
-  setKeys: (k: MeasurementKey[]) => void
-  /** Channels left out of the table (it has a row for every other visible channel) */
-  exclude: string[]
-  setExclude: (ids: string[]) => void
   /** The table is as high as its rows need, but at most this high; null: at most a share of the window */
   height: number | null
   setHeight: (h: number | null) => void
@@ -51,12 +45,25 @@ const POPUP_W = 340
 type PopupKind = { kind: 'info'; key: MeasurementKey } | { kind: 'add' } | { kind: 'channels' }
 type Popup = PopupKind & { style: React.CSSProperties }
 
+/**
+ * The measurement table: what it measures (its columns, the range, the channels left out) is part of
+ * the analysis, read from the store and changed there.
+ */
 export function MeasurementTable(p: Props) {
+  const store = useAnalysisStore()
+  const timebase = useTimebase()
+  const analysis = useAnalysis()
+  /** The columns, the range and the channels left out (the table has a row for every other visible channel) */
+  const { keys, range, exclude } = analysis.measurements
+  const setKeys = (k: MeasurementKey[]) => store.update((a) => edits.setMeasurementKeys(a, k))
+  // Cursors that come on with the range are placed in the window as it is now
+  const setRange = (r: MeasureRange) => store.update((a) => edits.setMeasurementRange(a, r, timebase.get().window))
+  const setExclude = (ids: string[]) => store.update((a) => edits.setMeasurementExclude(a, ids))
   // Deferred so panning/zooming stays smooth on long records
-  const win = useDeferredValue(p.win)
-  const cursors = useDeferredValue(p.cursors)
-  const excluded = useMemo(() => new Set(p.exclude), [p.exclude])
-  const measured = measuredChannels(p.channels, p.exclude)
+  const win = useDeferredValue(useTimebaseState(timebase).window)
+  const cursors = useDeferredValue(analysis.cursors)
+  const excluded = useMemo(() => new Set(exclude), [exclude])
+  const measured = measuredChannels(p.channels, exclude)
   const leftOut = p.channels.filter((c) => excluded.has(c.wave.id))
   const { ink } = useTheme().theme
   const rootRef = useRef<HTMLDivElement>(null)
@@ -73,26 +80,26 @@ export function MeasurementTable(p: Props) {
     for (const c of p.channels) {
       if (!c.display.visible || excluded.has(c.wave.id)) continue
       const w = c.wave
-      const [i0, i1] = rangeSamples(w, p.range, win, cursors)
+      const [i0, i1] = rangeSamples(w, range, win, cursors)
       const { value, pending } = keep(w.id, p.engine.measured(w, i0, i1, `table:${w.id}`))
       if (value) out.set(w.id, { m: value, pending })
     }
     return out
     // resultsVersion: measurements that were being computed may have arrived
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.channels, excluded, p.range, win, cursors, p.engine, resultsVersion, keep])
+  }, [p.channels, excluded, range, win, cursors, p.engine, resultsVersion, keep])
 
-  const defs = p.keys.map(measurementDef)
-  const unused = MEASUREMENT_DEFS.filter((d) => !p.keys.includes(d.key))
+  const defs = keys.map(measurementDef)
+  const unused = MEASUREMENT_DEFS.filter((d) => !keys.includes(d.key))
 
   // A column that was added (here, by the command palette or by an undo) is scrolled into sight: in a
   // narrow window it lands beyond the right edge of the table
-  const shownKeys = useRef(p.keys)
+  const shownKeys = useRef(keys)
   useEffect(() => {
-    const added = p.keys.find((k) => !shownKeys.current.includes(k))
-    shownKeys.current = p.keys
+    const added = keys.find((k) => !shownKeys.current.includes(k))
+    shownKeys.current = keys
     if (added) scrollRef.current?.querySelector(`th[data-key="${added}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [p.keys])
+  }, [keys])
 
   // Popovers (measurement info, add picker), positioned fixed so the scroll area does not clip them
   const [popup, setPopup] = useState<Popup | null>(null)
@@ -143,20 +150,20 @@ export function MeasurementTable(p: Props) {
     colPress.current = null
     setColDrag(null)
     if (!d) return
-    const from = p.keys.indexOf(d.key)
-    const k = p.keys.filter((x) => x !== d.key)
+    const from = keys.indexOf(d.key)
+    const k = keys.filter((x) => x !== d.key)
     k.splice(d.to > from ? d.to - 1 : d.to, 0, d.key)
-    if (k.join() !== p.keys.join()) p.setKeys(k)
+    if (k.join() !== keys.join()) setKeys(k)
   }
   /** The dragged header is dimmed; a line before or after a header shows where it would land */
   const dropClass = (i: number) => {
     if (!colDrag) return undefined
-    const from = p.keys.indexOf(colDrag.key)
+    const from = keys.indexOf(colDrag.key)
     const moves = colDrag.to !== from && colDrag.to !== from + 1
     return [
-      p.keys[i] === colDrag.key && 'dragging',
+      keys[i] === colDrag.key && 'dragging',
       moves && colDrag.to === i && 'drop-before',
-      moves && colDrag.to === p.keys.length && i === p.keys.length - 1 && 'drop-after',
+      moves && colDrag.to === keys.length && i === keys.length - 1 && 'drop-after',
     ]
       .filter(Boolean)
       .join(' ')
@@ -171,39 +178,39 @@ export function MeasurementTable(p: Props) {
   /** Tab separated, as shown (pastes into a spreadsheet or a document table) */
   const tsv = (lines: string[][]) => lines.map((l) => l.join('\t')).join('\n')
   const copyTable = () => {
-    const t = measurementTable(rows, p.keys)
+    const t = measurementTable(rows, keys)
     p.onCopy(tsv([t.columns, ...t.rows.map((r) => r.cells)]), 'Measurement table')
   }
   const copyRow = (c: LiveChannel) => {
-    const t = measurementTable(rows.filter((r) => r.channel === c), p.keys)
+    const t = measurementTable(rows.filter((r) => r.channel === c), keys)
     p.onCopy(tsv([t.columns, ...t.rows.map((r) => r.cells)]), `Measurements of ${channelName(c.wave.id)}`)
   }
   const moveKey = (key: MeasurementKey, dir: -1 | 1) => {
-    const k = [...p.keys]
+    const k = [...keys]
     const i = k.indexOf(key)
     if (i + dir < 0 || i + dir >= k.length) return
     ;[k[i], k[i + dir]] = [k[i + dir], k[i]]
-    p.setKeys(k)
+    setKeys(k)
   }
   const pointRect = (e: React.MouseEvent) => new DOMRect(e.clientX, e.clientY, 0, 0)
   const common = (e: React.MouseEvent): MenuEntry[] => {
     const at = pointRect(e)
     return [
       '-',
-      { label: 'Copy table', icon: ClipboardList, disabled: !rows.length || !p.keys.length, onClick: copyTable },
+      { label: 'Copy table', icon: ClipboardList, disabled: !rows.length || !keys.length, onClick: copyTable },
       { label: 'Add measurement…', icon: Plus, disabled: !unused.length, onClick: () => openAtRect(at, { kind: 'add' }) },
       { label: 'Channels to measure…', icon: ListChecks, onClick: () => openAtRect(at, { kind: 'channels' }) },
-      rangeChoices(p.range, p.setRange),
+      rangeChoices(range, setRange),
       { label: 'Hide measurements', icon: X, hint: 'T', onClick: p.onClose },
     ]
   }
   const columnItems = (d: MeasurementDef, rect: DOMRect): MenuEntry[] => {
-    const i = p.keys.indexOf(d.key)
+    const i = keys.indexOf(d.key)
     return [
       { label: `About ${d.label}…`, icon: Info, onClick: () => openAtRect(rect, { kind: 'info', key: d.key }) },
       { label: 'Move column left', icon: ArrowLeft, disabled: i <= 0, onClick: () => moveKey(d.key, -1) },
-      { label: 'Move column right', icon: ArrowRight, disabled: i >= p.keys.length - 1, onClick: () => moveKey(d.key, 1) },
-      { label: 'Remove column', icon: X, onClick: () => p.setKeys(p.keys.filter((k) => k !== d.key)) },
+      { label: 'Move column right', icon: ArrowRight, disabled: i >= keys.length - 1, onClick: () => moveKey(d.key, 1) },
+      { label: 'Remove column', icon: X, onClick: () => setKeys(keys.filter((k) => k !== d.key)) },
     ]
   }
   const headerMenu = (e: React.MouseEvent, d: MeasurementDef) => {
@@ -211,7 +218,7 @@ export function MeasurementTable(p: Props) {
     menu(e, [{ kind: 'heading', label: d.label }, ...columnItems(d, th), ...common(e)])
   }
   const channelLabel = (c: LiveChannel) => `${channelName(c.wave.id)}${c.display.label ? ` ${c.display.label}` : ''}`
-  const setMeasured = (id: string, on: boolean) => p.setExclude(on ? p.exclude.filter((x) => x !== id) : [...p.exclude, id])
+  const setMeasured = (id: string, on: boolean) => setExclude(on ? exclude.filter((x) => x !== id) : [...exclude, id])
   /** Bring a channel into the table: measure it, and show it if it is hidden */
   const bringIn = (c: LiveChannel) => {
     if (excluded.has(c.wave.id)) setMeasured(c.wave.id, true)
@@ -227,7 +234,7 @@ export function MeasurementTable(p: Props) {
     p.onSelect(c.wave.id)
     menu(e, [
       { kind: 'heading', label: channelLabel(c), color: c.display.color },
-      { label: 'Copy row', icon: Copy, disabled: !p.keys.length, onClick: () => copyRow(c) },
+      { label: 'Copy row', icon: Copy, disabled: !keys.length, onClick: () => copyRow(c) },
       '-',
       ...(p.channelMenu?.(c.wave.id) ?? []),
       ...common(e),
@@ -265,7 +272,7 @@ export function MeasurementTable(p: Props) {
         <span className="section-title">Measurements</span>
         <div className="segmented">
           {MEASURE_RANGES.map((r) => (
-            <button key={r} type="button" aria-pressed={p.range === r} onClick={() => p.setRange(r)}>
+            <button key={r} type="button" aria-pressed={range === r} onClick={() => setRange(r)}>
               {RANGE_LABEL[r]}
             </button>
           ))}
@@ -314,7 +321,7 @@ export function MeasurementTable(p: Props) {
                     <Info size={12} aria-hidden />
                     {d.label}
                   </button>
-                  <button type="button" className="x" title="Remove" aria-label={`Remove ${d.label}`} onClick={() => p.setKeys(p.keys.filter((k) => k !== d.key))}>
+                  <button type="button" className="x" title="Remove" aria-label={`Remove ${d.label}`} onClick={() => setKeys(keys.filter((k) => k !== d.key))}>
                     ×
                   </button>
                 </th>
@@ -360,7 +367,7 @@ export function MeasurementTable(p: Props) {
                       <td
                         key={d.key}
                         className={missing ? 'mono na' : 'mono'}
-                        title={missing ? missingReason(d, m, p.range) : undefined}
+                        title={missing ? missingReason(d, m, range) : undefined}
                         onContextMenu={(e) => cellMenu(e, c, d, text)}
                       >
                         {text}
@@ -412,15 +419,15 @@ export function MeasurementTable(p: Props) {
               <div className="pick-head">
                 <span className="add-group">Channels to measure</span>
                 <span className="spacer" />
-                <button type="button" className="text-btn" onClick={() => p.setExclude([])}>
+                <button type="button" className="text-btn" onClick={() => setExclude([])}>
                   All
                 </button>
                 {p.selected && (
-                  <button type="button" className="text-btn" onClick={() => p.setExclude(p.channels.filter((c) => c.wave.id !== p.selected).map((c) => c.wave.id))}>
+                  <button type="button" className="text-btn" onClick={() => setExclude(p.channels.filter((c) => c.wave.id !== p.selected).map((c) => c.wave.id))}>
                     Only {channelName(p.selected)}
                   </button>
                 )}
-                <button type="button" className="text-btn" onClick={() => p.setExclude(p.channels.map((c) => c.wave.id))}>
+                <button type="button" className="text-btn" onClick={() => setExclude(p.channels.map((c) => c.wave.id))}>
                   None
                 </button>
               </div>
@@ -450,7 +457,7 @@ export function MeasurementTable(p: Props) {
                         type="button"
                         className="add-item"
                         onClick={() => {
-                          p.setKeys([...p.keys, d.key])
+                          setKeys([...keys, d.key])
                           if (unused.length <= 1) setPopup(null)
                         }}
                       >

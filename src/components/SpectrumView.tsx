@@ -15,28 +15,23 @@ import { SANS, font } from '../render/fonts'
 import type { Theme } from '../render/theme'
 import { formatCount, niceStep, si } from '../util/format'
 import { channelName, channelWithLabel } from '../util/names'
-import { MEASURE_RANGES, RANGE_LABEL, type CursorState, type LiveChannel, type TimeWindow } from '../model/view'
+import { MEASURE_RANGES, RANGE_LABEL, type LiveChannel } from '../model/view'
 import { useContextMenu, type MenuEntry } from './ui/menuContext'
 import { useTheme } from './ui/themeContext'
+import * as edits from '../model/edits'
+import { useAnalysis, useAnalysisStore } from './analysisContext'
+import { useTimebase, useTimebaseState } from './timebaseContext'
 
 interface Props {
   /** Computes the spectra in its worker */
   engine: Pick<ComputeEngine, 'spectrum' | 'subscribeResults' | 'resultsVersion'>
-  defs: SpectrumDef[]
-  options: SpectrumOptions
-  setOptions: (patch: Partial<SpectrumOptions>) => void
   /** All channels with a waveform (inputs and math) */
   channels: LiveChannel[]
-  win: TimeWindow
-  cursors: CursorState
   /** Height of the plot (the bar above wraps as needed) */
   height: number
   setHeight: (h: number) => void
+  /** Add a spectrum (and bring the view into sight) */
   onAdd: () => void
-  onChange: (id: string, patch: Partial<SpectrumDef>) => void
-  onRemove: (id: string) => void
-  /** Remove all spectra */
-  onClose: () => void
   onOpenReference: () => void
   /** Copy text to the clipboard; `what` describes it for the confirmation */
   onCopy: (text: string, what: string) => void
@@ -67,12 +62,23 @@ const MIN_BAND_PX = 5
  * visible time window, between the cursors or over the whole record, with a peak list.
  */
 export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function SpectrumView(p, ref) {
+  // The spectra and their options are part of the analysis, read from the store and changed there
+  const store = useAnalysisStore()
+  const timebase = useTimebase()
+  const analysis = useAnalysis()
+  const { spectra: defs, spectrumOptions: specOptions } = analysis
+  // A range that brings the cursors in places them in the window as it is now
+  const setOptions = (patch: Partial<SpectrumOptions>) => store.update((a) => edits.setSpectrumOptions(a, patch, timebase.get().window))
+  const changeSpectrum = (id: string, patch: Partial<SpectrumDef>) => store.update((a) => edits.changeSpectrum(a, id, patch))
+  const removeSpectrum = (id: string) => store.update((a) => edits.removeSpectrum(a, id))
+  /** Remove all spectra */
+  const clearSpectra = () => store.update(edits.clearSpectra)
   // Deferred so panning the time views stays smooth while the spectra follow
-  const win = useDeferredValue(p.win)
+  const win = useDeferredValue(useTimebaseState(timebase).window)
   // Named apart from the `theme` of exports (renderImage)
   const { theme: screenTheme } = useTheme()
-  const cursors = useDeferredValue(p.cursors)
-  const { range, scale, axis } = p.options
+  const cursors = useDeferredValue(analysis.cursors)
+  const { range, scale, axis } = specOptions
 
   // Spectra are computed in the worker, and the engine remembers them per sample array, range and
   // window: changing a colour, label or unit recomputes nothing. A spectrum that arrives renders again
@@ -83,7 +89,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
   const keep = useLastResults<{ source: string; window: WindowKind; spec: Spectrum }>()
   const results: Result[] = useMemo(
     () =>
-      p.defs.map((def) => {
+      defs.map((def) => {
         const channel = p.channels.find((c) => c.wave.id === def.source)
         if (!channel) return { def, error: `${channelName(def.source)} has no waveform` }
         const w = channel.wave
@@ -100,7 +106,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
       }),
     // resultsVersion: spectra that were being computed may have arrived
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [p.defs, p.channels, range, win, cursors, p.engine, resultsVersion, keep],
+    [defs, p.channels, range, win, cursors, p.engine, resultsVersion, keep],
   )
   const shown = useMemo(() => results.filter((r): r is Shown => !!r.spec && r.def.visible), [results])
   // Each spectrum is read in the unit of its channel; the level axis has a unit when all shown spectra share it.
@@ -125,9 +131,9 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
 
   const peaks = useMemo(() => {
     const m = new Map<string, Peak[]>()
-    for (const r of shown) m.set(r.def.id, findPeaks(r.spec, p.options.peaks, fr.lo / r.spec.df, fr.hi / r.spec.df))
+    for (const r of shown) m.set(r.def.id, findPeaks(r.spec, specOptions.peaks, fr.lo / r.spec.df, fr.hi / r.spec.df))
     return m
-  }, [shown, p.options.peaks, fr.lo, fr.hi])
+  }, [shown, specOptions.peaks, fr.lo, fr.hi])
 
   // ---------- canvas ----------
   const sectionRef = useRef<HTMLElement>(null)
@@ -356,22 +362,22 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
     {
       kind: 'choices',
       label: 'Level',
-      options: (['db', 'linear'] as const).map((sc) => ({ label: levelUnit(sc, unit), checked: scale === sc, onClick: () => p.setOptions({ scale: sc }) })),
+      options: (['db', 'linear'] as const).map((sc) => ({ label: levelUnit(sc, unit), checked: scale === sc, onClick: () => setOptions({ scale: sc }) })),
     },
     {
       kind: 'choices',
       label: 'Freq.',
-      options: (['log', 'linear'] as const).map((a) => ({ label: a === 'log' ? 'Log' : 'Linear', title: `${a === 'log' ? 'Logarithmic' : 'Linear'} frequency axis`, checked: axis === a, onClick: () => p.setOptions({ axis: a }) })),
+      options: (['log', 'linear'] as const).map((a) => ({ label: a === 'log' ? 'Log' : 'Linear', title: `${a === 'log' ? 'Logarithmic' : 'Linear'} frequency axis`, checked: axis === a, onClick: () => setOptions({ axis: a }) })),
     },
     {
       kind: 'choices',
       label: 'Peaks',
-      options: PEAK_COUNTS.map((n) => ({ label: n ? String(n) : 'Off', title: n ? `List the ${n} highest peaks` : 'No peak list', checked: p.options.peaks === n, onClick: () => p.setOptions({ peaks: n }) })),
+      options: PEAK_COUNTS.map((n) => ({ label: n ? String(n) : 'Off', title: n ? `List the ${n} highest peaks` : 'No peak list', checked: specOptions.peaks === n, onClick: () => setOptions({ peaks: n }) })),
     },
-    rangeChoices(range, (r) => p.setOptions({ range: r })),
+    rangeChoices(range, (r) => setOptions({ range: r })),
     '-',
     { label: 'Copy peak list', icon: ClipboardList, disabled: !hasPeaks, onClick: () => p.onCopy(peakLines(shown).join('\n'), 'Peak list') },
-    { label: 'Add spectrum', icon: Plus, disabled: p.defs.length >= MAX_SPECTRA, onClick: p.onAdd },
+    { label: 'Add spectrum', icon: Plus, disabled: defs.length >= MAX_SPECTRA, onClick: p.onAdd },
     { label: 'Spectrum reference', icon: BookOpen, onClick: p.onOpenReference },
   ]
   const plotMenu = (e: React.MouseEvent) => {
@@ -413,9 +419,9 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
       <div className="spectrum-bar">
         <span className="section-title">Spectrum</span>
         <div className="spec-chips">
-          {p.defs.map((d) => (
+          {defs.map((d) => (
             <div key={d.id} className={`spec-chip ${d.visible ? '' : 'off'}`} style={{ ['--ch' as string]: colorOf(d.source) }}>
-              <select value={d.source} aria-label="Source" title="Source channel" onChange={(e) => p.onChange(d.id, { source: e.target.value })}>
+              <select value={d.source} aria-label="Source" title="Source channel" onChange={(e) => changeSpectrum(d.id, { source: e.target.value })}>
                 {!sources.includes(d.source) && <option value={d.source}>{channelName(d.source)}</option>}
                 {sources.map((s) => (
                   <option key={s} value={s}>
@@ -427,7 +433,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
                 value={d.window}
                 aria-label="Window"
                 title={windowDef(d.window).use}
-                onChange={(e) => p.onChange(d.id, { window: e.target.value as WindowKind })}
+                onChange={(e) => changeSpectrum(d.id, { window: e.target.value as WindowKind })}
               >
                 {WINDOW_DEFS.map((w) => (
                   <option key={w.key} value={w.key}>
@@ -440,11 +446,11 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
                 className="chip-btn"
                 title={d.visible ? 'Hide spectrum' : 'Show spectrum'}
                 aria-label={d.visible ? 'Hide spectrum' : 'Show spectrum'}
-                onClick={() => p.onChange(d.id, { visible: !d.visible })}
+                onClick={() => changeSpectrum(d.id, { visible: !d.visible })}
               >
                 {d.visible ? <Eye size={14} /> : <EyeOff size={14} />}
               </button>
-              <button type="button" className="chip-btn" title="Remove spectrum" aria-label="Remove spectrum" onClick={() => p.onRemove(d.id)}>
+              <button type="button" className="chip-btn" title="Remove spectrum" aria-label="Remove spectrum" onClick={() => removeSpectrum(d.id)}>
                 <X size={14} />
               </button>
             </div>
@@ -454,7 +460,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
             className="icon-btn"
             title="Add a spectrum"
             aria-label="Add a spectrum"
-            disabled={p.defs.length >= MAX_SPECTRA}
+            disabled={defs.length >= MAX_SPECTRA}
             onClick={p.onAdd}
           >
             <Plus size={16} />
@@ -466,7 +472,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
             value={range}
             aria-label="Range"
             title="Samples the spectrum is computed from"
-            onChange={(e) => p.setOptions({ range: e.target.value as SpectrumOptions['range'] })}
+            onChange={(e) => setOptions({ range: e.target.value as SpectrumOptions['range'] })}
           >
             {MEASURE_RANGES.map((r) => (
               <option key={r} value={r}>
@@ -476,21 +482,21 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
           </select>
           <div className="segmented" role="group" aria-label="Level scale" title={mixedUnits ? 'Level scale (each spectrum in the unit of its channel)' : 'Level scale'}>
             {(['db', 'linear'] as const).map((sc) => (
-              <button key={sc} type="button" aria-pressed={scale === sc} onClick={() => p.setOptions({ scale: sc })}>
+              <button key={sc} type="button" aria-pressed={scale === sc} onClick={() => setOptions({ scale: sc })}>
                 {levelUnit(sc, unit)}
               </button>
             ))}
           </div>
           <div className="segmented" role="group" aria-label="Frequency axis" title="Frequency axis">
             {(['log', 'linear'] as const).map((a) => (
-              <button key={a} type="button" aria-pressed={axis === a} onClick={() => p.setOptions({ axis: a })}>
+              <button key={a} type="button" aria-pressed={axis === a} onClick={() => setOptions({ axis: a })}>
                 {a === 'log' ? 'Log f' : 'Linear f'}
               </button>
             ))}
           </div>
           <label className="inline-field">
             Peaks
-            <select value={p.options.peaks} onChange={(e) => p.setOptions({ peaks: Number(e.target.value) })}>
+            <select value={specOptions.peaks} onChange={(e) => setOptions({ peaks: Number(e.target.value) })}>
               {PEAK_COUNTS.map((n) => (
                 <option key={n} value={n}>
                   {n || 'Off'}
@@ -504,7 +510,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
           <button type="button" className="icon-btn" title="Windows and dB scale explained" aria-label="Spectrum reference" onClick={p.onOpenReference}>
             <BookOpen size={16} />
           </button>
-          <button type="button" className="icon-btn" title="Close the spectrum view (removes all spectra)" aria-label="Close spectrum view" onClick={p.onClose}>
+          <button type="button" className="icon-btn" title="Close the spectrum view (removes all spectra)" aria-label="Close spectrum view" onClick={clearSpectra}>
             <X size={16} />
           </button>
         </div>
@@ -579,7 +585,7 @@ export const SpectrumView = forwardRef<SpectrumViewHandle, Props>(function Spect
                   </tbody>
                 </table>
               )}
-              {r.def.visible && r.spec && p.options.peaks > 0 && !peaks.get(r.def.id)?.length && (
+              {r.def.visible && r.spec && specOptions.peaks > 0 && !peaks.get(r.def.id)?.length && (
                 <div className="muted small">No peaks above the noise in view</div>
               )}
             </div>

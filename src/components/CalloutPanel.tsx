@@ -8,28 +8,32 @@ import { TOOLS } from './keymap'
 import type { Action } from './ui/action'
 import { chipStyle, useTheme } from './ui/themeContext'
 import type { LiveChannel, Tool } from '../model/view'
+import * as edits from '../model/edits'
+import { useAnalysis, useAnalysisStore } from './analysisContext'
 
 interface Props {
-  callouts: Callout[]
   channels: LiveChannel[]
   selectedId?: string
   /** The mouse tools (as in the toolbar) and the active one */
   tools: Record<Tool, Action>
   tool: Tool
   onSelect: (id: string) => void
-  onUpdate: (id: string, patch: Partial<Callout>) => void
   onDelete: (id: string) => void
   onJump: (c: Callout) => void
   onClear: () => void
   onContextMenu?: (e: React.MouseEvent, c: Callout) => void
 }
 
+/** The list of callouts: read from the analysis store, and changed there (deleting goes through the workspace, which offers Undo) */
 export function CalloutPanel(p: Props) {
+  const store = useAnalysisStore()
+  const { callouts } = useAnalysis()
+  const updateCallout = (id: string, patch: Partial<Callout>) => store.update((a) => edits.updateCallout(a, id, patch))
   // Search in the text, the title and the type ("marker" lists all markers)
   const [query, setQuery] = useState('')
   const q = query.trim().toLowerCase()
   const { ink, onInk } = useTheme().theme
-  const sorted = [...p.callouts]
+  const sorted = [...callouts]
     .filter((c) => !q || `${calloutTitle(c)} ${c.text} ${CALLOUT_TYPE_LABEL[c.type]}`.toLowerCase().includes(q))
     .sort((a, b) => calloutSpan(a)[0] - calloutSpan(b)[0])
   // A callout selected in the plot is scrolled into view in the list
@@ -52,18 +56,18 @@ export function CalloutPanel(p: Props) {
       </div>
       <p className="hint">{TOOLS[p.tool].tip ?? 'Pick a callout type, then click (or drag) in the plot. Double-click a callout to edit it. Write TeX math between $…$.'}</p>
 
-      {p.callouts.length > 1 && (
+      {callouts.length > 1 && (
         <div className="callout-search">
           <input type="search" value={query} placeholder="Search callouts" aria-label="Search callouts" onChange={(e) => setQuery(e.target.value)} />
           {q && (
             <span className="muted">
-              {sorted.length} of {p.callouts.length}
+              {sorted.length} of {callouts.length}
             </span>
           )}
         </div>
       )}
-      {p.callouts.length === 0 && <div className="empty">No callouts yet.</div>}
-      {p.callouts.length > 0 && sorted.length === 0 && <div className="empty">No callout matches “{query.trim()}”.</div>}
+      {callouts.length === 0 && <div className="empty">No callouts yet.</div>}
+      {callouts.length > 0 && sorted.length === 0 && <div className="empty">No callout matches “{query.trim()}”.</div>}
       {sorted.map((c) => {
         const ch = c.channel ? p.channels.find((x) => x.wave.id === c.channel) : undefined
         const ch2 = c.channel2 ? p.channels.find((x) => x.wave.id === c.channel2) : undefined
@@ -105,16 +109,16 @@ export function CalloutPanel(p: Props) {
               value={c.text}
               placeholder={calloutName(c)}
               aria-label={`Text of ${calloutName(c)}`}
-              onChange={(e) => p.onUpdate(c.id, { text: e.target.value })}
+              onChange={(e) => updateCallout(c.id, { text: e.target.value })}
             />
             <CalloutValueEditor
               callout={c}
               sources={p.channels.map((x) => x.wave.id)}
               displays={p.channels.map((x) => x.display)}
-              onUpdate={(patch) => p.onUpdate(c.id, patch)}
+              onUpdate={(patch) => updateCallout(c.id, patch)}
             />
             <div className="callout-editor-row">
-              <ColorSwatches value={c.color} onChange={(color) => p.onUpdate(c.id, { color })} />
+              <ColorSwatches value={c.color} onChange={(color) => updateCallout(c.id, { color })} />
             </div>
           </div>
         )
@@ -122,7 +126,7 @@ export function CalloutPanel(p: Props) {
 
       <div className="row wrap">
         <span className="spacer" />
-        <button className="text-btn danger" disabled={!p.callouts.length} onClick={p.onClear}>
+        <button className="text-btn danger" disabled={!callouts.length} onClick={p.onClear}>
           Delete all
         </button>
       </div>

@@ -60,7 +60,7 @@ const removeMath = (id: string) => {
 }
 ```
 
-The edits cover channels (`patchChannel`, `adjustChannel`, `showOnly`, `autoscale`), views (`moveToView`,
+The edits cover channels (`adjustChannel`, `patchChannels`, `showOnly`, `autoscale`), views (`moveToView`,
 `withViews`), math channels (`addMath`, `changeMath`, `removeMath`), callouts (`addCallout`, `updateCallout`,
 `deleteCallout`, `duplicateCallout`, `shiftCallout`, `mergeCallouts`), cursors, measurements, spectra and notes.
 `edits.test.ts` checks each one, and also that none changes its input (the test analysis is deeply frozen, so an
@@ -71,8 +71,9 @@ refers to the channel (settings, view, spectra, callouts on its trace, measureme
 Because the document is a plain immutable JSON-able object **in a store**, the systems that follow it need
 no help from the components:
 
-- **React components** read it with `useAnalysis()` (`useSyncExternalStore`) and change it with `store.update`;
-  `PlotArea` does this itself, through `AnalysisContext`, instead of receiving the fields and setters as props,
+- **React components** read it with `useAnalysis()` (`useSyncExternalStore`) and change it with `store.update`,
+  through `AnalysisContext`, instead of receiving the fields and setters as props; the menus do the same through
+  the `ScopeApi`'s `store`,
 - **undo** subscribes and keeps snapshots of the immutable analysis, cut into steps by the `StepGrouper` (see §3),
 - **autosave** subscribes and serialises it (see §5),
 - **tab sync** is decided by the store (`changedAt`, `adopt`, see §6).

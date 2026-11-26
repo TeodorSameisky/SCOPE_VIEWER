@@ -8,6 +8,8 @@ import { usePersistentState } from '../util/usePersistentState'
 import { MEASURE_RANGES, RANGE_LABEL, type MeasureRange } from '../model/view'
 import { useDismiss } from './ui/useDismiss'
 import { useTheme } from './ui/themeContext'
+import * as edits from '../model/edits'
+import { useAnalysis, useAnalysisStore } from './analysisContext'
 
 const DEFAULT_PREFS: ExportPrefs = {
   csv: 'intl',
@@ -51,8 +53,6 @@ interface Props {
   /** CSS size of the plot area, to show the image size */
   plotSize: { w: number; h: number }
   measurementInfo: { range: MeasureRange; count: number; channels: number }
-  notes: string
-  setNotes: (s: string) => void
   defaultTitle: string
   canCopyImage: boolean
   onExport: (kind: ExportKind, prefs: ExportPrefs, extra: { title: string; copy?: boolean }) => Promise<void>
@@ -60,6 +60,10 @@ interface Props {
 
 /** One dialog for all outputs, with the options of each */
 export function ExportDialog(p: Props) {
+  // The notes are part of the analysis
+  const store = useAnalysisStore()
+  const { notes } = useAnalysis()
+  const setNotes = (text: string) => store.update((a) => edits.setNotes(a, text))
   const [kind, setKind] = useState<ExportKind>(p.initial)
   const [stored, setPrefs] = usePersistentState<ExportPrefs>('scope-viewer:export', DEFAULT_PREFS)
   const prefs = withDefaults(stored)
@@ -199,7 +203,7 @@ export function ExportDialog(p: Props) {
                 </label>
                 <label className="field column">
                   <span>Notes</span>
-                  <textarea rows={4} value={p.notes} placeholder="What happened, test conditions, conclusions…" onChange={(e) => p.setNotes(e.target.value)} />
+                  <textarea rows={4} value={notes} placeholder="What happened, test conditions, conclusions…" onChange={(e) => setNotes(e.target.value)} />
                 </label>
                 <fieldset>
                   <legend>Include</legend>

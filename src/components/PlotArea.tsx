@@ -158,7 +158,7 @@ export const PlotArea = forwardRef<PlotAreaHandle, Props>(function PlotArea(prop
   const changes = useMemo<Pick<Resolved, 'setCursors' | 'onAdjust' | 'onMoveToView' | 'onUpdateCallout' | 'onResizeViews'>>(
     () => ({
       setCursors: (c) => update((a) => edits.setCursors(a, c)),
-      onAdjust: (id, patch) => update((a) => edits.patchChannel(a, id, patch)),
+      onAdjust: (id, patch) => update((a) => edits.adjustChannel(a, id, patch)),
       onMoveToView: (id, view) => update((a) => edits.moveToView(a, id, view)),
       onUpdateCallout: (id, patch) => update((a) => edits.updateCallout(a, id, patch)),
       onResizeViews: (sizes) => update((a) => edits.setViewSizes(a, sizes)),

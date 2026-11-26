@@ -2,16 +2,21 @@ import { valueAt } from '../render/draw'
 import { parseTime, si } from '../util/format'
 import { channelName } from '../util/names'
 import { useTheme } from './ui/themeContext'
-import type { CursorState, LiveChannel, TimeWindow } from '../model/view'
+import type { CursorState, LiveChannel } from '../model/view'
+import * as edits from '../model/edits'
+import { useAnalysis, useAnalysisStore } from './analysisContext'
+import { useTimebase, useTimebaseState } from './timebaseContext'
 
 interface Props {
   channels: LiveChannel[]
-  cursors: CursorState
-  setCursors: (c: CursorState) => void
-  win: TimeWindow
 }
 
-export function CursorPanel({ channels, cursors, setCursors, win }: Props) {
+/** The cursors, part of the analysis: read from the store and set there */
+export function CursorPanel({ channels }: Props) {
+  const store = useAnalysisStore()
+  const { cursors } = useAnalysis()
+  const { window: win } = useTimebaseState(useTimebase())
+  const setCursors = (c: CursorState) => store.update((a) => edits.setCursors(a, c))
   const { ink } = useTheme().theme
   const dt = cursors.b - cursors.a
   const center = () => {

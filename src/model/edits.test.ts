@@ -15,7 +15,6 @@ import {
   duplicateCallout,
   mergeCallouts,
   moveToView,
-  patchChannel,
   patchChannels,
   placeCursor,
   removeMath,
@@ -76,7 +75,7 @@ const marker: Callout = { id: 'm1', n: 2, type: 'marker', t: 1e-4, text: '', col
 describe('channel settings', () => {
   it('patches one or several channels', () => {
     const a = analysis()
-    expect(patchChannel(a, 'CH2', { scale: 0.5 }).channels.find((d) => d.id === 'CH2')?.scale).toBe(0.5)
+    expect(adjustChannel(a, 'CH2', { scale: 0.5 }).channels.find((d) => d.id === 'CH2')?.scale).toBe(0.5)
     const both = patchChannels(a, { CH1: { position: 2 }, CH2: { position: -2 } })
     expect(both.channels.map((d) => d.position)).toEqual([2, -2, 0])
     // channels not named keep their object
@@ -85,8 +84,8 @@ describe('channel settings', () => {
 
   it('returns the same analysis when nothing changes', () => {
     const a = analysis()
-    expect(patchChannel(a, 'CH1', { scale: 1 })).toBe(a)
-    expect(patchChannel(a, 'NOPE', { scale: 3 })).toBe(a)
+    expect(adjustChannel(a, 'CH1', { scale: 1 })).toBe(a)
+    expect(adjustChannel(a, 'NOPE', { scale: 3 })).toBe(a)
     const all = showAll(a)
     expect(showAll(all)).toBe(all)
     expect(showOnly(showOnly(a, 'CH1'), 'CH1')).toStrictEqual(showOnly(a, 'CH1'))
@@ -170,7 +169,7 @@ describe('math channels', () => {
   it('skips hidden channels, and negates the only visible one', () => {
     const only1 = showOnly(analysis(), 'CH1')
     expect(addMath(only1, INPUTS)?.expr).toBe('-CH1')
-    const hidden1 = patchChannel(analysis(), 'CH1', { visible: false })
+    const hidden1 = adjustChannel(analysis(), 'CH1', { visible: false })
     expect(addMath(hidden1, INPUTS)?.expr).toBe('-CH2')
   })
 

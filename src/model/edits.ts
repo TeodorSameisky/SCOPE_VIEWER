@@ -22,8 +22,8 @@ export function patchChannels(a: Analysis, patches: Record<string, DisplayPatch>
   return channels === a.channels ? a : { ...a, channels }
 }
 
-/** Change the settings of one channel */
-export function patchChannel(a: Analysis, id: string, patch: DisplayPatch): Analysis {
+/** Change the settings of one channel (callers use adjustChannel, which also keeps the notes on its trace in its colour) */
+function patchChannel(a: Analysis, id: string, patch: DisplayPatch): Analysis {
   return patchChannels(a, { [id]: patch })
 }
 
